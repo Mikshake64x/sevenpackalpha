@@ -132,10 +132,8 @@
     <XCODE_MAC targetFolder="Builds/MacOSX">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" targetName="Tripressor" enablePluginBinaryCopyStep="1"
-                       osxCompatibility="10.13 SDK" osxArchitecture="64BitUniversal"
                        macOSDeploymentTarget="10.13"/>
         <CONFIGURATION isDebug="0" name="Release" targetName="Tripressor" enablePluginBinaryCopyStep="1"
-                       osxCompatibility="10.13 SDK" osxArchitecture="64BitUniversal"
                        macOSDeploymentTarget="10.13"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
