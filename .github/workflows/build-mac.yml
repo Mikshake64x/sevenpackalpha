@@ -1,0 +1,53 @@
+name: Build macOS VST3/AU
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Récupérer JUCE (un niveau au-dessus du repo, comme en local)
+        run: |
+          cd ..
+          git clone --depth 1 https://github.com/juce-framework/JUCE.git
+
+      - name: Compiler Projucer
+        run: |
+          cd ../JUCE
+          xcodebuild -project extras/Projucer/Builds/MacOSX/Projucer.xcodeproj -configuration Release
+
+      - name: Définir le chemin global JUCE (fix bug Projucer CLI)
+        run: |
+          PROJUCER="../JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer"
+          "$PROJUCER" --set-global-search-path osx defaultJuceModulePath "$(cd ../JUCE/modules && pwd)"
+
+      - name: Générer le projet Xcode depuis Tripsressor.jucer
+        run: |
+          ../JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer --resave "Tripsressor.jucer"
+
+      - name: Compiler le plugin (VST3)
+        run: |
+          xcodebuild -project "Builds/MacOSX/Tripressor.xcodeproj" -target "Tripressor - VST3" -configuration Release
+
+      - name: Compiler le plugin (AU)
+        run: |
+          xcodebuild -project "Builds/MacOSX/Tripressor.xcodeproj" -target "Tripressor - AU" -configuration Release
+
+      - name: Uploader le VST3
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tripressor-macOS-VST3
+          path: "Builds/MacOSX/build/Release/Tripressor.vst3"
+
+      - name: Uploader le composant AU
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tripressor-macOS-AU
+          path: "Builds/MacOSX/build/Release/Tripressor.component"
