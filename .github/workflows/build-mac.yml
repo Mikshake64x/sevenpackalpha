@@ -52,19 +52,41 @@ jobs:
           name: Tripressor-macOS-AU
           path: "Builds/MacOSX/build/Release/Tripressor.component"
 
-      - name: Construire le .dmg (VST3 + AU, glisser-deposer vers les dossiers plugins standards)
+  build-dmg:
+    needs: build-mac
+    runs-on: macos-latest
+
+    steps:
+      - name: Récupérer le code (pour le Readme)
+        uses: actions/checkout@v4
+
+      - name: Télécharger le VST3
+        uses: actions/download-artifact@v4
+        with:
+          name: Tripressor-macOS-VST3
+          path: staging/Tripressor.vst3
+
+      - name: Télécharger le composant AU
+        uses: actions/download-artifact@v4
+        with:
+          name: Tripressor-macOS-AU
+          path: staging/Tripressor.component
+
+      - name: Assembler le DMG
         run: |
           set -e
-          STAGE="dmg_staging"
-          rm -rf "$STAGE" && mkdir -p "$STAGE"
-          cp -R "Builds/MacOSX/build/Release/Tripressor.vst3" "$STAGE/"
-          cp -R "Builds/MacOSX/build/Release/Tripressor.component" "$STAGE/"
-          ln -s /Library/Audio/Plug-Ins/VST3 "$STAGE/VST3"
-          ln -s /Library/Audio/Plug-Ins/Components "$STAGE/Components"
-          hdiutil create -volname "Tripressor" -srcfolder "$STAGE" -ov -format UDZO "Tripressor-macOS.dmg"
+          cp Readme-osx.txt "staging/Readme.txt"
 
-      - name: Uploader le .dmg
+          # Raccourcis glisser-déposer vers les dossiers de plugins standards
+          ln -s /Library/Audio/Plug-Ins/VST3 "staging/VST3 (drag plugin here)"
+          ln -s /Library/Audio/Plug-Ins/Components "staging/Components (drag plugin here)"
+
+          hdiutil create -volname "Tripressor 1.5.3" \
+            -srcfolder staging -ov -format UDZO \
+            "Tripressor-1.5.3.dmg"
+
+      - name: Uploader le DMG
         uses: actions/upload-artifact@v4
         with:
-          name: Tripressor-macOS-dmg
-          path: "Tripressor-macOS.dmg"
+          name: Tripressor-1.5.3-DMG
+          path: "Tripressor-1.5.3.dmg"
