@@ -176,6 +176,10 @@ SuppressorEditorContent::SuppressorEditorContent (SuppressorAudioProcessor& p)
     addAndMakeVisible (latencyModeButton);
     latencyModeButton.onClick = [this] { showOptionsOverlay(); };
 
+    addAndMakeVisible (aiLearnButton);
+    aiLearnButton.setTooltip ("Ecoute quelques secondes du programme audio et propose Crossover + Input/Ratio/Attack/Release par bande.");
+    aiLearnButton.onClick = [this] { processorRef.startAiLearn(); };
+
     addAndMakeVisible (linkInSwitch);
     linkInSwitch.setToggleState (processorRef.linkInEnabled.load(), juce::dontSendNotification);
     linkInSwitch.onClick = [this]
@@ -296,6 +300,43 @@ SuppressorEditorContent::SuppressorEditorContent (SuppressorAudioProcessor& p)
         });
     };
 
+    // --- Section AI (menu Options, demande explicite) ---
+    optionsOverlay.onAiTargetSelected = [this] (int index)
+    {
+        setParamValue (SuppressorAudioProcessor::idAiMasteringTarget, (float) index);
+    };
+    optionsOverlay.onAiCompressionModeSelected = [this] (int index)
+    {
+        setParamValue (SuppressorAudioProcessor::idAiCompressionMode, (float) index);
+    };
+    optionsOverlay.onAiCharacterSelected = [this] (int index)
+    {
+        setParamValue (SuppressorAudioProcessor::idAiAttackReleaseCharacter, (float) index);
+    };
+    optionsOverlay.onAiGainReductionSelected = [this] (int index)
+    {
+        setParamValue (SuppressorAudioProcessor::idAiGainReductionMode, (float) index);
+    };
+    optionsOverlay.onAiScopeChanged = [this] (int scopeIndex, bool enabled)
+    {
+        static constexpr const char* scopeIds[3] =
+        {
+            SuppressorAudioProcessor::idAiScopeCrossover,
+            SuppressorAudioProcessor::idAiScopeDetectors,
+            SuppressorAudioProcessor::idAiScopeCompression,
+        };
+        if (scopeIndex >= 0 && scopeIndex < 3)
+            setParamValue (scopeIds[scopeIndex], enabled ? 1.0f : 0.0f);
+    };
+    optionsOverlay.onAiStyleSelected = [this] (int index)
+    {
+        setParamValue (SuppressorAudioProcessor::idAiStyle, (float) index);
+    };
+    optionsOverlay.onAiFidelityChanged = [this] (bool enabled)
+    {
+        setParamValue (SuppressorAudioProcessor::idAiFidelity, enabled ? 1.0f : 0.0f);
+    };
+
     // --- Presets rapides (meme mecanisme que Nuke Mext) ---
     buildPresetList();
 
@@ -366,6 +407,84 @@ void SuppressorEditorContent::timerCallback()
     {
         lookAndFeel.setPowered (powered);
         repaint();
+    }
+
+    // Bouton AI : des que l'analyse en tache de fond est terminee, on
+    // applique le resultat puis on acquitte pour permettre un nouvel
+    // apprentissage. AiLearnButton se rafraichit lui-meme via son propre
+    // Timer (clignotement), on n'a besoin de "poller" ici que pour savoir
+    // QUAND appliquer le resultat.
+    if (processorRef.aiLearnAnalyzer.getState() == AiLearnAnalyzer::State::Done)
+    {
+        applyAiLearnResult (processorRef.aiLearnAnalyzer.getResult());
+        processorRef.aiLearnAnalyzer.acknowledge();
+    }
+}
+
+void SuppressorEditorContent::applyAiLearnResult (const AiLearnAnalyzer::Result& result)
+{
+    // Portee (menu Options, section AI, demande explicite : "AI ne
+    // s'occupe que de la compression si on le souhaite") -- chaque
+    // categorie n'est poussee vers les parametres QUE si son interrupteur
+    // etait actif au moment du clic (voir AiLearnAnalyzer::Result).
+    if (result.applyCrossoverScope)
+    {
+        rampParamTo (SuppressorAudioProcessor::idCrossoverLow,  result.crossoverLowHz);
+        rampParamTo (SuppressorAudioProcessor::idCrossoverHigh, result.crossoverHighHz);
+    }
+
+    for (int band = 0; band < kNumBands; ++band)
+    {
+        auto id = [band] (const char* base) { return SuppressorAudioProcessor::bandParamId (base, band); };
+
+        if (result.applyCompressionScope)
+        {
+            // Chaque axe (Compression Mode/Gain Reduction/Attack-Release
+            // Character) a son propre "Off" (demande explicite : "on doit
+            // pouvoir agir que sur les points AI qui ne vont pas") -- ne
+            // pousse SA cible que si son axe n'est pas sur Off.
+            if (result.pushInput)
+                rampParamTo (id (SuppressorAudioProcessor::idInput), result.inputDb[(size_t) band]);
+            if (result.pushAttackRelease)
+            {
+                rampParamTo (id (SuppressorAudioProcessor::idAttack),  result.attackMs[(size_t) band]);
+                rampParamTo (id (SuppressorAudioProcessor::idRelease), result.releaseMs[(size_t) band]);
+            }
+            if (result.pushRatio)
+                setParamValue (id (SuppressorAudioProcessor::idRatioIndex),
+                               (float) juce::roundToInt (result.ratioIndex[(size_t) band]));
+
+            rampParamTo (id (SuppressorAudioProcessor::idBandMix),   result.mixPercent[(size_t) band]);
+            rampParamTo (id (SuppressorAudioProcessor::idBandWidth), result.widthPercent[(size_t) band]);
+        }
+
+        if (result.applyDetectorsScope)
+        {
+            setParamValue (id (SuppressorAudioProcessor::idDetectorBell), result.detectorBellOn[(size_t) band] ? 1.0f : 0.0f);
+            setParamValue (id (SuppressorAudioProcessor::idDetectorBellFreq), result.detectorBellFreqHz[(size_t) band]);
+            setParamValue (id (SuppressorAudioProcessor::idDetectorBellGain), result.detectorBellGainDb[(size_t) band]);
+        }
+
+        // Output : jusqu'a 3 sources INDEPENDANTES peuvent y contribuer --
+        // la cible de mastering (LUFS), le Style musical (offset statique
+        // par bande) et Fidelity (correction dynamique de balance) --
+        // chacune activable separement (voir AiLearnAnalyzer::Result). On
+        // les additionne et on pousse une seule fois si au moins une est
+        // active, plutot qu'un rampParamTo par source (qui n'appliquerait
+        // que la derniere).
+        if (result.applyLoudnessTarget || result.applyStyle || result.applyFidelity)
+        {
+            float outputDb = 0.0f;
+            if (result.applyLoudnessTarget) outputDb += result.outputDb[(size_t) band];
+            if (result.applyStyle)          outputDb += result.styleOutputDb[(size_t) band];
+            if (result.applyFidelity)       outputDb += result.fidelityOutputDb[(size_t) band];
+            rampParamTo (id (SuppressorAudioProcessor::idOutput), outputDb);
+        }
+    }
+
+    if (result.applyLoudnessTarget && result.recommendSoftClipOn)
+    {
+        setParamValue (SuppressorAudioProcessor::idSoftClip, 1.0f);
     }
 }
 
@@ -660,6 +779,23 @@ void SuppressorEditorContent::showOptionsOverlay()
         latencyIndex = (int) std::round (param->convertFrom0to1 (param->getValue()));
     optionsOverlay.setCurrentLatencyIndex (latencyIndex);
 
+    optionsOverlay.setCurrentAiTargetIndex ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idAiMasteringTarget)));
+    optionsOverlay.setCurrentAiCompressionMode ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idAiCompressionMode)));
+    optionsOverlay.setCurrentAiCharacter ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idAiAttackReleaseCharacter)));
+    optionsOverlay.setCurrentAiGainReduction ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idAiGainReductionMode)));
+    optionsOverlay.setAiScopeStates (
+        *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idAiScopeCrossover) > 0.5f,
+        *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idAiScopeDetectors) > 0.5f,
+        *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idAiScopeCompression) > 0.5f);
+    optionsOverlay.setCurrentAiStyle ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idAiStyle)));
+    optionsOverlay.setAiFidelityState (
+        *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idAiFidelity) > 0.5f);
+
     optionsOverlay.setVisible (true);
     optionsOverlay.toFront (true);
 }
@@ -732,6 +868,9 @@ void SuppressorEditorContent::resized()
 
     // WIDE/LINEAR + engrenage : integres dans le groupe Xover (juste apres
     // XHI), retrecis pour ne pas mordre sur la ligne blanche suivante.
+    // Bouton AI juste au-dessus du groupe Analog/Linear (demande explicite).
+    aiLearnButton.setBounds (1204, barTop + 4, 70, 22);
+
     xoverModeButton.setBounds (1204, barTop + 30, 70, 84);
     latencyModeButton.setBounds (1280, barTop + 30, 20, 20);
 

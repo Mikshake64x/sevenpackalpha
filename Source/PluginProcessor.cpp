@@ -70,6 +70,15 @@ SuppressorAudioProcessor::SuppressorAudioProcessor()
     powerParam            = apvts.getRawParameterValue (idPower);
     softClipParam         = apvts.getRawParameterValue (idSoftClip);
     thdModeParam          = apvts.getRawParameterValue (idThdMode);
+    aiMasteringTargetParam = apvts.getRawParameterValue (idAiMasteringTarget);
+    aiScopeCrossoverParam   = apvts.getRawParameterValue (idAiScopeCrossover);
+    aiScopeDetectorsParam   = apvts.getRawParameterValue (idAiScopeDetectors);
+    aiScopeCompressionParam = apvts.getRawParameterValue (idAiScopeCompression);
+    aiCompressionModeParam  = apvts.getRawParameterValue (idAiCompressionMode);
+    aiAttackReleaseCharacterParam = apvts.getRawParameterValue (idAiAttackReleaseCharacter);
+    aiGainReductionModeParam = apvts.getRawParameterValue (idAiGainReductionMode);
+    aiStyleParam    = apvts.getRawParameterValue (idAiStyle);
+    aiFidelityParam = apvts.getRawParameterValue (idAiFidelity);
     crossoverLowParam     = apvts.getRawParameterValue (idCrossoverLow);
     crossoverHighParam    = apvts.getRawParameterValue (idCrossoverHigh);
     digitalCrossoverParam = apvts.getRawParameterValue (idDigitalCrossover);
@@ -221,6 +230,51 @@ juce::AudioProcessorValueTreeState::ParameterLayout SuppressorAudioProcessor::cr
     params.push_back (std::make_unique<AudioParameterChoice> (
         ParameterID { idThdMode, 1 }, "THD Mode",
         StringArray { "Soft", "Tape", "Iron", "Air" }, 0));
+
+    params.push_back (std::make_unique<AudioParameterChoice> (
+        ParameterID { idAiMasteringTarget, 1 }, "AI Mastering Target",
+        StringArray { "Off", "Apple Music", "YouTube", "Spotify", "Deezer", "SoundCloud", "TV", "CD", "Side Key" }, 0));
+
+    params.push_back (std::make_unique<AudioParameterBool> (
+        ParameterID { idAiScopeCrossover, 1 }, "AI Scope: Crossover", false));
+    params.push_back (std::make_unique<AudioParameterBool> (
+        ParameterID { idAiScopeDetectors, 1 }, "AI Scope: Detectors", false));
+    params.push_back (std::make_unique<AudioParameterBool> (
+        ParameterID { idAiScopeCompression, 1 }, "AI Scope: Compression", true));
+
+    // Chaque axe a maintenant un choix "Off" (index 0) -- demande explicite :
+    // "on doit pouvoir agir que sur les points AI qui ne vont pas". Off ne
+    // desactive QUE l'ecriture de sa propre cible (voir AiLearnAnalyzer::
+    // Result::pushInput/pushRatio/pushAttackRelease), le reste de la portee
+    // Compression (voir idAiScopeCompression) continue de fonctionner.
+    params.push_back (std::make_unique<AudioParameterChoice> (
+        ParameterID { idAiCompressionMode, 1 }, "AI Compression Mode",
+        StringArray { "Off", "Soft", "Medium", "Hard" }, 2));
+
+    // Punchy par defaut a l'ouverture du plugin (demande explicite : "on
+    // coche AI attaque punchy ... a l'etat de demarrage").
+    params.push_back (std::make_unique<AudioParameterChoice> (
+        ParameterID { idAiAttackReleaseCharacter, 1 }, "AI Attack/Release Character",
+        StringArray { "Off", "Smooth", "Medium", "Punchy" }, 3));
+
+    params.push_back (std::make_unique<AudioParameterChoice> (
+        ParameterID { idAiGainReductionMode, 1 }, "AI Gain Reduction",
+        StringArray { "Off", "Smooth", "Mid", "Hard" }, 2));
+
+    // Style musical (menu Options, section AI, demande explicite : "je
+    // souhaite ajouter plusieurs styles musicaux qui vont changer la
+    // balance des outputs en fonction du style") -- offset statique par
+    // bande, voir AiLearnAnalyzer::kStyleOutputBiasDb. "Off" par defaut.
+    params.push_back (std::make_unique<AudioParameterChoice> (
+        ParameterID { idAiStyle, 1 }, "AI Style",
+        StringArray { "Off", "Bass", "Loud", "Rock", "Pop", "Electronic" }, 0));
+
+    // Fidelity (menu Options, section AI, demande explicite : "une fonction
+    // qui reprend la balance bass mid aigue du mix pour la remettre pareil
+    // apres compression") -- ON par defaut a l'ouverture du plugin (demande
+    // explicite : "ai fidelity activé à l'etat de demarrage").
+    params.push_back (std::make_unique<AudioParameterBool> (
+        ParameterID { idAiFidelity, 1 }, "AI Fidelity", true));
 
     params.push_back (std::make_unique<AudioParameterFloat> (
         ParameterID { idCrossoverLow, 1 }, "Crossover Low",
@@ -385,6 +439,13 @@ void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
 
     auto* dataL = numChannels > 0 ? buffer.getWritePointer (0) : nullptr;
     auto* dataR = numChannels > 1 ? buffer.getWritePointer (1) : nullptr;
+
+    // Bouton AI : capture le programme SEC (avant tout traitement) pendant
+    // la fenetre d'ecoute -- voir AiLearnAnalyzer.h. Ne fait rien tant que
+    // l'etat n'est pas Capturing (verifie en interne), donc cout nul le
+    // reste du temps.
+    if (dataL != nullptr)
+        aiLearnAnalyzer.pushSamples (dataL, dataR, numSamples);
 
     // Bus sidechain externe -- voir constructeur. Le bouton SC de CHAQUE
     // bande decide independamment si celle-ci ecoute ce signal.

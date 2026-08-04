@@ -2,7 +2,7 @@
 
 <JUCERPROJECT id="QlsF9k" name="Tripressor" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" pluginFormats="buildAU,buildStandalone,buildUnity,buildVST3"
-              companyName="Side Key System" version="1.5.2">
+              companyName="Side Key System" version="1.5.3">
   <MAINGROUP id="ROqGi2" name="Tripressor">
     <GROUP id="{DE5886B3-4345-FADC-030F-9B92F9E2500D}" name="Source">
       <FILE id="fCLEz3" name="PluginProcessor.cpp" compile="1" resource="0"
@@ -66,6 +66,10 @@
       <FILE id="a1b2e3" name="SoloSwitch.h" compile="0" resource="0" file="Source/SoloSwitch.h"/>
       <FILE id="a1b2dc" name="XoverModeButton.h" compile="0" resource="0"
             file="Source/XoverModeButton.h"/>
+      <FILE id="ailn0001" name="AiLearnAnalyzer.h" compile="0" resource="0"
+            file="Source/AiLearnAnalyzer.h"/>
+      <FILE id="ailn0002" name="AiLearnButton.h" compile="0" resource="0"
+            file="Source/AiLearnButton.h"/>
       <FILE id="a1b2dd" name="Button-08-S-Filmstrip.png" compile="0" resource="1"
             file="Source/Button-08-S-Filmstrip.png"/>
       <FILE id="a1b2de" name="Power_switch_01.png" compile="0" resource="1"

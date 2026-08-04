@@ -16,6 +16,7 @@
 #include "KnobSlider.h"
 #include "XoverModeButton.h"
 #include "LatencyModeButton.h"
+#include "AiLearnButton.h"
 #include "FaderControl.h"
 #include "SoloSwitch.h"
 #include "ABSwitch.h"
@@ -223,6 +224,12 @@ private:
     void copyStateToClipboard();
     void pasteStateFromClipboard();
 
+    // Bouton AI (voir AiLearnAnalyzer.h) : applique le resultat calcule
+    // exactement comme un preset (rampParamTo pour les knobs continus,
+    // setParamValue pour le ratio discret) -- appele depuis timerCallback()
+    // des que processorRef.aiLearnAnalyzer.getState() == Done.
+    void applyAiLearnResult (const AiLearnAnalyzer::Result& result);
+
     SuppressorAudioProcessor& processorRef;
     SuppressorLookAndFeel lookAndFeel;
 
@@ -250,6 +257,10 @@ private:
     // pattern que needleVu1/2 et thdValve plus bas).
     XoverModeButton xoverModeButton { *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idDigitalCrossover) };
     LatencyModeButton latencyModeButton;
+
+    // Bouton AI, juste au-dessus de xoverModeButton (demande explicite) --
+    // meme raisonnement d'ordre d'initialisation que ci-dessus.
+    AiLearnButton aiLearnButton { processorRef };
 
     ToggleSwitch linkInSwitch  { "LINK IN",  SuppressorColours::ledGreen };
     ToggleSwitch linkOutSwitch { "LINK OUT", SuppressorColours::ledRed };
@@ -425,18 +436,42 @@ public:
     static LRESULT CALLBACK titleBarWndProcThunk (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     {
         // Avale le double-clic sur la barre de titre (maximize direct) et
-        // toute demande explicite de maximisation via le menu systeme --
-        // le reste des messages est transmis tel quel a la procedure
-        // d'origine de l'hote, on ne touche a rien d'autre.
+        // toute demande explicite de maximisation/redimensionnement via le
+        // menu systeme -- le reste des messages est transmis tel quel a la
+        // procedure d'origine de l'hote, on ne touche a rien d'autre.
         if (msg == WM_NCLBUTTONDBLCLK
-            || (msg == WM_SYSCOMMAND && (wParam & 0xFFF0) == SC_MAXIMIZE))
+            || (msg == WM_SYSCOMMAND && ((wParam & 0xFFF0) == SC_MAXIMIZE || (wParam & 0xFFF0) == SC_SIZE)))
             return 0;
 
         auto& procs = originalProcs();
-        if (auto it = procs.find (hwnd); it != procs.end() && it->second != nullptr)
-            return CallWindowProcW (it->second, hwnd, msg, wParam, lParam);
+        auto it = procs.find (hwnd);
+        auto callOriginal = [&] (UINT m, WPARAM w, LPARAM l) -> LRESULT
+        {
+            if (it != procs.end() && it->second != nullptr)
+                return CallWindowProcW (it->second, hwnd, m, w, l);
+            return DefWindowProcW (hwnd, m, w, l);
+        };
 
-        return DefWindowProcW (hwnd, msg, wParam, lParam);
+        // Rapporte a Windows demande explicite : "je peux etre sur le bord
+        // gauche/droit/bas, mais rien la-dedans n'est un poignee de
+        // redimensionnement" -- HTBORDER au lieu de HTLEFT/HTRIGHT/HTTOP/
+        // HTBOTTOM/HT*CORNER empeche a la fois le curseur "double fleche" ET
+        // le drag-to-resize sur ces zones, sans toucher au reste de la
+        // fenetre (barre de titre, boutons systeme, contenu du plugin).
+        if (msg == WM_NCHITTEST)
+        {
+            const LRESULT hit = callOriginal (msg, wParam, lParam);
+            switch (hit)
+            {
+                case HTLEFT: case HTRIGHT: case HTTOP: case HTBOTTOM:
+                case HTTOPLEFT: case HTTOPRIGHT: case HTBOTTOMLEFT: case HTBOTTOMRIGHT:
+                    return HTBORDER;
+                default:
+                    return hit;
+            }
+        }
+
+        return callOriginal (msg, wParam, lParam);
     }
    #endif
 

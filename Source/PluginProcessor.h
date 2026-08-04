@@ -6,6 +6,7 @@
 #include "FeedbackCompressor.h"
 #include "SoftClipper.h"
 #include "Crossover.h"
+#include "AiLearnAnalyzer.h"
 
 /**
     SuppressorAudioProcessor (multibande)
@@ -138,6 +139,32 @@ public:
     // pas a une simple pression (pas besoin de le persister en session).
     std::atomic<bool> bypassHeld { false };
 
+    // Bouton AI (barre de controle, au-dessus de Analog/Linear) : capture
+    // quelques secondes de programme audio puis propose des valeurs de
+    // depart pour Crossover Low/High + Input/Ratio/Attack/Release par
+    // bande -- voir AiLearnAnalyzer.h pour le detail de l'analyse et le
+    // cycle d'etats. L'editeur poll getState()/getResult() (meme mecanisme
+    // de "polling" que le reste du GUI, voir SuppressorEditorContent::
+    // timerCallback()) et applique le resultat via un ramp de knob, comme
+    // un chargement de preset.
+    AiLearnAnalyzer aiLearnAnalyzer;
+    void startAiLearn()
+    {
+        const int targetIndex = aiMasteringTargetParam != nullptr ? (int) std::round (aiMasteringTargetParam->load()) : 0;
+        const int compressionModeIndex = aiCompressionModeParam != nullptr ? (int) std::round (aiCompressionModeParam->load()) : 1;
+        const int attackReleaseCharIndex = aiAttackReleaseCharacterParam != nullptr ? (int) std::round (aiAttackReleaseCharacterParam->load()) : 1;
+        const int gainReductionIndex = aiGainReductionModeParam != nullptr ? (int) std::round (aiGainReductionModeParam->load()) : 1;
+        const bool scopeCrossover   = aiScopeCrossoverParam   != nullptr && aiScopeCrossoverParam->load()   > 0.5f;
+        const bool scopeDetectors   = aiScopeDetectorsParam   != nullptr && aiScopeDetectorsParam->load()   > 0.5f;
+        const bool scopeCompression = aiScopeCompressionParam == nullptr || aiScopeCompressionParam->load() > 0.5f;
+        const int styleIndex = aiStyleParam != nullptr ? (int) std::round (aiStyleParam->load()) : 0;
+        const bool fidelityEnabled = aiFidelityParam != nullptr && aiFidelityParam->load() > 0.5f;
+        aiLearnAnalyzer.beginCapture (getSampleRate(), targetIndex, compressionModeIndex, attackReleaseCharIndex,
+                                       gainReductionIndex,
+                                       scopeCrossover, scopeDetectors, scopeCompression,
+                                       styleIndex, fidelityEnabled);
+    }
+
     void toggleABCompare();
     void selectABSlot (bool wantB) { if (wantB != usingSlotB) toggleABCompare(); }
     bool isUsingSlotB() const noexcept { return usingSlotB; }
@@ -193,6 +220,69 @@ public:
     static constexpr const char* idThdMode              = "thdMode";
     static constexpr const char* idCrossoverLow  = "crossoverLow";   // Hz, voir Crossover.h
     static constexpr const char* idCrossoverHigh = "crossoverHigh";  // Hz, voir Crossover.h
+
+    // Cible de mastering LUFS pour le bouton AI (menu Options/engrenage,
+    // section "AI") -- reglage PERSISTANT (sauvegarde en session/preset,
+    // c'est un choix de workflow, pas un resultat d'analyse). "Off" (index
+    // 0) = comportement AI actuel inchange, aucune correction de loudness.
+    // Choisir une plateforme fait AUSSI regler Output (par bande, egal sur
+    // les 3) + engager le Soft Clip (ceiling true-peak, garde-fou) au
+    // prochain apprentissage AI, en plus de Crossover/Input/Ratio/Attack/
+    // Release/Mix/Width -- voir AiLearnAnalyzer::kLufsTargets. "Side Key"
+    // (dernier choix, -6 LUFS) est le repere le plus agressif de la liste --
+    // demande explicite, simple cible LUFS comme les autres, PAS un
+    // mecanisme special (l'ancienne version "pousse le THD a 30%" a ete
+    // retiree, ce n'etait pas ce qui etait demande).
+    static constexpr const char* idAiMasteringTarget = "aiMasteringTarget";
+
+    // Portee du bouton AI (menu Options, section "AI", demande explicite :
+    // "AI ne s'occupe que de la compression si on le souhaite") -- 3
+    // interrupteurs INDEPENDANTS (pas un radio, contrairement au target de
+    // mastering ci-dessus) qui decident quelles categories de reglages le
+    // prochain apprentissage a le droit de toucher. Crossover et
+    // Compression actifs par defaut (comportement d'origine) ; Detecteurs
+    // desactive par defaut (fonctionnalite optionnelle, opt-in).
+    static constexpr const char* idAiScopeCrossover   = "aiScopeCrossover";
+    static constexpr const char* idAiScopeDetectors   = "aiScopeDetectors";
+    static constexpr const char* idAiScopeCompression = "aiScopeCompression";
+
+    // Intensite generale de la compression que le bouton AI propose (menu
+    // Options, section AI, demande explicite : "3 modes de compression,
+    // Soft, Medium et Hard", + un choix "Off" -- demande explicite : "on
+    // doit pouvoir agir que sur les points AI qui ne vont pas" -- Off
+    // desactive UNIQUEMENT l'ecriture de l'Input par le bouton AI, laisse
+    // le reste de la portee Compression intact) -- influence l'Input
+    // calcule par bande, voir AiLearnAnalyzer::kCompressionModeBias.
+    static constexpr const char* idAiCompressionMode = "aiCompressionMode";
+
+    // Caractere Attack/Release propose par le bouton AI (menu Options,
+    // section AI, demande explicite : "Smooth, Medium, Punchy" + un choix
+    // "Off" -- Off desactive UNIQUEMENT l'ecriture d'Attack/Release par le
+    // bouton AI) -- axe INDEPENDANT du mode de compression ci-dessus, voir
+    // AiLearnAnalyzer::kAttackReleaseCharacterBias.
+    static constexpr const char* idAiAttackReleaseCharacter = "aiAttackReleaseCharacter";
+
+    // Intensite globale de gain reduction proposee par le bouton AI (menu
+    // Options, section AI, demande explicite suite a "je trouve que ca
+    // compresse beaucoup" : Smooth/Mid/Hard + un choix "Off" -- Off
+    // desactive UNIQUEMENT l'ecriture du Ratio par le bouton AI, et saute
+    // la simulation de plafond GR, voir run()) -- axe SUPPLEMENTAIRE,
+    // independant du mode de compression et du caractere attack/release
+    // ci-dessus, voir AiLearnAnalyzer::kGainReductionBias.
+    static constexpr const char* idAiGainReductionMode = "aiGainReductionMode";
+
+    // Style musical propose par le bouton AI (menu Options, section AI,
+    // demande explicite : "plusieurs styles musicaux qui vont changer la
+    // balance des outputs en fonction du style. Bass +3dB en bass, Loud
+    // +3dB en bass et high, rock...") -- offset statique par bande ajoute
+    // a l'Output, "Off" = aucun offset, voir AiLearnAnalyzer::kStyleOutputBiasDb.
+    static constexpr const char* idAiStyle = "aiStyle";
+
+    // Fidelity (menu Options, section AI, demande explicite : "une fonction
+    // qui reprend la balance bass mid aigue du mix pour la remettre pareil
+    // apres compression") -- interrupteur independant, off par defaut, voir
+    // AiLearnAnalyzer::Result::applyFidelity.
+    static constexpr const char* idAiFidelity = "aiFidelity";
 
     // Bouton WIDE / LINEAR -- false (WIDE) = pente douce 1er ordre, 0
     // latence ; true (LINEAR) = FIR a phase lineaire, latence reglable
@@ -281,6 +371,15 @@ private:
     std::atomic<float>* powerParam            = nullptr;
     std::atomic<float>* softClipParam         = nullptr;
     std::atomic<float>* thdModeParam          = nullptr;
+    std::atomic<float>* aiMasteringTargetParam = nullptr;
+    std::atomic<float>* aiScopeCrossoverParam   = nullptr;
+    std::atomic<float>* aiScopeDetectorsParam   = nullptr;
+    std::atomic<float>* aiScopeCompressionParam = nullptr;
+    std::atomic<float>* aiCompressionModeParam  = nullptr;
+    std::atomic<float>* aiAttackReleaseCharacterParam = nullptr;
+    std::atomic<float>* aiGainReductionModeParam = nullptr;
+    std::atomic<float>* aiStyleParam    = nullptr;
+    std::atomic<float>* aiFidelityParam = nullptr;
     std::atomic<float>* crossoverLowParam     = nullptr;
     std::atomic<float>* crossoverHighParam    = nullptr;
     std::atomic<float>* digitalCrossoverParam = nullptr;

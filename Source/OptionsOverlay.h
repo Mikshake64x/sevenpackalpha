@@ -7,19 +7,47 @@
     --------------
     Voile plein ecran affiche au clic sur l'engrenage (latencyModeButton).
     Meme langage visuel que AboutOverlay (voile noir + panneau vitre
-    encadre ambre), mais avec de VRAIS controles interactifs : taille de
-    fenetre (75/85/100/125/150%, proportions conservees via un facteur d'echelle
-    applique a l'editeur entier) et budget CPU du mode Linear (Low/Medium/
-    High), qui remplace l'ancien PopupMenu de showLatencyModeMenu().
+    encadre ambre). Deux parties :
+      - Haut FIXE (non-scrollable) : taille de fenetre, budget CPU du mode
+        Linear -- les 2 reglages "coeur", toujours courts.
+      - Section "AI" SCROLLABLE (juce::Viewport, meme pattern que
+        AboutOverlay) : tout ce qui regle le comportement du bouton AI
+        (barre de controle). Cette liste grandit au fil des demandes --
+        passer par un Viewport des maintenant evite de redevoir rejouer un
+        Tetris de hauteurs a chaque nouvelle option.
+          - AI MASTERING TARGET : cible de loudness (LUFS) par plateforme,
+            radio ("OFF" = comportement d'origine) -- "SIDE KEY" (dernier
+            choix, -6 LUFS) est le repere le plus agressif de la liste.
+          - AI COMPRESSION MODE : intensite generale (Off/Soft/Medium/Hard).
+          - AI ATTACK/RELEASE CHARACTER : forme (Off/Smooth/Medium/Punchy).
+          - AI GAIN REDUCTION : combien de compression au total
+            (Off/Smooth/Mid/Hard) -- axe supplementaire pour calmer/pousser
+            l'ensemble Ratio+Input d'un cran, independamment des 2 axes
+            ci-dessus (demande explicite suite a "ca compresse beaucoup").
+            Chacun de ces 3 axes a son propre "Off" (demande explicite :
+            "on doit pouvoir agir que sur les points AI qui ne vont pas") --
+            Off n'ecrit QUE sa propre cible (Input/Ratio/Attack+Release),
+            le reste continue d'etre pousse normalement.
+          - AI SCOPE : 3 interrupteurs INDEPENDANTS (Crossover/Detecteurs/
+            Compression).
     Se ferme au clic hors du panneau, ou via le bouton CLOSE.
 */
 class OptionsOverlay : public juce::Component
 {
 public:
+    struct SectionItem
+    {
+        enum class Kind { Header, RadioRow, ToggleRow };
+        juce::String label;
+        Kind kind = Kind::Header;
+        int numButtons = 0;
+        int firstButtonIndex = 0; // index dans le tableau plat de boutons de la section
+    };
+
     OptionsOverlay()
     {
         static const char* scaleLabels[kNumScales]     = { "75%", "80%", "85%", "90%", "95%", "100%" };
-        static const char* latencyLabels[kNumLatency] = { "LOW CPU", "MEDIUM CPU", "HIGH CPU" };
+        static const char* latencyLabels[kNumLatency]  = { "LOW CPU", "MEDIUM CPU", "HIGH CPU" };
 
         for (int i = 0; i < kNumScales; ++i)
         {
@@ -55,11 +83,24 @@ public:
             latencyButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
         }
 
+        addAndMakeVisible (aiViewport);
+        aiViewport.setScrollBarsShown (true, false);
+        aiViewport.setViewedComponent (&aiPanel, false);
+        aiPanel.build();
+
         addAndMakeVisible (closeButton);
         closeButton.setButtonText ("CLOSE");
         closeButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
         closeButton.setColour (juce::TextButton::textColourOffId, SuppressorColours::textBright);
         closeButton.onClick = [this] { if (onDismiss) onDismiss(); };
+
+        // Croix de fermeture en haut a droite du panneau (demande explicite,
+        // en plus du bouton CLOSE en bas) -- meme action que CLOSE.
+        addAndMakeVisible (closeCrossButton);
+        closeCrossButton.setButtonText ("X");
+        closeCrossButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+        closeCrossButton.setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+        closeCrossButton.onClick = [this] { if (onDismiss) onDismiss(); };
     }
 
     void setCurrentScaleIndex (int idx)
@@ -74,17 +115,36 @@ public:
             latencyButtons[i].setToggleState (i == idx, juce::dontSendNotification);
     }
 
+    void setCurrentAiTargetIndex (int idx)          { aiPanel.setCurrentAiTargetIndex (idx); }
+    void setCurrentAiCompressionMode (int idx)       { aiPanel.setCurrentAiCompressionMode (idx); }
+    void setCurrentAiCharacter (int idx)             { aiPanel.setCurrentAiCharacter (idx); }
+    void setCurrentAiGainReduction (int idx)         { aiPanel.setCurrentAiGainReduction (idx); }
+    void setAiScopeStates (bool crossoverOn, bool detectorsOn, bool compressionOn)
+    {
+        aiPanel.setAiScopeStates (crossoverOn, detectorsOn, compressionOn);
+    }
+    void setCurrentAiStyle (int idx)      { aiPanel.setCurrentAiStyle (idx); }
+    void setAiFidelityState (bool enabled) { aiPanel.setAiFidelityState (enabled); }
+
     void resized() override
     {
         auto bounds = getLocalBounds().toFloat();
-        panelBounds = bounds.withSizeKeepingCentre (580.0f, 340.0f);
+        panelBounds = bounds.withSizeKeepingCentre (620.0f, juce::jmin (720.0f, bounds.getHeight() - 40.0f));
         auto content = panelBounds.reduced (26.0f, 20.0f);
 
         content.removeFromTop (38.0f);          // titre
         content.removeFromTop (14.0f);           // ligne + marge
-        scaleLabelBounds = content.removeFromTop (18.0f).toNearestInt();
 
         const float gap = 8.0f;
+
+        // En-tete "GENERAL" -- separe visuellement les reglages de base
+        // (taille de fenetre, budget CPU) de la section AI plus bas,
+        // demande explicite : "il faut bien separer les reglages dans les
+        // options de base et les reglages de l'ia".
+        generalHeaderBounds = content.removeFromTop (22.0f).toNearestInt();
+        content.removeFromTop (6.0f);
+
+        scaleLabelBounds = content.removeFromTop (18.0f).toNearestInt();
         auto scaleRow = content.removeFromTop (36.0f);
         const float bw = (scaleRow.getWidth() - gap * (kNumScales - 1)) / (float) kNumScales;
         for (int i = 0; i < kNumScales; ++i)
@@ -93,9 +153,8 @@ public:
             scaleRow.removeFromLeft ((int) gap);
         }
 
-        content.removeFromTop (22.0f);           // ligne + marge
+        content.removeFromTop (18.0f);           // ligne + marge
         latencyLabelBounds = content.removeFromTop (18.0f).toNearestInt();
-
         auto latRow = content.removeFromTop (36.0f);
         const float bw2 = (latRow.getWidth() - gap * (kNumLatency - 1)) / (float) kNumLatency;
         for (int i = 0; i < kNumLatency; ++i)
@@ -104,8 +163,24 @@ public:
             latRow.removeFromLeft ((int) gap);
         }
 
+        aiDividerY = content.getY() + 14.0f;
+        content.removeFromTop (24.0f);           // ligne + marge
+
+        // En-tete "AI" -- meme logique que GENERAL ci-dessus, mais pour
+        // toute la section scrollable (portee, cibles, style, fidelity...).
+        aiHeaderBounds = content.removeFromTop (22.0f).toNearestInt();
+        content.removeFromTop (4.0f);
+
         closeButton.setBounds (juce::Rectangle<int> (110, 30)
             .withCentre ({ (int) panelBounds.getCentreX(), (int) panelBounds.getBottom() - 28 }));
+        content.removeFromBottom (10.0f); // marge avant le bouton CLOSE
+
+        aiViewport.setBounds (content.toNearestInt());
+        const int scrollBarW = aiViewport.getScrollBarThickness();
+        aiPanel.layout (juce::jmax (10, (int) content.getWidth() - scrollBarW));
+
+        closeCrossButton.setBounds (juce::Rectangle<int> (28, 28)
+            .withCentre ({ (int) panelBounds.getRight() - 22, (int) panelBounds.getY() + 22 }));
     }
 
     void paint (juce::Graphics& g) override
@@ -128,14 +203,32 @@ public:
         g.setColour (SuppressorColours::gridLine);
         g.drawLine (content.getX(), content.getY(), content.getRight(), content.getY(), 1.0f);
 
-        g.setColour (SuppressorColours::ledBlue);
-        g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
-        g.drawFittedText ("WINDOW SIZE", scaleLabelBounds, juce::Justification::centredLeft, 1);
-        g.drawFittedText ("LINEAR MODE CPU BUDGET", latencyLabelBounds, juce::Justification::centredLeft, 1);
+        auto drawSectionLabel = [&] (const juce::Rectangle<int>& area, const juce::String& text)
+        {
+            g.setColour (SuppressorColours::ledBlue);
+            g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
+            g.drawFittedText (text, area, juce::Justification::centredLeft, 1);
+        };
 
-        auto dividerY = latencyLabelBounds.getY() - 22.0f;
+        // En-tetes de GROUPE (GENERAL / AI) -- plus grands et en ambre, pour
+        // se distinguer clairement des labels de sous-section (bleus,
+        // drawSectionLabel ci-dessus) : demande explicite de bien separer
+        // les reglages de base des reglages IA.
+        auto drawGroupHeader = [&] (const juce::Rectangle<int>& area, const juce::String& text)
+        {
+            g.setColour (SuppressorColours::ledAmber);
+            g.setFont (juce::Font (juce::FontOptions (14.5f, juce::Font::bold)).withExtraKerningFactor (0.16f));
+            g.drawFittedText (text, area, juce::Justification::centredLeft, 1);
+        };
+
+        drawGroupHeader (generalHeaderBounds, "GENERAL");
+        drawSectionLabel (scaleLabelBounds, "WINDOW SIZE");
+        drawSectionLabel (latencyLabelBounds, "LINEAR MODE CPU BUDGET");
+
         g.setColour (SuppressorColours::gridLine);
-        g.drawLine (content.getX(), dividerY, content.getRight(), dividerY, 1.0f);
+        g.drawLine (content.getX(), latencyLabelBounds.getY() - 18.0f, content.getRight(), latencyLabelBounds.getY() - 18.0f, 1.0f);
+        g.drawLine (content.getX(), aiDividerY, content.getRight(), aiDividerY, 1.0f);
+        drawGroupHeader (aiHeaderBounds, "AI");
     }
 
     void mouseDown (const juce::MouseEvent& e) override
@@ -147,8 +240,317 @@ public:
     std::function<void()> onDismiss;
     std::function<void(float)> onScaleSelected;
     std::function<void(int)> onLatencySelected;
+    std::function<void(int)> onAiTargetSelected;
+    std::function<void(int)> onAiCompressionModeSelected;
+    std::function<void(int)> onAiCharacterSelected;
+    std::function<void(int)> onAiGainReductionSelected;
+    // scopeIndex : 0=Crossover, 1=Detectors, 2=Compression.
+    std::function<void(int scopeIndex, bool enabled)> onAiScopeChanged;
+    std::function<void(int)> onAiStyleSelected;
+    std::function<void(bool)> onAiFidelityChanged;
 
 private:
+    // Contenu SCROLLABLE de la section AI -- meme idiome que AboutOverlay::
+    // ParagraphColumn (calcule sa propre hauteur via layout(width), le
+    // Viewport parent s'en sert pour savoir jusqu'ou scroller).
+    class AiPanel : public juce::Component
+    {
+    public:
+        explicit AiPanel (OptionsOverlay& ownerIn) : owner (ownerIn) {}
+
+        void build()
+        {
+            static const char* aiTargetLabels[kNumAiTargets] =
+                { "OFF", "APPLE MUSIC", "YOUTUBE", "SPOTIFY", "DEEZER", "SOUNDCLOUD", "TV", "CD", "SIDE KEY" };
+            static const char* compressionLabels[kNumCompressionModes] = { "OFF", "SOFT", "MEDIUM", "HARD" };
+            static const char* characterLabels[kNumAttackReleaseCharacters] = { "OFF", "SMOOTH", "MEDIUM", "PUNCHY" };
+            static const char* grLabels[kNumGainReductionModes] = { "OFF", "SMOOTH", "MID", "HARD" };
+            static const char* scopeLabels[kNumScopes] = { "CROSSOVER", "DETECTORS", "COMPRESSION" };
+            static const char* styleLabels[kNumStyles] = { "OFF", "BASS", "LOUD", "ROCK", "POP", "ELECTRONIC" };
+
+            for (int i = 0; i < kNumAiTargets; ++i)
+            {
+                addAndMakeVisible (aiTargetButtons[i]);
+                aiTargetButtons[i].setButtonText (aiTargetLabels[i]);
+                aiTargetButtons[i].setClickingTogglesState (true);
+                aiTargetButtons[i].setRadioGroupId (9103, juce::dontSendNotification);
+                aiTargetButtons[i].onClick = [this, i]
+                {
+                    if (aiTargetButtons[i].getToggleState() && owner.onAiTargetSelected)
+                        owner.onAiTargetSelected (i);
+                };
+                aiTargetButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
+                aiTargetButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledCyan);
+                aiTargetButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                aiTargetButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+            }
+
+            for (int i = 0; i < kNumCompressionModes; ++i)
+            {
+                addAndMakeVisible (compressionModeButtons[i]);
+                compressionModeButtons[i].setButtonText (compressionLabels[i]);
+                compressionModeButtons[i].setClickingTogglesState (true);
+                compressionModeButtons[i].setRadioGroupId (9104, juce::dontSendNotification);
+                compressionModeButtons[i].onClick = [this, i]
+                {
+                    if (compressionModeButtons[i].getToggleState() && owner.onAiCompressionModeSelected)
+                        owner.onAiCompressionModeSelected (i);
+                };
+                compressionModeButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
+                compressionModeButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledCyan);
+                compressionModeButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                compressionModeButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+            }
+
+            for (int i = 0; i < kNumAttackReleaseCharacters; ++i)
+            {
+                addAndMakeVisible (characterButtons[i]);
+                characterButtons[i].setButtonText (characterLabels[i]);
+                characterButtons[i].setClickingTogglesState (true);
+                characterButtons[i].setRadioGroupId (9105, juce::dontSendNotification);
+                characterButtons[i].onClick = [this, i]
+                {
+                    if (characterButtons[i].getToggleState() && owner.onAiCharacterSelected)
+                        owner.onAiCharacterSelected (i);
+                };
+                characterButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
+                characterButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledCyan);
+                characterButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                characterButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+            }
+
+            // AI GAIN REDUCTION -- demande explicite (suite a "ca compresse
+            // beaucoup") : combien de gain reduction au total, Smooth/Mid/
+            // Hard, axe SUPPLEMENTAIRE independant du mode de compression
+            // et du caractere attack/release ci-dessus.
+            for (int i = 0; i < kNumGainReductionModes; ++i)
+            {
+                addAndMakeVisible (gainReductionButtons[i]);
+                gainReductionButtons[i].setButtonText (grLabels[i]);
+                gainReductionButtons[i].setClickingTogglesState (true);
+                gainReductionButtons[i].setRadioGroupId (9106, juce::dontSendNotification);
+                gainReductionButtons[i].onClick = [this, i]
+                {
+                    if (gainReductionButtons[i].getToggleState() && owner.onAiGainReductionSelected)
+                        owner.onAiGainReductionSelected (i);
+                };
+                gainReductionButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
+                gainReductionButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledCyan);
+                gainReductionButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                gainReductionButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+            }
+
+            for (int i = 0; i < kNumScopes; ++i)
+            {
+                addAndMakeVisible (scopeButtons[i]);
+                scopeButtons[i].setButtonText (scopeLabels[i]);
+                scopeButtons[i].setClickingTogglesState (true);
+                scopeButtons[i].onClick = [this, i]
+                {
+                    if (owner.onAiScopeChanged)
+                        owner.onAiScopeChanged (i, scopeButtons[i].getToggleState());
+                };
+                scopeButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
+                scopeButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledGreen);
+                scopeButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                scopeButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+            }
+
+            // AI STYLE -- demande explicite : "plusieurs styles musicaux
+            // qui vont changer la balance des outputs en fonction du
+            // style" -- radio, "OFF" = aucun offset (comportement d'origine).
+            for (int i = 0; i < kNumStyles; ++i)
+            {
+                addAndMakeVisible (styleButtons[i]);
+                styleButtons[i].setButtonText (styleLabels[i]);
+                styleButtons[i].setClickingTogglesState (true);
+                styleButtons[i].setRadioGroupId (9107, juce::dontSendNotification);
+                styleButtons[i].onClick = [this, i]
+                {
+                    if (styleButtons[i].getToggleState() && owner.onAiStyleSelected)
+                        owner.onAiStyleSelected (i);
+                };
+                styleButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
+                styleButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledCyan);
+                styleButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                styleButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+            }
+
+            // AI FIDELITY -- demande explicite : "une fonction qui reprend
+            // la balance bass mid aigue du mix pour la remettre pareil
+            // apres compression" -- interrupteur independant, meme style
+            // que les boutons AI SCOPE ci-dessus.
+            addAndMakeVisible (fidelityButton);
+            fidelityButton.setButtonText ("FIDELITY");
+            fidelityButton.setClickingTogglesState (true);
+            fidelityButton.onClick = [this]
+            {
+                if (owner.onAiFidelityChanged)
+                    owner.onAiFidelityChanged (fidelityButton.getToggleState());
+            };
+            fidelityButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
+            fidelityButton.setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledGreen);
+            fidelityButton.setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+            fidelityButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+        }
+
+        void setCurrentAiTargetIndex (int idx)
+        {
+            for (int i = 0; i < kNumAiTargets; ++i)
+                aiTargetButtons[i].setToggleState (i == idx, juce::dontSendNotification);
+        }
+
+        void setCurrentAiCompressionMode (int idx)
+        {
+            for (int i = 0; i < kNumCompressionModes; ++i)
+                compressionModeButtons[i].setToggleState (i == idx, juce::dontSendNotification);
+        }
+
+        void setCurrentAiCharacter (int idx)
+        {
+            for (int i = 0; i < kNumAttackReleaseCharacters; ++i)
+                characterButtons[i].setToggleState (i == idx, juce::dontSendNotification);
+        }
+
+        void setCurrentAiGainReduction (int idx)
+        {
+            for (int i = 0; i < kNumGainReductionModes; ++i)
+                gainReductionButtons[i].setToggleState (i == idx, juce::dontSendNotification);
+        }
+
+        void setAiScopeStates (bool crossoverOn, bool detectorsOn, bool compressionOn)
+        {
+            scopeButtons[0].setToggleState (crossoverOn,   juce::dontSendNotification);
+            scopeButtons[1].setToggleState (detectorsOn,   juce::dontSendNotification);
+            scopeButtons[2].setToggleState (compressionOn, juce::dontSendNotification);
+        }
+
+        void setCurrentAiStyle (int idx)
+        {
+            for (int i = 0; i < kNumStyles; ++i)
+                styleButtons[i].setToggleState (i == idx, juce::dontSendNotification);
+        }
+
+        void setAiFidelityState (bool enabled)
+        {
+            fidelityButton.setToggleState (enabled, juce::dontSendNotification);
+        }
+
+        // Calcule sa propre hauteur de contenu a partir de la largeur --
+        // le Viewport parent (OptionsOverlay::aiViewport) s'en sert pour
+        // savoir jusqu'ou scroller. Meme idiome que AboutOverlay::
+        // ParagraphColumn::layout().
+        void layout (int width)
+        {
+            const float gap = 8.0f;
+            float y = 0.0f;
+            auto row = [&] (juce::TextButton* buttons, int count, float h)
+            {
+                const float bw = (width - gap * (count - 1)) / (float) count;
+                float x = 0.0f;
+                for (int i = 0; i < count; ++i)
+                {
+                    buttons[i].setBounds (juce::Rectangle<float> (x, y, bw, h).toNearestInt());
+                    x += bw + gap;
+                }
+                y += h;
+            };
+
+            aiTargetLabelBounds = { 0, (int) y, width, 18 };
+            y += 22.0f;
+            // 9 boutons sur 3 rangees de 3 (grille carree, remplace l'ancien
+            // 2x4 + case Side Key separee -- Side Key est maintenant le 9e
+            // choix de la meme liste, demande explicite : "c'est -6 lufs").
+            constexpr int perRow = 3;
+            for (int r = 0; r < 3; ++r)
+            {
+                row (aiTargetButtons + r * perRow, perRow, 34.0f);
+                y += (r < 2 ? 6.0f : 0.0f);
+            }
+
+            y += 20.0f;
+            compressionModeLabelBounds = { 0, (int) y, width, 18 };
+            y += 22.0f;
+            row (compressionModeButtons, kNumCompressionModes, 36.0f);
+
+            y += 20.0f;
+            characterLabelBounds = { 0, (int) y, width, 18 };
+            y += 22.0f;
+            row (characterButtons, kNumAttackReleaseCharacters, 36.0f);
+
+            y += 20.0f;
+            gainReductionLabelBounds = { 0, (int) y, width, 18 };
+            y += 22.0f;
+            row (gainReductionButtons, kNumGainReductionModes, 36.0f);
+
+            y += 20.0f;
+            scopeLabelBounds = { 0, (int) y, width, 18 };
+            y += 22.0f;
+            row (scopeButtons, kNumScopes, 36.0f);
+
+            y += 20.0f;
+            styleLabelBounds = { 0, (int) y, width, 18 };
+            y += 22.0f;
+            row (styleButtons, kNumStyles, 34.0f);
+
+            y += 20.0f;
+            fidelityLabelBounds = { 0, (int) y, width, 18 };
+            y += 22.0f;
+            fidelityButton.setBounds (juce::Rectangle<float> (0.0f, y, (float) width, 36.0f).toNearestInt());
+            y += 36.0f;
+
+            y += 10.0f;
+            setSize (width, juce::roundToInt (y));
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            auto drawSectionLabel = [&] (const juce::Rectangle<int>& area, const juce::String& text)
+            {
+                g.setColour (SuppressorColours::ledBlue);
+                g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
+                g.drawFittedText (text, area, juce::Justification::centredLeft, 1);
+            };
+
+            drawSectionLabel (aiTargetLabelBounds, "AI MASTERING TARGET (LUFS)");
+            drawSectionLabel (compressionModeLabelBounds, "AI COMPRESSION MODE");
+            drawSectionLabel (characterLabelBounds, "AI ATTACK / RELEASE CHARACTER");
+            drawSectionLabel (gainReductionLabelBounds, "AI GAIN REDUCTION");
+            drawSectionLabel (scopeLabelBounds, "AI SCOPE (WHAT THE AI BUTTON IS ALLOWED TO TOUCH)");
+            drawSectionLabel (styleLabelBounds, "AI STYLE (OUTPUT BALANCE)");
+            drawSectionLabel (fidelityLabelBounds, "AI FIDELITY (RESTORE ORIGINAL TONAL BALANCE)");
+
+            g.setColour (SuppressorColours::gridLine);
+            g.drawLine (0.0f, compressionModeLabelBounds.getY() - 12.0f, (float) getWidth(), compressionModeLabelBounds.getY() - 12.0f, 1.0f);
+            g.drawLine (0.0f, characterLabelBounds.getY() - 12.0f, (float) getWidth(), characterLabelBounds.getY() - 12.0f, 1.0f);
+            g.drawLine (0.0f, gainReductionLabelBounds.getY() - 12.0f, (float) getWidth(), gainReductionLabelBounds.getY() - 12.0f, 1.0f);
+            g.drawLine (0.0f, scopeLabelBounds.getY() - 12.0f, (float) getWidth(), scopeLabelBounds.getY() - 12.0f, 1.0f);
+            g.drawLine (0.0f, styleLabelBounds.getY() - 12.0f, (float) getWidth(), styleLabelBounds.getY() - 12.0f, 1.0f);
+            g.drawLine (0.0f, fidelityLabelBounds.getY() - 12.0f, (float) getWidth(), fidelityLabelBounds.getY() - 12.0f, 1.0f);
+        }
+
+    private:
+        static constexpr int kNumAiTargets = 9;
+        static constexpr int kNumCompressionModes = 4;
+        static constexpr int kNumAttackReleaseCharacters = 4;
+        static constexpr int kNumGainReductionModes = 4;
+        static constexpr int kNumScopes = 3;
+        static constexpr int kNumStyles = 6;
+
+        OptionsOverlay& owner;
+
+        juce::TextButton aiTargetButtons[kNumAiTargets];
+        juce::TextButton compressionModeButtons[kNumCompressionModes];
+        juce::TextButton characterButtons[kNumAttackReleaseCharacters];
+        juce::TextButton gainReductionButtons[kNumGainReductionModes];
+        juce::TextButton scopeButtons[kNumScopes];
+        juce::TextButton styleButtons[kNumStyles];
+        juce::TextButton fidelityButton;
+
+        juce::Rectangle<int> aiTargetLabelBounds, compressionModeLabelBounds, characterLabelBounds, gainReductionLabelBounds, scopeLabelBounds;
+        juce::Rectangle<int> styleLabelBounds, fidelityLabelBounds;
+    };
+
     static constexpr int kNumScales = 6;
     static constexpr int kNumLatency = 3;
     static constexpr float kScaleValues[kNumScales] = { 0.75f, 0.80f, 0.85f, 0.90f, 0.95f, 1.0f };
@@ -156,9 +558,15 @@ private:
     juce::TextButton scaleButtons[kNumScales];
     juce::TextButton latencyButtons[kNumLatency];
     juce::TextButton closeButton;
+    juce::TextButton closeCrossButton;
+
+    juce::Viewport aiViewport;
+    AiPanel aiPanel { *this };
 
     juce::Rectangle<float> panelBounds;
     juce::Rectangle<int> scaleLabelBounds, latencyLabelBounds;
+    juce::Rectangle<int> generalHeaderBounds, aiHeaderBounds;
+    float aiDividerY = 0.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OptionsOverlay)
 };

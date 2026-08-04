@@ -51,3 +51,20 @@ jobs:
         with:
           name: Tripressor-macOS-AU
           path: "Builds/MacOSX/build/Release/Tripressor.component"
+
+      - name: Construire le .dmg (VST3 + AU, glisser-deposer vers les dossiers plugins standards)
+        run: |
+          set -e
+          STAGE="dmg_staging"
+          rm -rf "$STAGE" && mkdir -p "$STAGE"
+          cp -R "Builds/MacOSX/build/Release/Tripressor.vst3" "$STAGE/"
+          cp -R "Builds/MacOSX/build/Release/Tripressor.component" "$STAGE/"
+          ln -s /Library/Audio/Plug-Ins/VST3 "$STAGE/VST3"
+          ln -s /Library/Audio/Plug-Ins/Components "$STAGE/Components"
+          hdiutil create -volname "Tripressor" -srcfolder "$STAGE" -ov -format UDZO "Tripressor-macOS.dmg"
+
+      - name: Uploader le .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tripressor-macOS-dmg
+          path: "Tripressor-macOS.dmg"
