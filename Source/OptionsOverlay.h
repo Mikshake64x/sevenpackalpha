@@ -125,6 +125,9 @@ public:
     }
     void setCurrentAiStyle (int idx)      { aiPanel.setCurrentAiStyle (idx); }
     void setAiFidelityState (bool enabled) { aiPanel.setAiFidelityState (enabled); }
+    void setCurrentAiExpandMode (int idx)      { aiPanel.setCurrentAiExpandMode (idx); }
+    void setCurrentAiExpandCharacter (int idx) { aiPanel.setCurrentAiExpandCharacter (idx); }
+    void setCurrentAiExpandAmount (int idx)    { aiPanel.setCurrentAiExpandAmount (idx); }
 
     void resized() override
     {
@@ -248,6 +251,9 @@ public:
     std::function<void(int scopeIndex, bool enabled)> onAiScopeChanged;
     std::function<void(int)> onAiStyleSelected;
     std::function<void(bool)> onAiFidelityChanged;
+    std::function<void(int)> onAiExpandModeSelected;
+    std::function<void(int)> onAiExpandCharacterSelected;
+    std::function<void(int)> onAiExpandAmountSelected;
 
 private:
     // Contenu SCROLLABLE de la section AI -- meme idiome que AboutOverlay::
@@ -261,12 +267,15 @@ private:
         void build()
         {
             static const char* aiTargetLabels[kNumAiTargets] =
-                { "OFF", "APPLE MUSIC", "YOUTUBE", "SPOTIFY", "DEEZER", "SOUNDCLOUD", "TV", "CD", "SIDE KEY" };
+                { "OFF", "APPLE MUSIC", "YOUTUBE", "SPOTIFY", "DEEZER", "SOUNDCLOUD", "TV", "CD", "SIDE KEY", "MATCH" };
             static const char* compressionLabels[kNumCompressionModes] = { "OFF", "SOFT", "MEDIUM", "HARD" };
             static const char* characterLabels[kNumAttackReleaseCharacters] = { "OFF", "SMOOTH", "MEDIUM", "PUNCHY" };
             static const char* grLabels[kNumGainReductionModes] = { "OFF", "SMOOTH", "MID", "HARD" };
             static const char* scopeLabels[kNumScopes] = { "CROSSOVER", "DETECTORS", "COMPRESSION" };
             static const char* styleLabels[kNumStyles] = { "OFF", "BASS", "LOUD", "ROCK", "POP", "ELECTRONIC" };
+            static const char* expandModeLabels[kNumExpandModes] = { "OFF", "SOFT", "MEDIUM", "HARD" };
+            static const char* expandCharacterLabels[kNumExpandCharacters] = { "OFF", "SMOOTH", "MEDIUM", "PUNCHY" };
+            static const char* expandAmountLabels[kNumExpandAmountModes] = { "OFF", "SMOOTH", "MID", "HARD" };
 
             for (int i = 0; i < kNumAiTargets; ++i)
             {
@@ -392,6 +401,66 @@ private:
             fidelityButton.setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledGreen);
             fidelityButton.setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
             fidelityButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+
+            // Triade AI EXPAND (demande explicite : "pour l'ia de expand,
+            // il faut des reglages comme pour l'ia comp") -- meme
+            // mecanique que les 3 radios Compression Mode/Character/Gain
+            // Reduction plus haut, mais dediee aux bandes en Expand/Both.
+            for (int i = 0; i < kNumExpandModes; ++i)
+            {
+                addAndMakeVisible (expandModeButtons[i]);
+                expandModeButtons[i].setButtonText (expandModeLabels[i]);
+                expandModeButtons[i].setClickingTogglesState (true);
+                expandModeButtons[i].setRadioGroupId (9109, juce::dontSendNotification);
+                expandModeButtons[i].onClick = [this, i]
+                {
+                    if (expandModeButtons[i].getToggleState() && owner.onAiExpandModeSelected)
+                        owner.onAiExpandModeSelected (i);
+                };
+                expandModeButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
+                // Violet -- coherent avec le reste du theme Expand (diode
+                // Comp/Expand, knobs teintes, rangee GR dediee), retour
+                // utilisateur : "il faut faire correspondre les couleurs
+                // pour les options de l'expandeur en violet comme la diode
+                // expand".
+                expandModeButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledPurple);
+                expandModeButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                expandModeButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+            }
+
+            for (int i = 0; i < kNumExpandCharacters; ++i)
+            {
+                addAndMakeVisible (expandCharacterButtons[i]);
+                expandCharacterButtons[i].setButtonText (expandCharacterLabels[i]);
+                expandCharacterButtons[i].setClickingTogglesState (true);
+                expandCharacterButtons[i].setRadioGroupId (9110, juce::dontSendNotification);
+                expandCharacterButtons[i].onClick = [this, i]
+                {
+                    if (expandCharacterButtons[i].getToggleState() && owner.onAiExpandCharacterSelected)
+                        owner.onAiExpandCharacterSelected (i);
+                };
+                expandCharacterButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
+                expandCharacterButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledPurple);
+                expandCharacterButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                expandCharacterButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+            }
+
+            for (int i = 0; i < kNumExpandAmountModes; ++i)
+            {
+                addAndMakeVisible (expandAmountButtons[i]);
+                expandAmountButtons[i].setButtonText (expandAmountLabels[i]);
+                expandAmountButtons[i].setClickingTogglesState (true);
+                expandAmountButtons[i].setRadioGroupId (9111, juce::dontSendNotification);
+                expandAmountButtons[i].onClick = [this, i]
+                {
+                    if (expandAmountButtons[i].getToggleState() && owner.onAiExpandAmountSelected)
+                        owner.onAiExpandAmountSelected (i);
+                };
+                expandAmountButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
+                expandAmountButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledPurple);
+                expandAmountButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                expandAmountButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
+            }
         }
 
         void setCurrentAiTargetIndex (int idx)
@@ -436,6 +505,24 @@ private:
             fidelityButton.setToggleState (enabled, juce::dontSendNotification);
         }
 
+        void setCurrentAiExpandMode (int idx)
+        {
+            for (int i = 0; i < kNumExpandModes; ++i)
+                expandModeButtons[i].setToggleState (i == idx, juce::dontSendNotification);
+        }
+
+        void setCurrentAiExpandCharacter (int idx)
+        {
+            for (int i = 0; i < kNumExpandCharacters; ++i)
+                expandCharacterButtons[i].setToggleState (i == idx, juce::dontSendNotification);
+        }
+
+        void setCurrentAiExpandAmount (int idx)
+        {
+            for (int i = 0; i < kNumExpandAmountModes; ++i)
+                expandAmountButtons[i].setToggleState (i == idx, juce::dontSendNotification);
+        }
+
         // Calcule sa propre hauteur de contenu a partir de la largeur --
         // le Viewport parent (OptionsOverlay::aiViewport) s'en sert pour
         // savoir jusqu'ou scroller. Meme idiome que AboutOverlay::
@@ -458,14 +545,15 @@ private:
 
             aiTargetLabelBounds = { 0, (int) y, width, 18 };
             y += 22.0f;
-            // 9 boutons sur 3 rangees de 3 (grille carree, remplace l'ancien
-            // 2x4 + case Side Key separee -- Side Key est maintenant le 9e
-            // choix de la meme liste, demande explicite : "c'est -6 lufs").
-            constexpr int perRow = 3;
-            for (int r = 0; r < 3; ++r)
+            // 10 boutons sur 2 rangees de 5 (Match ajoute en demande
+            // explicite : "une case Match pour volume match", 10e choix de
+            // la meme liste -- grille impaire 3x3 devenue 2x5).
+            constexpr int perRow = 5;
+            constexpr int numRows = 2;
+            for (int r = 0; r < numRows; ++r)
             {
                 row (aiTargetButtons + r * perRow, perRow, 34.0f);
-                y += (r < 2 ? 6.0f : 0.0f);
+                y += (r < numRows - 1 ? 6.0f : 0.0f);
             }
 
             y += 20.0f;
@@ -499,6 +587,21 @@ private:
             fidelityButton.setBounds (juce::Rectangle<float> (0.0f, y, (float) width, 36.0f).toNearestInt());
             y += 36.0f;
 
+            y += 20.0f;
+            expandModeLabelBounds = { 0, (int) y, width, 18 };
+            y += 22.0f;
+            row (expandModeButtons, kNumExpandModes, 36.0f);
+
+            y += 20.0f;
+            expandCharacterLabelBounds = { 0, (int) y, width, 18 };
+            y += 22.0f;
+            row (expandCharacterButtons, kNumExpandCharacters, 36.0f);
+
+            y += 20.0f;
+            expandAmountLabelBounds = { 0, (int) y, width, 18 };
+            y += 22.0f;
+            row (expandAmountButtons, kNumExpandAmountModes, 36.0f);
+
             y += 10.0f;
             setSize (width, juce::roundToInt (y));
         }
@@ -519,6 +622,9 @@ private:
             drawSectionLabel (scopeLabelBounds, "AI SCOPE (WHAT THE AI BUTTON IS ALLOWED TO TOUCH)");
             drawSectionLabel (styleLabelBounds, "AI STYLE (OUTPUT BALANCE)");
             drawSectionLabel (fidelityLabelBounds, "AI FIDELITY (RESTORE ORIGINAL TONAL BALANCE)");
+            drawSectionLabel (expandModeLabelBounds, "AI EXPAND MODE");
+            drawSectionLabel (expandCharacterLabelBounds, "AI EXPAND ATTACK / RELEASE CHARACTER");
+            drawSectionLabel (expandAmountLabelBounds, "AI EXPAND AMOUNT");
 
             g.setColour (SuppressorColours::gridLine);
             g.drawLine (0.0f, compressionModeLabelBounds.getY() - 12.0f, (float) getWidth(), compressionModeLabelBounds.getY() - 12.0f, 1.0f);
@@ -527,15 +633,21 @@ private:
             g.drawLine (0.0f, scopeLabelBounds.getY() - 12.0f, (float) getWidth(), scopeLabelBounds.getY() - 12.0f, 1.0f);
             g.drawLine (0.0f, styleLabelBounds.getY() - 12.0f, (float) getWidth(), styleLabelBounds.getY() - 12.0f, 1.0f);
             g.drawLine (0.0f, fidelityLabelBounds.getY() - 12.0f, (float) getWidth(), fidelityLabelBounds.getY() - 12.0f, 1.0f);
+            g.drawLine (0.0f, expandModeLabelBounds.getY() - 12.0f, (float) getWidth(), expandModeLabelBounds.getY() - 12.0f, 1.0f);
+            g.drawLine (0.0f, expandCharacterLabelBounds.getY() - 12.0f, (float) getWidth(), expandCharacterLabelBounds.getY() - 12.0f, 1.0f);
+            g.drawLine (0.0f, expandAmountLabelBounds.getY() - 12.0f, (float) getWidth(), expandAmountLabelBounds.getY() - 12.0f, 1.0f);
         }
 
     private:
-        static constexpr int kNumAiTargets = 9;
+        static constexpr int kNumAiTargets = 10;
         static constexpr int kNumCompressionModes = 4;
         static constexpr int kNumAttackReleaseCharacters = 4;
         static constexpr int kNumGainReductionModes = 4;
         static constexpr int kNumScopes = 3;
         static constexpr int kNumStyles = 6;
+        static constexpr int kNumExpandModes = 4;
+        static constexpr int kNumExpandCharacters = 4;
+        static constexpr int kNumExpandAmountModes = 4;
 
         OptionsOverlay& owner;
 
@@ -546,9 +658,13 @@ private:
         juce::TextButton scopeButtons[kNumScopes];
         juce::TextButton styleButtons[kNumStyles];
         juce::TextButton fidelityButton;
+        juce::TextButton expandModeButtons[kNumExpandModes];
+        juce::TextButton expandCharacterButtons[kNumExpandCharacters];
+        juce::TextButton expandAmountButtons[kNumExpandAmountModes];
 
         juce::Rectangle<int> aiTargetLabelBounds, compressionModeLabelBounds, characterLabelBounds, gainReductionLabelBounds, scopeLabelBounds;
         juce::Rectangle<int> styleLabelBounds, fidelityLabelBounds;
+        juce::Rectangle<int> expandModeLabelBounds, expandCharacterLabelBounds, expandAmountLabelBounds;
     };
 
     static constexpr int kNumScales = 6;

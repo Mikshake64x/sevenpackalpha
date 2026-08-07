@@ -22,6 +22,12 @@ namespace SuppressorColours
     const juce::Colour ledYellow   { 0xfff5e642 };
     const juce::Colour ledOrange   { 0xffff8c1a };
 
+    // Degrade DEDIE a la rangee Expand du GRMeter (demande explicite : "un
+    // systeme de couleur pour les diodes de l'expander mais pas les memes
+    // que celle du gain reduction") -- famille froide bleu/cyan/violet,
+    // delibrement distincte du vert->jaune->orange->rouge de la reduction.
+    const juce::Colour ledPurple   { 0xffb84dff };
+
     const juce::Colour lcdBg       { 0xff0a1620 };
     const juce::Colour lcdText     { 0xff3fd0ff };
 
@@ -80,6 +86,18 @@ public:
         slider.getProperties().set ("knobAccentAtMax", colourAtMax.toString());
     }
 
+    // Retire un accent pose par setKnobAccentGradient() -- retour au
+    // degrade gris neutre d'origine. Utilise quand une bande repasse en
+    // Comp (demande explicite : "quand on passe en expand ... il faut
+    // changer la couleur des knob en violet degrade" -- implique l'inverse
+    // au retour sur Comp, sinon le violet resterait colle sur le meme
+    // Slider physique, seulement reattache a un autre parametre).
+    static void clearKnobAccentGradient (juce::Slider& slider)
+    {
+        slider.getProperties().remove ("knobAccentAtMin");
+        slider.getProperties().remove ("knobAccentAtMax");
+    }
+
     juce::Font getLabelFont (juce::Label&) override;
     void drawLabel (juce::Graphics&, juce::Label&) override;
 
@@ -117,6 +135,11 @@ public:
     static void renderKnobSocket (juce::Graphics& g, juce::Point<float> centre, float radius);
 
     static juce::Colour ledGradientColour (float t);
+
+    // Degrade de la rangee Expand du GRMeter (demande explicite : "un
+    // systeme de couleur pour les diodes de l'expander mais pas les memes
+    // que celle du gain reduction") -- bleu -> cyan -> violet, t = 0..1.
+    static juce::Colour ledGradientColourExpand (float t);
 
     // Degrade des diodes du RatioSelector : cyan (ratio le plus doux,
     // 2:1) -> vert -> jaune -> orange -> rouge (20:1), t = 0..1.

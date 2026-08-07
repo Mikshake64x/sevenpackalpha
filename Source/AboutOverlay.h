@@ -252,6 +252,12 @@ public:
             return;
         }
 
+        if (manualBounds.contains (e.position))
+        {
+            juce::URL ("https://sidekey.fr/manuals/Tripressor_Manual_EN.pdf").launchInDefaultBrowser();
+            return;
+        }
+
         if (onDismiss)
             onDismiss();
     }
@@ -311,7 +317,7 @@ private:
         auto versionArea = headerRow.removeFromRight (56.0f);
         g.setColour (SuppressorColours::textDim);
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
-        g.drawFittedText ("v1.5.3", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
+        g.drawFittedText ("v1.7.4", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
 
         auto titleArea = headerRow.removeFromLeft (juce::jmin (240.0f, headerRow.getWidth() * 0.48f));
         g.setColour (SuppressorColours::ledAmber);
@@ -463,7 +469,11 @@ private:
             "Link In / Link Out for Ganged Input/Output Trim",
             "Factory and User Preset Browser, with a Genuine Default Preset",
             "Resizable UI (75% to 100%), Locked Against Accidental Host Fullscreen",
-            "Calibrated I/O, 0.2dB Linearity, Hand Measured"
+            "Calibrated I/O, 0.2dB Linearity, Hand Measured",
+            "AI Learn: Listens to Your Program Material and Calculates Compression, Expansion, "
+            "Sidechain Detection and Crossover Settings, with Loudness Targeting for Streaming Platform Norms",
+            "Independent Upward Expansion per Band (Comp / Expand), with its Own Ratio, Attack, "
+            "Release and Range, Running Alongside Compression at All Times"
         };
         for (auto* f : features)
             items.push_back ({ f, ColumnItem::Kind::Bullet });
@@ -562,24 +572,45 @@ private:
         g.restoreState();
     }
 
+    // Deux liens cote a cote (sidekey.fr, puis Manual -- demande explicite :
+    // "dans about en bas ou il y a le site tu ajoute le lien vers le
+    // manual") -- chacun garde son propre rectangle cliquable (websiteBounds/
+    // manualBounds), verifies separement dans mouseDown().
     void drawWebsiteLink (juce::Graphics& g, juce::Rectangle<float> area)
     {
-        websiteBounds = area.withSizeKeepingCentre (area.getWidth(), 16.0f);
-        g.setColour (SuppressorColours::ledBlue);
+        auto row = area.withSizeKeepingCentre (area.getWidth(), 16.0f);
         g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)).withExtraKerningFactor (0.04f));
-        g.drawFittedText ("sidekey.fr", websiteBounds.toNearestInt(), juce::Justification::centredLeft, 1);
 
-        juce::GlyphArrangement ga;
-        ga.addLineOfText (g.getCurrentFont(), "sidekey.fr", 0.0f, 0.0f);
-        const float textW = ga.getBoundingBox (0, -1, true).getWidth();
+        juce::GlyphArrangement gaSite;
+        gaSite.addLineOfText (g.getCurrentFont(), "sidekey.fr", 0.0f, 0.0f);
+        const float siteW = gaSite.getBoundingBox (0, -1, true).getWidth();
+
+        websiteBounds = row.withWidth (siteW);
+        g.setColour (SuppressorColours::ledBlue);
+        g.drawFittedText ("sidekey.fr", websiteBounds.toNearestInt(), juce::Justification::centredLeft, 1);
         g.drawLine (websiteBounds.getX(), websiteBounds.getBottom() - 3.0f,
-                    websiteBounds.getX() + textW, websiteBounds.getBottom() - 3.0f, 1.0f);
+                    websiteBounds.getX() + siteW, websiteBounds.getBottom() - 3.0f, 1.0f);
+
+        const float sepW = 18.0f;
+        juce::GlyphArrangement gaManual;
+        gaManual.addLineOfText (g.getCurrentFont(), "Manual", 0.0f, 0.0f);
+        const float manualW = gaManual.getBoundingBox (0, -1, true).getWidth();
+
+        manualBounds = row.withX (websiteBounds.getRight() + sepW).withWidth (manualW);
+        g.setColour (SuppressorColours::textDim.withAlpha (0.5f));
+        g.drawFittedText ("|", juce::Rectangle<float> (websiteBounds.getRight(), row.getY(), sepW, row.getHeight()).toNearestInt(),
+                           juce::Justification::centred, 1);
+        g.setColour (SuppressorColours::ledAmber);
+        g.drawFittedText ("Manual", manualBounds.toNearestInt(), juce::Justification::centredLeft, 1);
+        g.drawLine (manualBounds.getX(), manualBounds.getBottom() - 3.0f,
+                    manualBounds.getX() + manualW, manualBounds.getBottom() - 3.0f, 1.0f);
     }
 
     juce::Image badgeImage;
     juce::Image photoImage;
     juce::Image chromeCache;
     juce::Rectangle<float> websiteBounds;
+    juce::Rectangle<float> manualBounds;
 
     juce::Viewport viewportA, viewportB, viewportC;
     ParagraphColumn columnA, columnB, columnC;

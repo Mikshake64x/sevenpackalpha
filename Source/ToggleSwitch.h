@@ -35,6 +35,12 @@ public:
     // la bande HIGH, voir SuppressorAudioProcessorEditor::buildBandPanel()).
     void setText (const juce::String& newText) { text = newText; repaint(); }
 
+    // Change la couleur de la diode apres construction (demande explicite :
+    // "il faut une diode de chaque couleur pour comp, expand et both") --
+    // utilise par le bouton Above/Below/Both pour recolorer sa diode selon
+    // le mode courant, voir SuppressorEditorContent::buildBandPanel().
+    void setAccentColour (juce::Colour newAccent) { accent = newAccent; repaint(); }
+
     void buttonStateChanged() override
     {
         if (getState() == juce::Button::buttonDown) notePressed(); else noteReleased();

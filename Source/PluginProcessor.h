@@ -82,7 +82,24 @@ public:
     // --- Lus par le GUI (thread-safe, pas d'allocation) ---
 
     // GR combinee (max L/R) PAR BANDE -- une plaque de bande par indice.
+    // Toujours >=0 : quand l'enveloppe reelle (signee -- voir
+    // FeedbackCompressor::getGainReductionDb()) est NEGATIVE (boost, cote
+    // Expand), cette valeur reste a 0 -- voir grMeterExpandDb ci-dessous
+    // pour le boost, meter separe (demande explicite : "une autre bande de
+    // diode qui affiche l'expander en temps reel").
     std::array<std::atomic<float>, (size_t) NumBands> grMeterDb { {} };
+
+    // Boost Expand (max L/R) PAR BANDE -- symetrique de grMeterDb ci-dessus
+    // mais pour la partie NEGATIVE de l'enveloppe (cote Below/Expand).
+    // Independant de grMeterDb : en mode Both, un instant donne n'alimente
+    // JAMAIS les deux a la fois (le signal est soit au-dessus soit en
+    // dessous du seuil a cet instant precis, voir la doc de
+    // FeedbackCompressor::processSample()) -- les 2 meters s'allument donc
+    // en alternance selon le programme, jamais simultanement sur UN SEUL
+    // sample, mais peuvent tous les 2 sembler "actifs" sur une fenetre de
+    // temps humaine (l'un pendant les passages forts, l'autre pendant les
+    // passages calmes).
+    std::array<std::atomic<float>, (size_t) NumBands> grMeterExpandDb { {} };
 
     // GR combinee PAR CANAL (max des 3 bandes, ce canal) -- utilisee
     // uniquement par le NeedleVU global de la plaque du haut (mode "GR"),
@@ -159,10 +176,20 @@ public:
         const bool scopeCompression = aiScopeCompressionParam == nullptr || aiScopeCompressionParam->load() > 0.5f;
         const int styleIndex = aiStyleParam != nullptr ? (int) std::round (aiStyleParam->load()) : 0;
         const bool fidelityEnabled = aiFidelityParam != nullptr && aiFidelityParam->load() > 0.5f;
+        const int expandModeIndex = aiExpandModeParam != nullptr ? (int) std::round (aiExpandModeParam->load()) : 0;
+        const int expandCharacterIndex = aiExpandCharacterParam != nullptr ? (int) std::round (aiExpandCharacterParam->load()) : 0;
+        const int expandAmountIndex = aiExpandAmountParam != nullptr ? (int) std::round (aiExpandAmountParam->load()) : 0;
+        // Chaque Learn calcule et pousse LES DEUX jeux de parametres (Comp
+        // ET Expand) pour les 3 bandes a chaque fois (demande explicite :
+        // "je veux que AI regle en meme temps le comp et l'expand") -- plus
+        // besoin de lire l'etat Comp/Expand manuel actuel des bandes ici,
+        // voir AiLearnAnalyzer::run() et SuppressorEditorContent::
+        // applyAiLearnResult().
         aiLearnAnalyzer.beginCapture (getSampleRate(), targetIndex, compressionModeIndex, attackReleaseCharIndex,
                                        gainReductionIndex,
                                        scopeCrossover, scopeDetectors, scopeCompression,
-                                       styleIndex, fidelityEnabled);
+                                       styleIndex, fidelityEnabled,
+                                       expandModeIndex, expandCharacterIndex, expandAmountIndex);
     }
 
     void toggleABCompare();
@@ -175,6 +202,23 @@ public:
     static constexpr const char* idAttack              = "attack";
     static constexpr const char* idRelease             = "release";
     static constexpr const char* idOutput              = "output";
+
+    // Reglages Input/Ratio/Attack/Release/Output DEDIES au mode EXPAND
+    // (demande explicite : "Comp et expand partage la meme bande, mais les
+    // reglages doivent etre independant ... quand on passe sur expand les
+    // reglages de bande sont uniquement expand") -- meme role/plage que
+    // les 5 IDs ci-dessus, mais lus par le DSP UNIQUEMENT quand le mode
+    // Above/Below de la bande est Expand pur (voir updateDspFromParams()).
+    // Both continue d'utiliser les reglages COMPRESSION ci-dessus (demande
+    // explicite : "quand on passe sur both on mets les reglage de
+    // compression"). Les knobs de la plaque de bande sont RE-attaches a ce
+    // jeu de parametres quand on bascule sur Expand (voir
+    // SuppressorEditorContent::rebindBandKnobsForMode()).
+    static constexpr const char* idInputExpand      = "inputExpand";
+    static constexpr const char* idRatioIndexExpand = "ratioIndexExpand";
+    static constexpr const char* idAttackExpand     = "attackExpand";
+    static constexpr const char* idReleaseExpand    = "releaseExpand";
+    static constexpr const char* idOutputExpand     = "outputExpand";
     static constexpr const char* idDetectorHp   = "detectorHp";
     static constexpr const char* idDetectorHpFreq  = "detectorHpFreq";
     static constexpr const char* idDetectorHpSlope = "detectorHpSlope";
@@ -198,6 +242,14 @@ public:
     static constexpr const char* idAudioDist3   = "audioDist3";
     static constexpr const char* idOptical              = "optical";
     static constexpr const char* idBritish              = "british";
+
+    // Above / Below (demande explicite, "dans le meme esprit que
+    // Ableton") -- false = Above (compression classique, traite le signal
+    // AU-DESSUS du seuil), true = Below (traite le signal EN DESSOUS du
+    // seuil -- compression ascendante/expansion, voir FeedbackCompressor::
+    // setAboveBelowMode()). Le bouton (a gauche d'Optical) change de nom
+    // ABOVE/BELOW selon l'etat.
+    static constexpr const char* idAboveBelow            = "aboveBelow";
 
     // Faders Mix (Dry/Wet) et Width PAR BANDE (voir FaderControl.h) --
     // Mix blende, pour cette bande uniquement, le signal compresse (wet)
@@ -270,6 +322,15 @@ public:
     // independant du mode de compression et du caractere attack/release
     // ci-dessus, voir AiLearnAnalyzer::kGainReductionBias.
     static constexpr const char* idAiGainReductionMode = "aiGainReductionMode";
+
+    // Triade AI Expand (demande explicite : "pour l'ia de expand, il faut
+    // des reglages comme pour l'ia comp" -- meme role que idAiCompressionMode/
+    // idAiAttackReleaseCharacter/idAiGainReductionMode ci-dessus, mais pour
+    // les bandes en mode Expand/Both). Voir AiLearnAnalyzer::kExpandModeBias/
+    // kExpandCharacterBias/kExpandAmountBias.
+    static constexpr const char* idAiExpandMode      = "aiExpandMode";
+    static constexpr const char* idAiExpandCharacter = "aiExpandCharacter";
+    static constexpr const char* idAiExpandAmount    = "aiExpandAmount";
 
     // Style musical propose par le bouton AI (menu Options, section AI,
     // demande explicite : "plusieurs styles musicaux qui vont changer la
@@ -349,6 +410,11 @@ private:
     std::array<std::atomic<float>*, (size_t) NumBands> attackParam          {};
     std::array<std::atomic<float>*, (size_t) NumBands> releaseParam         {};
     std::array<std::atomic<float>*, (size_t) NumBands> outputParam          {};
+    std::array<std::atomic<float>*, (size_t) NumBands> inputExpandParam      {};
+    std::array<std::atomic<float>*, (size_t) NumBands> ratioIndexExpandParam {};
+    std::array<std::atomic<float>*, (size_t) NumBands> attackExpandParam    {};
+    std::array<std::atomic<float>*, (size_t) NumBands> releaseExpandParam   {};
+    std::array<std::atomic<float>*, (size_t) NumBands> outputExpandParam    {};
     std::array<std::atomic<float>*, (size_t) NumBands> detectorHpParam      {};
     std::array<std::atomic<float>*, (size_t) NumBands> detectorHpFreqParam  {};
     std::array<std::atomic<float>*, (size_t) NumBands> detectorHpSlopeParam {};
@@ -365,6 +431,7 @@ private:
     std::array<std::atomic<float>*, (size_t) NumBands> audioDist3Param      {};
     std::array<std::atomic<float>*, (size_t) NumBands> opticalParam         {};
     std::array<std::atomic<float>*, (size_t) NumBands> britishParam         {};
+    std::array<std::atomic<float>*, (size_t) NumBands> aboveBelowParam      {};
     std::array<std::atomic<float>*, (size_t) NumBands> bandMixParam         {};
     std::array<std::atomic<float>*, (size_t) NumBands> bandWidthParam       {};
 
@@ -378,6 +445,9 @@ private:
     std::atomic<float>* aiCompressionModeParam  = nullptr;
     std::atomic<float>* aiAttackReleaseCharacterParam = nullptr;
     std::atomic<float>* aiGainReductionModeParam = nullptr;
+    std::atomic<float>* aiExpandModeParam      = nullptr;
+    std::atomic<float>* aiExpandCharacterParam = nullptr;
+    std::atomic<float>* aiExpandAmountParam    = nullptr;
     std::atomic<float>* aiStyleParam    = nullptr;
     std::atomic<float>* aiFidelityParam = nullptr;
     std::atomic<float>* crossoverLowParam     = nullptr;

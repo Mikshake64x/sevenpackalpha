@@ -44,6 +44,12 @@ namespace
             bandXml->setAttribute ("attack", (double) bp.attack);
             bandXml->setAttribute ("release", (double) bp.release);
             bandXml->setAttribute ("output", (double) bp.output);
+            bandXml->setAttribute ("aboveBelow", bp.aboveBelow);
+            bandXml->setAttribute ("rangeExpand", (double) bp.rangeExpand);
+            bandXml->setAttribute ("ratioIndexExpand", bp.ratioIndexExpand);
+            bandXml->setAttribute ("attackExpand", (double) bp.attackExpand);
+            bandXml->setAttribute ("releaseExpand", (double) bp.releaseExpand);
+            bandXml->setAttribute ("outputExpand", (double) bp.outputExpand);
             bandXml->setAttribute ("detectorHp", bp.detectorHp);
             bandXml->setAttribute ("detectorHpFreq", (double) bp.detectorHpFreq);
             bandXml->setAttribute ("detectorHpSlope", bp.detectorHpSlope);
@@ -95,6 +101,12 @@ namespace
             bp.attack            = (float) bandXml->getDoubleAttribute ("attack", SuppressorAudioProcessor::defaultAttackMs);
             bp.release           = (float) bandXml->getDoubleAttribute ("release", SuppressorAudioProcessor::defaultReleaseMs);
             bp.output            = (float) bandXml->getDoubleAttribute ("output", 0.0);
+            bp.aboveBelow        = bandXml->getIntAttribute ("aboveBelow", 0);
+            bp.rangeExpand       = (float) bandXml->getDoubleAttribute ("rangeExpand", 0.0);
+            bp.ratioIndexExpand  = bandXml->getIntAttribute ("ratioIndexExpand", 0);
+            bp.attackExpand      = (float) bandXml->getDoubleAttribute ("attackExpand", SuppressorAudioProcessor::defaultAttackMs);
+            bp.releaseExpand     = (float) bandXml->getDoubleAttribute ("releaseExpand", SuppressorAudioProcessor::defaultReleaseMs);
+            bp.outputExpand      = (float) bandXml->getDoubleAttribute ("outputExpand", 0.0);
             bp.detectorHp        = bandXml->getBoolAttribute ("detectorHp", false);
             bp.detectorHpFreq    = (float) bandXml->getDoubleAttribute ("detectorHpFreq", 100.0);
             bp.detectorHpSlope   = bandXml->getIntAttribute ("detectorHpSlope", 2);
@@ -122,6 +134,11 @@ namespace
 SuppressorEditorContent::SuppressorEditorContent (SuppressorAudioProcessor& p)
     : processorRef (p)
 {
+    // Opaque -- paint() couvre deja tout le fond (backgroundCache ou
+    // renderMetalPanel, voir plus bas), donc pas besoin que JUCE efface
+    // en dessous. Aide aussi a eviter le clignotement blanc au
+    // redimensionnement (voir SuppressorAudioProcessorEditor::setOpaque).
+    setOpaque (true);
     setLookAndFeel (&lookAndFeel);
     setWantsKeyboardFocus (true);
 
@@ -336,6 +353,18 @@ SuppressorEditorContent::SuppressorEditorContent (SuppressorAudioProcessor& p)
     {
         setParamValue (SuppressorAudioProcessor::idAiFidelity, enabled ? 1.0f : 0.0f);
     };
+    optionsOverlay.onAiExpandModeSelected = [this] (int index)
+    {
+        setParamValue (SuppressorAudioProcessor::idAiExpandMode, (float) index);
+    };
+    optionsOverlay.onAiExpandCharacterSelected = [this] (int index)
+    {
+        setParamValue (SuppressorAudioProcessor::idAiExpandCharacter, (float) index);
+    };
+    optionsOverlay.onAiExpandAmountSelected = [this] (int index)
+    {
+        setParamValue (SuppressorAudioProcessor::idAiExpandAmount, (float) index);
+    };
 
     // --- Presets rapides (meme mecanisme que Nuke Mext) ---
     buildPresetList();
@@ -437,12 +466,23 @@ void SuppressorEditorContent::applyAiLearnResult (const AiLearnAnalyzer::Result&
     {
         auto id = [band] (const char* base) { return SuppressorAudioProcessor::bandParamId (base, band); };
 
+        // Comp et Expand ont des jeux de parametres INDEPENDANTS
+        // (idInput/idInputExpand, etc.) et sont TOUS LES DEUX calcules et
+        // pousses A CHAQUE Learn (demande explicite : "je veux que AI
+        // regle en meme temps le comp et l'expand ... je veux pas cliquer
+        // une fois pour les compresseurs et une fois pour les
+        // expandeurs") -- plus de bascule automatique du bouton Comp/
+        // Expand : les 2 jeux de valeurs sont deja prets, basculer une
+        // bande d'un mode a l'autre pour comparer n'exige plus de
+        // relancer un Learn.
         if (result.applyCompressionScope)
         {
-            // Chaque axe (Compression Mode/Gain Reduction/Attack-Release
-            // Character) a son propre "Off" (demande explicite : "on doit
+            // Chaque axe a son propre "Off" (demande explicite : "on doit
             // pouvoir agir que sur les points AI qui ne vont pas") -- ne
-            // pousse SA cible que si son axe n'est pas sur Off.
+            // pousse SA cible que si son axe n'est pas sur Off. Les 2
+            // triades (Compression Mode/Gain Reduction/Character et
+            // Expand Mode/Amount/Character) sont INDEPENDANTES, chacune
+            // avec ses propres drapeaux.
             if (result.pushInput)
                 rampParamTo (id (SuppressorAudioProcessor::idInput), result.inputDb[(size_t) band]);
             if (result.pushAttackRelease)
@@ -453,6 +493,17 @@ void SuppressorEditorContent::applyAiLearnResult (const AiLearnAnalyzer::Result&
             if (result.pushRatio)
                 setParamValue (id (SuppressorAudioProcessor::idRatioIndex),
                                (float) juce::roundToInt (result.ratioIndex[(size_t) band]));
+
+            if (result.pushExpandInput)
+                rampParamTo (id (SuppressorAudioProcessor::idInputExpand), result.expandInputDb[(size_t) band]);
+            if (result.pushExpandAttackRelease)
+            {
+                rampParamTo (id (SuppressorAudioProcessor::idAttackExpand),  result.expandAttackMs[(size_t) band]);
+                rampParamTo (id (SuppressorAudioProcessor::idReleaseExpand), result.expandReleaseMs[(size_t) band]);
+            }
+            if (result.pushExpandRatio)
+                setParamValue (id (SuppressorAudioProcessor::idRatioIndexExpand),
+                               (float) juce::roundToInt (result.expandRatioIndex[(size_t) band]));
 
             rampParamTo (id (SuppressorAudioProcessor::idBandMix),   result.mixPercent[(size_t) band]);
             rampParamTo (id (SuppressorAudioProcessor::idBandWidth), result.widthPercent[(size_t) band]);
@@ -465,19 +516,26 @@ void SuppressorEditorContent::applyAiLearnResult (const AiLearnAnalyzer::Result&
             setParamValue (id (SuppressorAudioProcessor::idDetectorBellGain), result.detectorBellGainDb[(size_t) band]);
         }
 
-        // Output : jusqu'a 3 sources INDEPENDANTES peuvent y contribuer --
-        // la cible de mastering (LUFS), le Style musical (offset statique
-        // par bande) et Fidelity (correction dynamique de balance) --
-        // chacune activable separement (voir AiLearnAnalyzer::Result). On
-        // les additionne et on pousse une seule fois si au moins une est
+        // Output : UN SEUL knob partage entre Comp et Expand desormais
+        // (retour utilisateur : "j'ai l'impression que je clique sur comp
+        // et expand" -- deux Output independants faisaient sauter le
+        // niveau au clic entre les deux modes, puisque Above et Below
+        // tournent maintenant TOUJOURS ensemble -- voir doc de
+        // FeedbackCompressor::AboveBelowMode). Jusqu'a 4 sources
+        // INDEPENDANTES peuvent y contribuer -- la cible de mastering
+        // (LUFS), le Style musical (offset statique par bande), Fidelity
+        // (correction dynamique de balance) et le makeup Expand (voir
+        // AiLearnAnalyzer::Result) -- chacune activable separement. On les
+        // additionne et on pousse une seule fois si au moins une est
         // active, plutot qu'un rampParamTo par source (qui n'appliquerait
         // que la derniere).
-        if (result.applyLoudnessTarget || result.applyStyle || result.applyFidelity)
+        if (result.applyLoudnessTarget || result.applyStyle || result.applyFidelity || result.applyExpandOutput)
         {
             float outputDb = 0.0f;
             if (result.applyLoudnessTarget) outputDb += result.outputDb[(size_t) band];
             if (result.applyStyle)          outputDb += result.styleOutputDb[(size_t) band];
             if (result.applyFidelity)       outputDb += result.fidelityOutputDb[(size_t) band];
+            if (result.applyExpandOutput)   outputDb += result.expandOutputDb[(size_t) band];
             rampParamTo (id (SuppressorAudioProcessor::idOutput), outputDb);
         }
     }
@@ -509,9 +567,12 @@ void SuppressorEditorContent::setupKnob (KnobControl& knob, const juce::String& 
 }
 
 void SuppressorEditorContent::setupFader (FaderControl& fader, const juce::String& paramID, double neutralValue,
-                                                  const juce::String& topText, const juce::String& bottomText, juce::Colour accent)
+                                                  const juce::String& topText, const juce::String& bottomText, juce::Colour accent,
+                                                  juce::Colour accentBelowNeutral)
 {
     fader.lookAndFeel.setAccentColour (accent);
+    if (! accentBelowNeutral.isTransparent())
+        fader.lookAndFeel.setAccentColourBelowNeutral (accentBelowNeutral);
     FaderVerticalLookAndFeel::setNeutralValue (fader.slider, neutralValue);
 
     addAndMakeVisible (fader.slider);
@@ -550,6 +611,54 @@ void SuppressorEditorContent::buildBandPanel (int band, juce::Colour accent, con
     opticalBtn->onClick = [opticalBtn, britishBtn] { if (opticalBtn->getToggleState()) britishBtn->setToggleState (false, juce::sendNotificationSync); };
     britishBtn->onClick = [opticalBtn, britishBtn] { if (britishBtn->getToggleState()) opticalBtn->setToggleState (false, juce::sendNotificationSync); };
 
+    // Comp/Expand (demande explicite : "on va juste mettre expand et comp.
+    // quand on est en mode comp c'est comme si on etait en both ... le
+    // mode expand passe sur l'expander") -- choix a 2 valeurs SEULEMENT
+    // desormais (etait 3 -- Above/Below/Both), cycle au clic (COMP ->
+    // EXPAND -> COMP...), meme mecanique que ratioSelector ci-dessus
+    // (ParameterAttachment manuel, pas de ButtonAttachment). La diode
+    // reste toujours allumee, seule sa couleur indique le mode actif.
+    addAndMakeVisible (bp.aboveBelowButton);
+    // 2 etats a faire cycler manuellement au clic -- on desactive le
+    // toggle automatique du clic (ToggleSwitch l'active par defaut) pour
+    // eviter qu'il devine un etat incorrect avant que le callback de
+    // l'attachment (ci-dessous) ne vienne le corriger.
+    bp.aboveBelowButton.setClickingTogglesState (false);
+    static const char* aboveBelowLabels[2] = { "COMP", "EXPAND" };
+    // EXPAND en violet -- coherent avec le reste du theme Expand (knobs
+    // teintes violet, rangee GR dediee bleu->cyan->violet, voir
+    // SuppressorLookAndFeel::ledGradientColourExpand()) -- retour
+    // utilisateur : la diode restait verte alors que tout le reste de
+    // l'habillage Expand est deja violet.
+    static const juce::Colour aboveBelowColours[2] =
+        { SuppressorColours::ledBlue, SuppressorColours::ledPurple };
+    auto* aboveBelowParam = processorRef.apvts.getParameter (pid (SuppressorAudioProcessor::idAboveBelow));
+    auto* aboveBelowBtn = &bp.aboveBelowButton;
+    bp.aboveBelowAttachment = std::make_unique<juce::ParameterAttachment> (
+        *aboveBelowParam,
+        [this, band, aboveBelowBtn] (float v)
+        {
+            const int idx = juce::jlimit (0, 1, juce::roundToInt (v));
+            aboveBelowBtn->setText (aboveBelowLabels[idx]);
+            aboveBelowBtn->setAccentColour (aboveBelowColours[idx]);
+            aboveBelowBtn->setToggleState (true, juce::dontSendNotification);
+            // Comp et Expand partagent la meme bande mais des reglages
+            // Input/Ratio/Attack/Release/Output INDEPENDANTS (demande
+            // explicite) -- reattache les knobs/RatioSelector de cette
+            // bande au bon jeu de parametres. Comp tourne desormais en
+            // interne comme l'ancien Both (voir PluginProcessor.cpp),
+            // mais garde les reglages COMPRESSION -- rebindBandKnobsForMode()
+            // n'a pas besoin de changer, idx==1 signifie toujours Expand.
+            rebindBandKnobsForMode (band, idx);
+        },
+        nullptr);
+    aboveBelowBtn->onClick = [this, band, aboveBelowParam]
+    {
+        auto& attachment = *bandPanels[(size_t) band].aboveBelowAttachment;
+        const int current = juce::roundToInt (aboveBelowParam->convertFrom0to1 (aboveBelowParam->getValue()));
+        attachment.setValueAsCompleteGesture ((float) ((current + 1) % 2));
+    };
+
     addAndMakeVisible (bp.sidechainToggle);
     bp.sidechainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
         processorRef.apvts, pid (SuppressorAudioProcessor::idSidechainEnable), bp.sidechainToggle);
@@ -561,7 +670,9 @@ void SuppressorEditorContent::buildBandPanel (int band, juce::Colour accent, con
         processorRef.apvts, soloIds[band], bp.soloSwitch->lever);
 
     bp.grMeter = std::make_unique<GRMeter> (processorRef.grMeterDb[(size_t) band],
-                                             *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idPower));
+                                             processorRef.grMeterExpandDb[(size_t) band],
+                                             *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idPower),
+                                             *processorRef.apvts.getRawParameterValue (pid (SuppressorAudioProcessor::idAboveBelow)));
     addAndMakeVisible (*bp.grMeter);
 
     addAndMakeVisible (bp.ratioSelector);
@@ -643,15 +754,99 @@ void SuppressorEditorContent::buildBandPanel (int band, juce::Colour accent, con
     setupKnob (bp.releaseKnob, pid (SuppressorAudioProcessor::idRelease), "REL", " ms", 1);
     setupKnob (bp.outputKnob,  pid (SuppressorAudioProcessor::idOutput),  "OUT", " dB", 1);
 
+    // Envoye APRES setupKnob/ratioSelector ci-dessus (et non juste apres
+    // la creation de aboveBelowAttachment plus haut) : le callback appelle
+    // rebindBandKnobsForMode(), qui doit trouver des knobs deja attaches
+    // (par setupKnob) pour pouvoir les reattacher correctement si une
+    // session sauvegardee restaure une bande deja en Expand/Both.
+    bp.aboveBelowAttachment->sendInitialUpdate();
+
     setupFader (bp.mixFader, pid (SuppressorAudioProcessor::idBandMix), 0.0,
                 "WET", "DRY", SuppressorColours::ledCyan);
     setupFader (bp.widthFader, pid (SuppressorAudioProcessor::idBandWidth), 100.0,
-                "SPREAD", "MONO", SuppressorColours::ledAmber);
+                "SPREAD", "MONO", SuppressorColours::ledAmber, SuppressorColours::ledCyan);
 
     // "tag" (LOW/MID/HIGH) n'est plus dessine en texte -- voir le logo
     // image correspondant peint directement dans paint() -- conserve comme
     // parametre pour le nom accessible du composant.
     juce::ignoreUnused (tag);
+}
+
+void SuppressorEditorContent::rebindBandKnobsForMode (int band, int mode)
+{
+    auto& bp = bandPanels[(size_t) band];
+    const auto pid = [band] (const char* base) { return SuppressorAudioProcessor::bandParamId (base, band); };
+    const bool useExpand = (mode == 1); // 0=Comp, 2=Both -> reglages COMPRESSION (demande explicite)
+
+    // Garde anti-cascade : recreer un SliderAttachment pousse la valeur
+    // COURANTE du parametre dans le slider (via sendNotificationSync),
+    // exactement comme un "drag" pour le mecanisme Link In/Out (voir
+    // wireInputLink/wireOutputLink) -- sans ce garde, rebasculer une bande
+    // pourrait entrainer les 2 autres bandes sur un delta parasite.
+    const bool wasLinkInGuard = linkInGuard;
+    const bool wasLinkOutGuard = linkOutGuard;
+    linkInGuard = true;
+    linkOutGuard = true;
+
+    auto rebindKnob = [this] (KnobControl& knob, const juce::String& newParamId)
+    {
+        knob.attachment.reset();
+        // Meme comportement double-clic que setupKnob() -- sans ce
+        // re-appel, le double-clic remettrait toujours vers l'ancien
+        // parametre (ex : 0dB d'Input au lieu de 0dB de Range).
+        if (auto* param = processorRef.apvts.getParameter (newParamId))
+            knob.slider.setDoubleClickReturnValue (true, param->convertFrom0to1 (param->getDefaultValue()));
+        knob.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+            processorRef.apvts, newParamId, knob.slider);
+    };
+
+    // Le knob "IN" est REAFFECTE en "RANGE" pour Expand pur (demande
+    // explicite : "le knob input du mode comp passe en mode range" --
+    // Comp/Both gardent "IN" normal, voir FeedbackCompressor::
+    // setExpandRangeDb()).
+    bp.inputKnob.label.setText (useExpand ? "RANGE" : "IN", juce::dontSendNotification);
+
+    rebindKnob (bp.inputKnob,   pid (useExpand ? SuppressorAudioProcessor::idInputExpand   : SuppressorAudioProcessor::idInput));
+    rebindKnob (bp.attackKnob,  pid (useExpand ? SuppressorAudioProcessor::idAttackExpand  : SuppressorAudioProcessor::idAttack));
+    rebindKnob (bp.releaseKnob, pid (useExpand ? SuppressorAudioProcessor::idReleaseExpand : SuppressorAudioProcessor::idRelease));
+    // Output : PAS de rebind -- knob PARTAGE entre Comp et Expand desormais
+    // (retour utilisateur : "j'ai l'impression que je clique sur comp et
+    // expand" -- deux Output independants faisaient sauter le niveau au
+    // clic entre les deux modes ; Above et Below tournant maintenant
+    // TOUJOURS ensemble, un seul makeup gain a du sens). Reste attache a
+    // idOutput en permanence.
+
+    // Degrade violet sur les 3 knobs mode-dependants quand la bande est en
+    // Expand pur (demande explicite : "un peu comme les crossover" -- meme
+    // mecanisme que setKnobAccentGradient() utilise pour XLO/XHI) -- retire
+    // (retour au gris neutre d'origine) des qu'on repasse sur Comp/Both,
+    // sinon la teinte resterait collee sur le meme Slider physique. Output
+    // exclu (knob partage, jamais teinte violet).
+    for (auto* knob : { &bp.inputKnob, &bp.attackKnob, &bp.releaseKnob })
+    {
+        if (useExpand)
+            SuppressorLookAndFeel::setKnobAccentGradient (knob->slider,
+                juce::Colour (0xff5a1fb8), SuppressorColours::ledPurple);
+        else
+            SuppressorLookAndFeel::clearKnobAccentGradient (knob->slider);
+        knob->slider.repaint();
+    }
+
+    // Meme mecanique manuelle que le cablage initial du RatioSelector
+    // (voir buildBandPanel()) -- pas de ButtonAttachment/SliderAttachment
+    // possible pour ce composant custom.
+    auto* ratioParam = processorRef.apvts.getParameter (
+        pid (useExpand ? SuppressorAudioProcessor::idRatioIndexExpand : SuppressorAudioProcessor::idRatioIndex));
+    auto* ratioSelectorPtr = &bp.ratioSelector;
+    bp.ratioAttachment = std::make_unique<juce::ParameterAttachment> (
+        *ratioParam,
+        [ratioSelectorPtr] (float v) { ratioSelectorPtr->setSelectedIndex ((int) std::round (v)); },
+        nullptr);
+    bp.ratioSelector.onSelect = [this, band] (int idx) { bandPanels[(size_t) band].ratioAttachment->setValueAsCompleteGesture ((float) idx); };
+    bp.ratioAttachment->sendInitialUpdate();
+
+    linkInGuard = wasLinkInGuard;
+    linkOutGuard = wasLinkOutGuard;
 }
 
 // Lien RELATIF (delta), pas absolu : si Low=10dB et Mid=5dB et qu'on bouge
@@ -683,10 +878,28 @@ void SuppressorEditorContent::wireInputLink()
 
                 if (std::abs (delta) > 1.0e-9)
                 {
+                    // Ne link QUE les bandes dans le MEME mode Comp/Expand
+                    // (retour utilisateur : "ça ne doit pas link quand par
+                    // exemple une bande est sur expand et le link est
+                    // active sur comp ... actuellement si je tourne le
+                    // range alors que link in est active, ça tourne tous
+                    // les knobs") -- ce knob peut representer Input (Comp)
+                    // OU Range (Expand) selon le mode de CETTE bande (voir
+                    // rebindBandKnobsForMode()), deux grandeurs de nature
+                    // differente qui ne doivent jamais se linker entre elles.
+                    const int modeOfDraggedBand = (int) std::round (
+                        processorRef.apvts.getRawParameterValue (
+                            SuppressorAudioProcessor::bandParamId (SuppressorAudioProcessor::idAboveBelow, band))->load());
+
                     linkInGuard = true;
                     for (int b = 0; b < kNumBands; ++b)
                     {
                         if (b == band)
+                            continue;
+                        const int modeOfOtherBand = (int) std::round (
+                            processorRef.apvts.getRawParameterValue (
+                                SuppressorAudioProcessor::bandParamId (SuppressorAudioProcessor::idAboveBelow, b))->load());
+                        if (modeOfOtherBand != modeOfDraggedBand)
                             continue;
                         auto& other = bandPanels[(size_t) b].inputKnob.slider;
                         const double target = juce::jlimit (other.getMinimum(), other.getMaximum(), other.getValue() + delta);
@@ -725,10 +938,22 @@ void SuppressorEditorContent::wireOutputLink()
 
                 if (std::abs (delta) > 1.0e-9)
                 {
+                    // Meme garde que wireInputLink() -- ne link que les
+                    // bandes dans le MEME mode Comp/Expand (retour
+                    // utilisateur, voir la doc la-bas).
+                    const int modeOfDraggedBand = (int) std::round (
+                        processorRef.apvts.getRawParameterValue (
+                            SuppressorAudioProcessor::bandParamId (SuppressorAudioProcessor::idAboveBelow, band))->load());
+
                     linkOutGuard = true;
                     for (int b = 0; b < kNumBands; ++b)
                     {
                         if (b == band)
+                            continue;
+                        const int modeOfOtherBand = (int) std::round (
+                            processorRef.apvts.getRawParameterValue (
+                                SuppressorAudioProcessor::bandParamId (SuppressorAudioProcessor::idAboveBelow, b))->load());
+                        if (modeOfOtherBand != modeOfDraggedBand)
                             continue;
                         auto& other = bandPanels[(size_t) b].outputKnob.slider;
                         const double target = juce::jlimit (other.getMinimum(), other.getMaximum(), other.getValue() + delta);
@@ -795,6 +1020,12 @@ void SuppressorEditorContent::showOptionsOverlay()
         *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idAiStyle)));
     optionsOverlay.setAiFidelityState (
         *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idAiFidelity) > 0.5f);
+    optionsOverlay.setCurrentAiExpandMode ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idAiExpandMode)));
+    optionsOverlay.setCurrentAiExpandCharacter ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idAiExpandCharacter)));
+    optionsOverlay.setCurrentAiExpandAmount ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idAiExpandAmount)));
 
     optionsOverlay.setVisible (true);
     optionsOverlay.toFront (true);
@@ -923,11 +1154,21 @@ void SuppressorEditorContent::layoutBandRow (BandPanel& bp, juce::Rectangle<int>
     // lisible (voir SoloSwitch.h : LED + levier switch_metal.png + libelle).
     bp.soloSwitch->setBounds (area.getX() + 14, top + 34, 68, 90);
 
-    bp.grMeter->setBounds (area.getX() + 105, top + 17, 280, 36);
+    // Hauteur +9px (etait 36) pour loger la rangee Expand dediee, MEME
+    // taille de diode que la rangee compression (demande explicite) donc
+    // plus de place requise que l'ancienne lecture numerique -- le haut ne
+    // bouge pas (top+17, juste sous le label "GAIN REDUCTION / RATIO" a
+    // top+4..16), la croissance se fait vers le bas (jusqu'a top+62).
+    bp.grMeter->setBounds (area.getX() + 105, top + 17, 280, 45);
 
-    bp.opticalButton.setBounds  (area.getX() + 175, top + 61, 76, 24);
-    bp.britishButton.setBounds  (area.getX() + 257, top + 61, 76, 24);
-    bp.sidechainToggle.setBounds (area.getX() + 341, top + 61, 44, 24);
+    // Above/Below/Both, a gauche d'Optical (demande explicite) -- rangee
+    // decalee a y=64 (etait 61, +3px pour laisser un peu d'air sous le GR
+    // meter agrandi ci-dessus), toujours avec de la marge avant le
+    // RatioSelector (y93+).
+    bp.aboveBelowButton.setBounds (area.getX() + 105, top + 64, 64, 24);
+    bp.opticalButton.setBounds  (area.getX() + 175, top + 64, 76, 24);
+    bp.britishButton.setBounds  (area.getX() + 257, top + 64, 76, 24);
+    bp.sidechainToggle.setBounds (area.getX() + 341, top + 64, 44, 24);
 
     bp.ratioSelector.setBounds (area.getX() + 105, top + 93, 280, 44);
 
@@ -1176,6 +1417,9 @@ void SuppressorEditorContent::buildPresetList()
         // (50Hz Low/Mid, 16000Hz High -- pas le meme sur les 3 bandes).
         PresetData p; p.name = "Default"; p.crossoverLow = 121.5f; p.crossoverHigh = 2521.0f;
         p.linearMode = false; p.softClipOn = true; p.thdMode = 0;
+        // Range Expand a plat 0.0f (demande explicite : "les ranges des
+        // expand doivent etre a 0 a l'ouverture du plug in") -- deja le
+        // defaut du champ PresetData::Band::rangeExpand, Band{} suffit.
         for (int b = 0; b < kNumBands; ++b)
         {
             auto& band = p.bands[b];
@@ -1414,6 +1658,16 @@ void SuppressorEditorContent::applyPresetData (const PresetData& preset)
         rampParamTo (id (SuppressorAudioProcessor::idAttack), bp.attack);
         rampParamTo (id (SuppressorAudioProcessor::idRelease), bp.release);
         rampParamTo (id (SuppressorAudioProcessor::idOutput), bp.output);
+
+        // Above/Below/Both + jeu Expand dedie (demande explicite :
+        // "recalibre les valeurs range").
+        setParamValue (id (SuppressorAudioProcessor::idAboveBelow), (float) bp.aboveBelow);
+        rampParamTo (id (SuppressorAudioProcessor::idInputExpand), bp.rangeExpand);
+        setParamValue (id (SuppressorAudioProcessor::idRatioIndexExpand), (float) bp.ratioIndexExpand);
+        rampParamTo (id (SuppressorAudioProcessor::idAttackExpand), bp.attackExpand);
+        rampParamTo (id (SuppressorAudioProcessor::idReleaseExpand), bp.releaseExpand);
+        rampParamTo (id (SuppressorAudioProcessor::idOutputExpand), bp.outputExpand);
+
         setParamValue (id (SuppressorAudioProcessor::idDetectorHp), bp.detectorHp ? 1.0f : 0.0f);
         setParamValue (id (SuppressorAudioProcessor::idDetectorHpFreq), bp.detectorHpFreq);
         setParamValue (id (SuppressorAudioProcessor::idDetectorHpSlope), (float) bp.detectorHpSlope);
@@ -1459,6 +1713,14 @@ SuppressorEditorContent::PresetData SuppressorEditorContent::captureCurrentPrese
         bp.attack           = processorRef.apvts.getRawParameterValue (id (SuppressorAudioProcessor::idAttack))->load();
         bp.release          = processorRef.apvts.getRawParameterValue (id (SuppressorAudioProcessor::idRelease))->load();
         bp.output           = processorRef.apvts.getRawParameterValue (id (SuppressorAudioProcessor::idOutput))->load();
+
+        bp.aboveBelow       = (int) std::round (processorRef.apvts.getRawParameterValue (id (SuppressorAudioProcessor::idAboveBelow))->load());
+        bp.rangeExpand      = processorRef.apvts.getRawParameterValue (id (SuppressorAudioProcessor::idInputExpand))->load();
+        bp.ratioIndexExpand = (int) std::round (processorRef.apvts.getRawParameterValue (id (SuppressorAudioProcessor::idRatioIndexExpand))->load());
+        bp.attackExpand     = processorRef.apvts.getRawParameterValue (id (SuppressorAudioProcessor::idAttackExpand))->load();
+        bp.releaseExpand    = processorRef.apvts.getRawParameterValue (id (SuppressorAudioProcessor::idReleaseExpand))->load();
+        bp.outputExpand     = processorRef.apvts.getRawParameterValue (id (SuppressorAudioProcessor::idOutputExpand))->load();
+
         bp.detectorHp       = processorRef.apvts.getRawParameterValue (id (SuppressorAudioProcessor::idDetectorHp))->load() > 0.5f;
         bp.detectorHpFreq   = processorRef.apvts.getRawParameterValue (id (SuppressorAudioProcessor::idDetectorHpFreq))->load();
         bp.detectorHpSlope  = (int) std::round (processorRef.apvts.getRawParameterValue (id (SuppressorAudioProcessor::idDetectorHpSlope))->load());

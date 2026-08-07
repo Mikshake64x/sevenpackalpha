@@ -29,6 +29,7 @@
 #if JUCE_WINDOWS
  #include <windows.h>
  #include <map>
+ #include <set>
 #endif
 
 struct KnobControl
@@ -53,6 +54,16 @@ struct BandPanel
     ToggleSwitch opticalButton { "OPTICAL", SuppressorColours::ledAmber };
     ToggleSwitch britishButton { "OVERKILL", SuppressorColours::ledRed };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> opticalAttachment, britishAttachment;
+
+    // Above/Below/Both (demande explicite, "dans le meme esprit que Ableton"
+    // + "il faut que les deux puissent jouer en meme temps ... troisieme
+    // fois avec ecrit both") -- a gauche d'Optical, cycle ABOVE -> BELOW ->
+    // BOTH -> ABOVE... au clic. C'est un choix a 3 valeurs (pas un simple
+    // bool), donc un ParameterAttachment manuel comme ratioSelector -- pas
+    // de ButtonAttachment (reserve aux bool). Voir SuppressorEditorContent::
+    // buildBandPanel().
+    ToggleSwitch aboveBelowButton { "COMP", SuppressorColours::ledBlue };
+    std::unique_ptr<juce::ParameterAttachment> aboveBelowAttachment;
 
     ToggleSwitch sidechainToggle { "SC", SuppressorColours::ledCyan };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> sidechainAttachment;
@@ -161,6 +172,20 @@ public:
             float attack = SuppressorAudioProcessor::defaultAttackMs;
             float release = SuppressorAudioProcessor::defaultReleaseMs;
             float output = 0.0f;
+
+            // Above/Below/Both + jeu de reglages Expand DEDIE (demande
+            // explicite : "recalibre les valeurs range" -- recharger un
+            // preset, "Default" en particulier, doit remettre l'expander
+            // dans son etat d'usine calibre, Range=0dB inclus, pas juste
+            // laisser les valeurs live intactes). Memes defauts que
+            // createParameterLayout() dans PluginProcessor.cpp.
+            int aboveBelow = 0; // 0=Comp (voir FeedbackCompressor::AboveBelowMode)
+            float rangeExpand = 0.0f; // Range (dB), PAS un "Input" -- voir idInputExpand
+            int ratioIndexExpand = 0; // 2:1
+            float attackExpand = SuppressorAudioProcessor::defaultAttackMs;
+            float releaseExpand = SuppressorAudioProcessor::defaultReleaseMs;
+            float outputExpand = 0.0f;
+
             bool detectorHp = false;
             float detectorHpFreq = 100.0f;
             int detectorHpSlope = 2;
@@ -189,13 +214,26 @@ public:
 private:
     void setupKnob (KnobControl& knob, const juce::String& paramID, const juce::String& labelText,
                     const juce::String& unitSuffix, int decimalPlaces);
+    // accentBelowNeutral optionnel (demande explicite : "le fader spread
+    // est completement orange ... pas hyper visible si on est cote mono et
+    // cote stereo") -- laisser par defaut (transparent) = fader a 1 seule
+    // couleur, comme avant (utilise par Mix). Le passer explicitement
+    // donne un fader a 2 tons, cote mono / cote spread (utilise par Width).
     void setupFader (FaderControl& fader, const juce::String& paramID, double neutralValue,
-                      const juce::String& topText, const juce::String& bottomText, juce::Colour accent);
+                      const juce::String& topText, const juce::String& bottomText, juce::Colour accent,
+                      juce::Colour accentBelowNeutral = juce::Colour());
     void rebuildBackgroundCache();
     void timerCallback() override;
 
     void buildBandPanel (int band, juce::Colour accent, const juce::String& tag);
     void layoutBandRow (BandPanel& bp, juce::Rectangle<int> area);
+
+    // Comp et Expand partagent la meme bande mais des reglages Input/
+    // Ratio/Attack/Release/Output INDEPENDANTS (demande explicite) --
+    // reattache les 4 knobs + le RatioSelector de cette bande au jeu de
+    // parametres correspondant. mode : 0=Comp, 1=Expand, 2=Both (Both
+    // reste sur les parametres COMPRESSION, demande explicite).
+    void rebindBandKnobsForMode (int band, int mode);
 
     void wireInputLink();  // lien relatif entre les 3 knobs Input (voir linkInSwitch)
     void wireOutputLink(); // lien relatif entre les 3 knobs Output (voir linkOutSwitch)
@@ -328,6 +366,15 @@ public:
     explicit SuppressorAudioProcessorEditor (SuppressorAudioProcessor& p)
         : juce::AudioProcessorEditor (&p), processorRef (p), content (p)
     {
+        // Opaque (retour utilisateur : "quand je change la taille du VST
+        // ... clignotement blanc ... le temps qu'il calcule les positions
+        // c'est pas propre") -- sans ca, le peer de fenetre efface la zone
+        // exposee par setSize() en blanc (fond par defaut de l'OS/JUCE)
+        // AVANT que paint() ne redessine, le temps d'un frame -- visible a
+        // chaque changement d'echelle (menu Options). setOpaque(true) +
+        // paint() qui remplit vraiment tout le fond (voir plus bas) evite
+        // cette etape d'effacement intermediaire.
+        setOpaque (true);
         addAndMakeVisible (content);
         content.setBounds (0, 0, SuppressorEditorContent::baseWidth, SuppressorEditorContent::baseHeight);
         content.onScaleRequested = [this] (float scale) { applyUiScale (scale); };
@@ -363,7 +410,11 @@ public:
                  juce::roundToInt (SuppressorEditorContent::baseHeight * scale));
     }
 
-    void paint (juce::Graphics&) override {} // le contenu peint tout
+    // Remplit tout le fond (voir setOpaque(true) au constructeur) -- sinon
+    // le rectangle expose par un changement d'echelle resterait blanc
+    // jusqu'a ce que `content` (plus petit ou plus grand selon le sens du
+    // resize) le recouvre a son tour.
+    void paint (juce::Graphics& g) override { g.fillAll (SuppressorColours::bg); }
 
    #if JUCE_WINDOWS
     // Ableton Live est un cas particulier documente dans JUCE lui-meme
@@ -386,9 +437,6 @@ public:
 
     void hookTitleBarDoubleClick()
     {
-        if (titleBarHwnd != nullptr)
-            return; // deja accroche
-
         auto* peer = getPeer();
         if (peer == nullptr)
             return;
@@ -396,6 +444,28 @@ public:
         auto ownHwnd = (HWND) peer->getNativeHandle();
         if (ownHwnd == nullptr)
             return;
+
+        // Notre PROPRE HWND (retour utilisateur : "clignotement blanc ...
+        // quand je change la taille" -- persistant meme apres setOpaque()
+        // + paint() de fond, voir SuppressorAudioProcessorEditor::paint()
+        // ci-dessus) : Windows envoie WM_ERASEBKGND avant WM_PAINT a chaque
+        // resize, qui efface la zone avec le pinceau de fond PAR DEFAUT de
+        // la classe de fenetre (blanc) -- un frame visible avant que notre
+        // propre paint() ne repasse dessus. On avale ce message sur NOTRE
+        // fenetre (contrairement au hook de la barre de titre ci-dessous,
+        // qui cible la fenetre RACINE de l'hote) : renvoyer 1 sans rien
+        // dessiner dit a Windows "deja efface, ne fais rien", ce qui
+        // elimine l'etape d'effacement intermediaire.
+        if (ownHwndHooked != ownHwnd)
+        {
+            auto originalOwn = (WNDPROC) SetWindowLongPtrW (ownHwnd, GWLP_WNDPROC, (LONG_PTR) &titleBarWndProcThunk);
+            originalProcs()[ownHwnd] = originalOwn;
+            hookedOwnHwnds().insert (ownHwnd);
+            ownHwndHooked = ownHwnd;
+        }
+
+        if (titleBarHwnd != nullptr)
+            return; // barre de titre deja accrochee
 
         auto root = GetAncestor (ownHwnd, GA_ROOT);
         if (root == nullptr)
@@ -414,10 +484,22 @@ public:
 
     void unhookTitleBarDoubleClick()
     {
+        auto& procs = originalProcs();
+
+        if (ownHwndHooked != nullptr)
+        {
+            if (auto it = procs.find (ownHwndHooked); it != procs.end())
+            {
+                SetWindowLongPtrW (ownHwndHooked, GWLP_WNDPROC, (LONG_PTR) it->second);
+                procs.erase (it);
+            }
+            hookedOwnHwnds().erase (ownHwndHooked);
+            ownHwndHooked = nullptr;
+        }
+
         if (titleBarHwnd == nullptr)
             return;
 
-        auto& procs = originalProcs();
         if (auto it = procs.find (titleBarHwnd); it != procs.end())
         {
             SetWindowLongPtrW (titleBarHwnd, GWLP_WNDPROC, (LONG_PTR) it->second);
@@ -433,12 +515,32 @@ public:
         return procs;
     }
 
+    // HWNDs subclassees pour NOUS (voir hookTitleBarDoubleClick) plutot que
+    // pour la barre de titre de l'hote -- distingue les deux cas dans le
+    // thunk partage ci-dessous (WM_ERASEBKGND ne doit etre avale QUE sur
+    // notre propre fenetre, jamais sur celle de l'hote).
+    static std::set<HWND>& hookedOwnHwnds()
+    {
+        static std::set<HWND> hwnds;
+        return hwnds;
+    }
+
     static LRESULT CALLBACK titleBarWndProcThunk (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     {
-        // Avale le double-clic sur la barre de titre (maximize direct) et
-        // toute demande explicite de maximisation/redimensionnement via le
-        // menu systeme -- le reste des messages est transmis tel quel a la
-        // procedure d'origine de l'hote, on ne touche a rien d'autre.
+        // Sur NOTRE fenetre : avale WM_ERASEBKGND (retour utilisateur :
+        // "clignotement blanc quand je change la taille") -- Windows
+        // efface sinon la zone exposee avec le pinceau de fond PAR DEFAUT
+        // de la classe de fenetre (blanc) avant chaque WM_PAINT, un frame
+        // visible avant que notre propre paint() ne repasse dessus.
+        // Renvoyer 1 dit a Windows "deja efface, ne fais rien".
+        if (msg == WM_ERASEBKGND && hookedOwnHwnds().count (hwnd) != 0)
+            return 1;
+
+        // Sur la barre de titre de l'hote : avale le double-clic (maximize
+        // direct) et toute demande explicite de maximisation/
+        // redimensionnement via le menu systeme -- le reste des messages
+        // est transmis tel quel a la procedure d'origine de l'hote, on ne
+        // touche a rien d'autre.
         if (msg == WM_NCLBUTTONDBLCLK
             || (msg == WM_SYSCOMMAND && ((wParam & 0xFFF0) == SC_MAXIMIZE || (wParam & 0xFFF0) == SC_SIZE)))
             return 0;
@@ -481,6 +583,7 @@ private:
 
    #if JUCE_WINDOWS
     HWND titleBarHwnd = nullptr;
+    HWND ownHwndHooked = nullptr;
    #endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SuppressorAudioProcessorEditor)

@@ -47,6 +47,11 @@ SuppressorAudioProcessor::SuppressorAudioProcessor()
         attackParam[b]           = apvts.getRawParameterValue (bandParamId (idAttack, band));
         releaseParam[b]          = apvts.getRawParameterValue (bandParamId (idRelease, band));
         outputParam[b]           = apvts.getRawParameterValue (bandParamId (idOutput, band));
+        inputExpandParam[b]      = apvts.getRawParameterValue (bandParamId (idInputExpand, band));
+        ratioIndexExpandParam[b] = apvts.getRawParameterValue (bandParamId (idRatioIndexExpand, band));
+        attackExpandParam[b]     = apvts.getRawParameterValue (bandParamId (idAttackExpand, band));
+        releaseExpandParam[b]    = apvts.getRawParameterValue (bandParamId (idReleaseExpand, band));
+        outputExpandParam[b]     = apvts.getRawParameterValue (bandParamId (idOutputExpand, band));
         detectorHpParam[b]       = apvts.getRawParameterValue (bandParamId (idDetectorHp, band));
         detectorHpFreqParam[b]   = apvts.getRawParameterValue (bandParamId (idDetectorHpFreq, band));
         detectorHpSlopeParam[b]  = apvts.getRawParameterValue (bandParamId (idDetectorHpSlope, band));
@@ -63,6 +68,7 @@ SuppressorAudioProcessor::SuppressorAudioProcessor()
         audioDist3Param[b]       = apvts.getRawParameterValue (bandParamId (idAudioDist3, band));
         opticalParam[b]          = apvts.getRawParameterValue (bandParamId (idOptical, band));
         britishParam[b]          = apvts.getRawParameterValue (bandParamId (idBritish, band));
+        aboveBelowParam[b]       = apvts.getRawParameterValue (bandParamId (idAboveBelow, band));
         bandMixParam[b]          = apvts.getRawParameterValue (bandParamId (idBandMix, band));
         bandWidthParam[b]        = apvts.getRawParameterValue (bandParamId (idBandWidth, band));
     }
@@ -77,6 +83,9 @@ SuppressorAudioProcessor::SuppressorAudioProcessor()
     aiCompressionModeParam  = apvts.getRawParameterValue (idAiCompressionMode);
     aiAttackReleaseCharacterParam = apvts.getRawParameterValue (idAiAttackReleaseCharacter);
     aiGainReductionModeParam = apvts.getRawParameterValue (idAiGainReductionMode);
+    aiExpandModeParam      = apvts.getRawParameterValue (idAiExpandMode);
+    aiExpandCharacterParam = apvts.getRawParameterValue (idAiExpandCharacter);
+    aiExpandAmountParam    = apvts.getRawParameterValue (idAiExpandAmount);
     aiStyleParam    = apvts.getRawParameterValue (idAiStyle);
     aiFidelityParam = apvts.getRawParameterValue (idAiFidelity);
     crossoverLowParam     = apvts.getRawParameterValue (idCrossoverLow);
@@ -103,7 +112,10 @@ void SuppressorAudioProcessor::timerCallback()
     if (last == 0 || now - last > 250)
     {
         for (int band = 0; band < (int) NumBands; ++band)
+        {
             grMeterDb[(size_t) band].store (0.0f);
+            grMeterExpandDb[(size_t) band].store (0.0f);
+        }
         grMeterDbL.store (0.0f);
         grMeterDbR.store (0.0f);
     }
@@ -141,6 +153,61 @@ juce::AudioProcessorValueTreeState::ParameterLayout SuppressorAudioProcessor::cr
 
         params.push_back (std::make_unique<AudioParameterFloat> (
             ParameterID { bandParamId (idOutput, band), 1 }, prefix + "Output",
+            NormalisableRange<float> (-30.0f, 30.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+
+        // Jeu de reglages DEDIE au mode Expand (demande explicite : "les
+        // reglages doivent etre independant") -- memes plages/defauts que
+        // les 5 parametres compression ci-dessus, mais un stockage
+        // separe : voir idInputExpand et la doc associee.
+        // Range, PAS Input (demande explicite : "le knob input du mode
+        // comp passe en mode range" -- SEULEMENT pour Expand, Comp garde
+        // son knob Input normal) -- plafond du boost applicable, 0dB par
+        // defaut = expansion COMPLETEMENT DESACTIVEE (demande explicite :
+        // "l'expander doit pas fonctionner de base, il fonctionne juste
+        // quand on lui augmente le seuil"). Voir FeedbackCompressor::
+        // setExpandRangeDb() -- remplace l'ancien role "Input drive" de ce
+        // parametre, qui ne pouvait de toute facon jamais desactiver
+        // l'expansion (un vrai silence reste sous n'importe quel seuil,
+        // meme apres un pre-gain enorme).
+        // Retour a un flat 0.0f sur les 3 bandes (demande explicite : "les
+        // ranges des expand doivent etre a 0 a l'ouverture du plug in") --
+        // la calibration par bande (0.8/0.2/0.0) etait valable pour
+        // l'ancien systeme a 3 etats, mais avec la nouvelle philosophie
+        // Comp/Expand (2 etats), l'expansion doit rester STRICTEMENT
+        // desactivee tant que l'utilisateur ne monte pas Range a la main.
+        params.push_back (std::make_unique<AudioParameterFloat> (
+            ParameterID { bandParamId (idInputExpand, band), 1 }, prefix + "Expand Range",
+            NormalisableRange<float> (0.0f, 24.0f, 0.01f), 0.0f,
+            AudioParameterFloatAttributes().withLabel ("dB")));
+        // Ratio par defaut plus doux que la compression (2:1, index 0, au
+        // lieu de 6:1) -- retour utilisateur : le meme ratio "costaud" par
+        // defaut que la compression rendait l'expansion "super forte" des
+        // l'engagement, meme au point 0 (voir aussi le plafond de boost
+        // dans FeedbackCompressor::processSample()).
+        params.push_back (std::make_unique<AudioParameterChoice> (
+            ParameterID { bandParamId (idRatioIndexExpand, band), 1 }, prefix + "Ratio Expand",
+            StringArray { "2:1", "3:1", "4:1", "6:1", "8:1", "10:1 Opto", "20:1" }, 0));
+        // Plage remontee a 200ms (etait 40ms, comme la compression) --
+        // retour utilisateur : "40ms d'attaque pour un expander c'est
+        // juste" -- les expanders/upward compressors de mastering
+        // typiques tournent souvent en dizaines/centaines de ms d'attaque
+        // (reaction plus lente, plus musicale, moins de risque de pompage
+        // sur les micro-silences) -- 40ms etait trop court pour couvrir ce
+        // terrain. La compression (idAttack) garde sa plage d'origine,
+        // inchangee -- seul le jeu Expand est concerne.
+        // Plafond remonte a 500ms (etait 200 -- retour utilisateur : "200ms
+        // pour l'attaque d'un expandeur c'est pas assez").
+        params.push_back (std::make_unique<AudioParameterFloat> (
+            ParameterID { bandParamId (idAttackExpand, band), 1 }, prefix + "Attack Expand",
+            NormalisableRange<float> (0.05f, 500.0f, 0.001f, 0.2f), defaultAttackMs,
+            AudioParameterFloatAttributes().withLabel ("ms")));
+        params.push_back (std::make_unique<AudioParameterFloat> (
+            ParameterID { bandParamId (idReleaseExpand, band), 1 }, prefix + "Release Expand",
+            NormalisableRange<float> (50.0f, 3000.0f, 0.1f, 0.3f), defaultReleaseMs,
+            AudioParameterFloatAttributes().withLabel ("ms")));
+        params.push_back (std::make_unique<AudioParameterFloat> (
+            ParameterID { bandParamId (idOutputExpand, band), 1 }, prefix + "Output Expand",
             NormalisableRange<float> (-30.0f, 30.0f, 0.01f), 0.0f,
             AudioParameterFloatAttributes().withLabel ("dB")));
 
@@ -207,6 +274,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout SuppressorAudioProcessor::cr
         params.push_back (std::make_unique<AudioParameterBool> (
             ParameterID { bandParamId (idBritish, band), 1 }, prefix + "Overkill", false));
 
+        // Comp/Expand (demande explicite : "on va juste mettre expand et
+        // comp. quand on est en mode comp c'est comme si on etait en both
+        // ... le mode expand passe sur l'expander") -- 2 choix seulement :
+        // "Comp" (index 0, defaut) mappe en interne sur
+        // FeedbackCompressor::AboveBelowMode::Both (compression au-dessus
+        // ET expansion en-dessous tournent en meme temps, sur les reglages
+        // Comp), "Expand" (index 1) mappe sur AboveBelowMode::Below (voir
+        // updateDspFromParams()). Plus d'etat "Comp solo" dedie : comme
+        // idInputExpand (Range) est a 0dB par defaut, la contribution
+        // d'expansion est mathematiquement nulle tant qu'on ne le monte
+        // pas a la main -- Comp solo reste donc le comportement par
+        // defaut, sans avoir besoin d'un 3e choix.
+        params.push_back (std::make_unique<AudioParameterChoice> (
+            ParameterID { bandParamId (idAboveBelow, band), 1 }, prefix + "Comp/Expand",
+            StringArray { "Comp", "Expand" }, 0));
+
         // Fader Mix -- 100% par defaut (bande entierement traitee, comportement inchange).
         params.push_back (std::make_unique<AudioParameterFloat> (
             ParameterID { bandParamId (idBandMix, band), 1 }, prefix + "Mix",
@@ -233,7 +316,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SuppressorAudioProcessor::cr
 
     params.push_back (std::make_unique<AudioParameterChoice> (
         ParameterID { idAiMasteringTarget, 1 }, "AI Mastering Target",
-        StringArray { "Off", "Apple Music", "YouTube", "Spotify", "Deezer", "SoundCloud", "TV", "CD", "Side Key" }, 0));
+        StringArray { "Off", "Apple Music", "YouTube", "Spotify", "Deezer", "SoundCloud", "TV", "CD", "Side Key", "Match" }, 0));
 
     params.push_back (std::make_unique<AudioParameterBool> (
         ParameterID { idAiScopeCrossover, 1 }, "AI Scope: Crossover", false));
@@ -260,6 +343,27 @@ juce::AudioProcessorValueTreeState::ParameterLayout SuppressorAudioProcessor::cr
     params.push_back (std::make_unique<AudioParameterChoice> (
         ParameterID { idAiGainReductionMode, 1 }, "AI Gain Reduction",
         StringArray { "Off", "Smooth", "Mid", "Hard" }, 2));
+
+    // Triade AI Expand (demande explicite : "pour l'ia de expand, il faut
+    // des reglages comme pour l'ia comp") -- memes 3 axes/valeurs par
+    // Off par defaut (contrairement a la triade compression ci-dessus,
+    // Medium/Medium/Mid) -- IMPORTANT : des qu'UN SEUL de ces 3 axes n'est
+    // pas sur Off, AI Learn bascule desormais AUTOMATIQUEMENT les 3 bandes
+    // en EXPAND (voir AiLearnAnalyzer::run(), retour utilisateur : "je
+    // veux pas avoir a activer les bandes expand pour les activer"). Si
+    // ces params defautaient a un mode reel comme la compression, AI Learn
+    // switcherait TOUJOURS les bandes en Expand (et donc desactiverait
+    // silencieusement la compression au-dessus du seuil, Expand n'ayant
+    // pas de branche Above) des le premier clic -- opt-in strict requis.
+    params.push_back (std::make_unique<AudioParameterChoice> (
+        ParameterID { idAiExpandMode, 1 }, "AI Expand Mode",
+        StringArray { "Off", "Soft", "Medium", "Hard" }, 0));
+    params.push_back (std::make_unique<AudioParameterChoice> (
+        ParameterID { idAiExpandCharacter, 1 }, "AI Expand Attack/Release Character",
+        StringArray { "Off", "Smooth", "Medium", "Punchy" }, 0));
+    params.push_back (std::make_unique<AudioParameterChoice> (
+        ParameterID { idAiExpandAmount, 1 }, "AI Expand Amount",
+        StringArray { "Off", "Smooth", "Mid", "Hard" }, 0));
 
     // Style musical (menu Options, section AI, demande explicite : "je
     // souhaite ajouter plusieurs styles musicaux qui vont changer la
@@ -372,11 +476,85 @@ void SuppressorAudioProcessor::updateDspFromParams()
     for (int band = 0; band < (int) NumBands; ++band)
     {
         const size_t b = (size_t) band;
+        const bool isOpto = opticalParam[b]->load() > 0.5f;
+        const bool isBritish = britishParam[b]->load() > 0.5f;
+
+        // idAboveBelow n'expose plus que 2 choix cote UI -- Comp/Expand
+        // (demande explicite : "on va juste mettre expand et comp ...
+        // quand on est en mode comp c'est comme si on etait en both").
+        // Mapping interne : TOUJOURS AboveBelowMode::Both, quel que soit
+        // le choix Comp/Expand (retour utilisateur : "quand on appuie sur
+        // expand, on doit voir et entendre le compresseur travailler ...
+        // si on entend pas le compresseur, comment on travaille proprement
+        // l'expandeur" -- l'ancien mapping Expand -> Below coupait purement
+        // et simplement la reduction au-dessus du seuil des qu'on
+        // selectionnait Expand, rendant le compresseur totalement muet/
+        // invisible pendant qu'on regle l'expandeur. Desormais Comp/Expand
+        // ne fait plus que choisir QUEL jeu de parametres (Ratio/Attack/
+        // Release, partages par les deux branches Above et Below de cette
+        // meme instance -- voir doc de FeedbackCompressor::AboveBelowMode)
+        // pilote le tout ; les deux branches tournent TOUJOURS ensemble.
+        const bool useExpandSettings = juce::roundToInt (aboveBelowParam[b]->load()) == 1;
+        const auto aboveBelowMode = FeedbackCompressor::AboveBelowMode::Both;
+
+        // Branche ABOVE (compression) : TOUJOURS les reglages Compression,
+        // quel que soit le bouton Comp/Expand -- retour utilisateur
+        // ("j'entends que l'expand" en mode Expand) : avant, la branche
+        // Above utilisait le jeu de parametres Expand des qu'on bascule sur
+        // Expand (ratio/attaque souvent tres doux, penses pour
+        // l'expansion), rendant la compression quasi-inaudible. Desormais
+        // seule la branche BELOW (expansion) bascule vers le jeu dedie.
         const int ratioIdx = juce::jlimit (0, 6, (int) std::round (ratioIndexParam[b]->load()));
         const float ratio = ratioTable[(size_t) ratioIdx];
         const float knee  = kneeTable[(size_t) ratioIdx];
-        const bool isOpto = opticalParam[b]->load() > 0.5f;
-        const bool isBritish = britishParam[b]->load() > 0.5f;
+        const float effAttackMs  = attackParam[b]->load();
+        const float effReleaseMs = releaseParam[b]->load();
+        const float effOutputDb  = outputParam[b]->load();
+
+        // Branche BELOW (expansion) : Comp (mode Comp) mire les reglages
+        // Compression (comportement identique a l'ancien "Both"), Expand
+        // (mode Expand) bascule vers le jeu de parametres Expand dedie.
+        const int belowRatioIdx = juce::jlimit (0, 6, (int) std::round (
+            (useExpandSettings ? ratioIndexExpandParam[b] : ratioIndexParam[b])->load()));
+        const float belowRatio = ratioTable[(size_t) belowRatioIdx];
+        const float belowKnee  = kneeTable[(size_t) belowRatioIdx];
+        const float belowAttackMs  = (useExpandSettings ? attackExpandParam[b]  : attackParam[b])->load();
+        const float belowReleaseMs = (useExpandSettings ? releaseExpandParam[b] : releaseParam[b])->load();
+        // Output : desormais UN SEUL knob partage entre Comp et Expand
+        // (retour utilisateur : "j'ai l'impression que je clique sur comp
+        // et expand" -- deux Output independants faisaient sauter le
+        // niveau au clic entre les deux modes ; Above et Below tournant
+        // maintenant TOUJOURS ensemble, un seul makeup gain a du sens).
+        // idOutputExpand n'est plus lu ici (reste dans l'APVTS pour la
+        // compat des anciens presets, mais n'a plus d'effet DSP).
+        const float belowOutputDb  = outputParam[b]->load();
+
+        // Le knob "Input" du jeu de parametres Expand est REAFFECTE en
+        // Range (demande explicite : "juste pour la fonction expander il
+        // passe en mode range") -- il ne pilote plus le pre-gain du
+        // detecteur, seulement le plafond de boost (voir
+        // FeedbackCompressor::setExpandRangeDb()). En Expand pur, le
+        // pre-gain reste donc NEUTRE (0dB, seul le trim de calibration
+        // s'applique) -- Comp garde son knob Input normal.
+        //
+        // Range TOUJOURS pris depuis le parametre Expand calibre, quel que
+        // soit le mode (retour utilisateur : "on dirait que le compresseur
+        // compresse l'expandeur" -- l'ancien Both utilisait un plafond fixe
+        // en dur a 24dB, ignorant completement le Range calibre par
+        // l'utilisateur pour Expand pur -- l'ecart entre les deux modes
+        // donnait l'impression que Both ecrasait le cote expansion sous
+        // une reduction bien plus genereuse/incontrolee que ce qui avait
+        // ete calibre. Desormais le MEME Range s'applique partout, pour un
+        // comportement coherent d'un mode a l'autre.
+        //
+        // Input TOUJOURS pris depuis le parametre Compression (idInput),
+        // meme en Expand -- le compresseur tournant desormais EN
+        // PERMANENCE (voir aboveBelowMode ci-dessus), son pre-gain ne doit
+        // plus etre coupe des qu'on bascule sur Expand (l'ancien code le
+        // mettait a 0dB, ce qui neutralisait discretement le reglage
+        // d'entree du compresseur pendant qu'on regle l'expandeur).
+        const float effInputDb  = inputParam[b]->load();
+        const float effRangeDb  = inputExpandParam[b]->load();
 
         const bool detHp = detectorHpParam[b]->load() > 0.5f;
         const float detHpFreq = detectorHpFreqParam[b]->load();
@@ -401,14 +579,23 @@ void SuppressorAudioProcessor::updateDspFromParams()
 
         for (auto& comp : compressors[b])
         {
-            comp.setInputDriveDb (inputParam[b]->load() + inputTrim[b]);
+            comp.setInputDriveDb (effInputDb + inputTrim[b]);
             comp.setRatio (ratio);
             comp.setKneeDb (knee);
-            comp.setAttackMs (attackParam[b]->load());
-            comp.setReleaseMs (releaseParam[b]->load());
-            comp.setOutputDb (outputParam[b]->load() + outputTrim[b]);
+            comp.setAttackMs (effAttackMs);
+            comp.setReleaseMs (effReleaseMs);
+            comp.setBelowRatio (belowRatio);
+            comp.setBelowKneeDb (belowKnee);
+            comp.setBelowAttackMs (belowAttackMs);
+            comp.setBelowReleaseMs (belowReleaseMs);
+            // Output : le knob actuellement affiche/edite (Comp ou Expand
+            // selon le mode) pilote le makeup gain applique au signal
+            // combine (les deux branches Above/Below tournant ensemble).
+            comp.setOutputDb (belowOutputDb + outputTrim[b]);
             comp.setOptoCharacter (isOpto);
             comp.setBritishMode (isBritish);
+            comp.setAboveBelowMode (aboveBelowMode);
+            comp.setExpandRangeDb (effRangeDb);
             comp.setDetectorHpIsLowPass (band == High); // bande HIGH : HP -> LP (voir doc de classe)
             comp.setDetectorHpEngaged (detHp);
             comp.setDetectorHpFrequency (detHpFreq);
@@ -462,6 +649,7 @@ void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             for (auto& c : compressors[(size_t) band])
                 c.reset();
             grMeterDb[(size_t) band].store (0.0f);
+            grMeterExpandDb[(size_t) band].store (0.0f);
         }
         grMeterDbL.store (0.0f); grMeterDbR.store (0.0f);
         clipperL.reset(); clipperR.reset();
@@ -738,9 +926,18 @@ void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     float overallGrL = 0.0f, overallGrR = 0.0f;
     for (int band = 0; band < (int) NumBands; ++band)
     {
-        const float grDbL = std::abs (compL[(size_t) band]->getGainReductionDb());
-        const float grDbR = compR[(size_t) band] != nullptr ? std::abs (compR[(size_t) band]->getGainReductionDb()) : 0.0f;
-        grMeterDb[(size_t) band].store (juce::jmax (grDbL, grDbR));
+        // Enveloppe SIGNEE (positive = reduction, negative = boost Expand,
+        // voir FeedbackCompressor::processSample()) -- separee en 2 meters
+        // independants plutot qu'un abs() unique, pour pouvoir afficher
+        // reduction et boost sur 2 rangees de diodes distinctes (demande
+        // explicite : "une autre bande de diode qui affiche l'expander en
+        // temps reel").
+        const float envL = compL[(size_t) band]->getGainReductionDb();
+        const float envR = compR[(size_t) band] != nullptr ? compR[(size_t) band]->getGainReductionDb() : 0.0f;
+        const float grDbL = std::abs (envL);
+        const float grDbR = std::abs (envR);
+        grMeterDb[(size_t) band].store (juce::jmax (juce::jmax (envL, 0.0f), juce::jmax (envR, 0.0f)));
+        grMeterExpandDb[(size_t) band].store (juce::jmax (juce::jmax (-envL, 0.0f), juce::jmax (-envR, 0.0f)));
         overallGrL = juce::jmax (overallGrL, grDbL);
         overallGrR = juce::jmax (overallGrR, grDbR);
     }
@@ -793,6 +990,9 @@ static const std::vector<juce::String>& getABParamIds()
             SuppressorAudioProcessor::idInput, SuppressorAudioProcessor::idRatioIndex,
             SuppressorAudioProcessor::idAttack, SuppressorAudioProcessor::idRelease,
             SuppressorAudioProcessor::idOutput,
+            SuppressorAudioProcessor::idInputExpand, SuppressorAudioProcessor::idRatioIndexExpand,
+            SuppressorAudioProcessor::idAttackExpand, SuppressorAudioProcessor::idReleaseExpand,
+            SuppressorAudioProcessor::idOutputExpand,
             SuppressorAudioProcessor::idDetectorHp, SuppressorAudioProcessor::idDetectorHpFreq,
             SuppressorAudioProcessor::idDetectorHpSlope, SuppressorAudioProcessor::idDetectorBell,
             SuppressorAudioProcessor::idDetectorBellFreq, SuppressorAudioProcessor::idDetectorBellGain,
@@ -801,8 +1001,8 @@ static const std::vector<juce::String>& getABParamIds()
             SuppressorAudioProcessor::idDetectorLink, SuppressorAudioProcessor::idSidechainEnable,
             SuppressorAudioProcessor::idAudioHp, SuppressorAudioProcessor::idAudioDist2,
             SuppressorAudioProcessor::idAudioDist3, SuppressorAudioProcessor::idOptical,
-            SuppressorAudioProcessor::idBritish, SuppressorAudioProcessor::idBandMix,
-            SuppressorAudioProcessor::idBandWidth,
+            SuppressorAudioProcessor::idBritish, SuppressorAudioProcessor::idAboveBelow,
+            SuppressorAudioProcessor::idBandMix, SuppressorAudioProcessor::idBandWidth,
         };
         for (int band = 0; band < (int) SuppressorAudioProcessor::NumBands; ++band)
             for (auto* base : bandBaseIds)

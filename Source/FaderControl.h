@@ -57,17 +57,27 @@ public:
             const float segCentre = ((float) i + 0.5f) / (float) numSegs;
             const bool lit = segCentre >= loFrac && segCentre <= hiFrac;
 
+            // Couleur a 2 tons de part et d'autre du neutre (demande
+            // explicite : "le fader spread est completement orange, c'est
+            // pas hyper visible si on est cote mono et cote stereo") --
+            // segments SOUS le neutre (retrecissement, cote mono) dans
+            // accentColourBelowNeutral, segments AU-DESSUS (elargissement)
+            // dans accentColour. Par defaut les 2 sont identiques (Mix,
+            // neutre en bas -- jamais de segment "sous" le neutre), donc
+            // aucun changement de comportement pour les faders a 1 sens.
+            const juce::Colour litColour = (segCentre < neutralFrac) ? accentColourBelowNeutral : accentColour;
+
             // i=0 = segment du bas (bounds.getBottom()).
             const float segY = bounds.getBottom() - (float) (i + 1) * segH - (float) i * gapPx;
             auto segRect = juce::Rectangle<float> (bounds.getCentreX() - segW * 0.5f, segY, segW, segH);
 
             if (lit)
             {
-                g.setColour (accentColour.withAlpha (0.28f));
+                g.setColour (litColour.withAlpha (0.28f));
                 g.fillRoundedRectangle (segRect.expanded (1.5f), 3.0f);
             }
 
-            g.setColour (lit ? accentColour : SuppressorColours::gridLine);
+            g.setColour (lit ? litColour : SuppressorColours::gridLine);
             g.fillRoundedRectangle (segRect, 2.0f);
 
             if (lit)
@@ -96,7 +106,13 @@ public:
             g.fillRect (juce::Rectangle<float> (outerBounds.getX(), sy, outerBounds.getWidth(), 1.0f));
     }
 
-    void setAccentColour (juce::Colour c) { accentColour = c; }
+    void setAccentColour (juce::Colour c) { accentColour = c; if (! twoTone) accentColourBelowNeutral = c; }
+
+    // Couleur DEDIEE aux segments SOUS le neutre (demande explicite, voir
+    // doc au point d'usage dans drawLinearSlider) -- appeler APRES
+    // setAccentColour() pour un fader a 2 tons (ex: Width : ambre au-dessus
+    // du neutre = SPREAD, cyan en-dessous = MONO).
+    void setAccentColourBelowNeutral (juce::Colour c) { accentColourBelowNeutral = c; twoTone = true; }
 
     // Fait demarrer l'allumage des segments depuis cette valeur au lieu du
     // bas (utilise par le fader Width : neutre = 100%, au centre de la
@@ -109,6 +125,8 @@ public:
 private:
     static constexpr const char* neutralValuePropertyId = "faderNeutralValue";
     juce::Colour accentColour = SuppressorColours::ledCyan;
+    juce::Colour accentColourBelowNeutral = SuppressorColours::ledCyan;
+    bool twoTone = false;
 };
 
 /**

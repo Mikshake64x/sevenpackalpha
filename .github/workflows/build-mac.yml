@@ -81,12 +81,12 @@ jobs:
           ln -s /Library/Audio/Plug-Ins/VST3 "staging/VST3 (drag plugin here)"
           ln -s /Library/Audio/Plug-Ins/Components "staging/Components (drag plugin here)"
 
-          hdiutil create -volname "Tripressor 1.5.3" \
+          hdiutil create -volname "Tripressor 1.7.4" \
             -srcfolder staging -ov -format UDZO \
-            "Tripressor-1.5.3.dmg"
+            "Tripressor-1.7.4.dmg"
 
       - name: Uploader le DMG
         uses: actions/upload-artifact@v4
         with:
-          name: Tripressor-1.5.3-DMG
-          path: "Tripressor-1.5.3.dmg"
+          name: Tripressor-1.7.4-DMG
+          path: "Tripressor-1.7.4.dmg"

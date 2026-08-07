@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <algorithm>
 #include <utility>
 #include "Crossover.h"
 #include "FeedbackCompressor.h"
@@ -54,7 +55,19 @@ public:
     // de norme stricte -- on vise un master "loud" traditionnel (~-9 LUFS).
     // "Side Key" (demande explicite) est le repere le plus agressif de la
     // liste, -6 LUFS -- une cible LUFS comme les autres, rien de special.
-    static constexpr int kNumMasteringTargets = 9;
+    //
+    // "MATCH" (demande explicite : "une case Match pour volume match ...
+    // ça match au meme volume que la source en RMS") -- DERNIER choix,
+    // different des autres : au lieu de viser une valeur LUFS FIXE, il vise
+    // la loudness MESUREE de la source elle-meme, mais en corrigeant le
+    // vrai ecart introduit par la compression (contrairement aux cibles
+    // fixes ci-dessus, qui supposent juste que l'Output pousse le signal
+    // directement au niveau vise). Volume-matching pour comparer wet/dry a
+    // niveau egal, sans que l'oreille ne favorise le plus fort. Pas
+    // d'entree utile dans kLufsTargets (voir kMatchTargetIndex, traite a
+    // part dans run()).
+    static constexpr int kNumMasteringTargets = 10;
+    static constexpr int kMatchTargetIndex = kNumMasteringTargets - 1;
     static constexpr float kLufsTargets[kNumMasteringTargets] =
     {
         0.0f,    // Off (non utilise, voir applyLoudnessTarget)
@@ -66,6 +79,7 @@ public:
         -23.0f,  // TV (EBU R128)
         -9.0f,   // CD
         -6.0f,   // Side Key
+        0.0f,    // Match (non utilise, cible calculee dynamiquement)
     };
 
     struct Result
@@ -132,6 +146,36 @@ public:
         bool pushInput          = true; // gouverne par AI Compression Mode
         bool pushRatio          = true; // gouverne par AI Gain Reduction
         bool pushAttackRelease  = true; // gouverne par AI Attack/Release Character
+
+        // AI Expand (demande explicite : "je veux que AI regle en meme
+        // temps le comp et l'expand ... je veux pas cliquer une fois pour
+        // regler les compresseurs, et une fois en plus pour les
+        // expandeurs") -- UN SEUL Learn calcule et pousse LES DEUX jeux de
+        // parametres pour LES 3 BANDES A CHAQUE FOIS, independamment du
+        // mode Comp/Expand actuellement affiche -- comme ca, basculer une
+        // bande de Comp a Expand (ou l'inverse) pour comparer ne demande
+        // plus de relancer un Learn, les 2 jeux de valeurs sont deja
+        // pretes. Champs SEPARES des inputDb/ratioIndex/attackMs/releaseMs
+        // ci-dessus (qui restent la partie COMPRESSION) -- meme structure,
+        // meme role, mais destines a idInputExpand/idRatioIndexExpand/
+        // idAttackExpand/idReleaseExpand. Detection PROPRE (floor/
+        // quietness, pas crest factor -- voir run()). pushExpand*
+        // gouvernent chacun leur propre axe, independamment des push*
+        // compression ci-dessus.
+        std::array<float, 3> expandInputDb {};   // Range (dB, voir FeedbackCompressor::setExpandRangeDb())
+        std::array<float, 3> expandRatioIndex {};
+        std::array<float, 3> expandAttackMs {};
+        std::array<float, 3> expandReleaseMs {};
+        bool pushExpandInput         = true; // Range -- gouverne par AI Expand Amount (voir kExpandAmountRangeMinDb/MaxDb)
+        bool pushExpandRatio         = true; // gouverne par AI Expand Mode (voir kExpandModeRatioBoost)
+        bool pushExpandAttackRelease = true; // gouverne par AI Expand Character
+
+        // Output : correction de makeup associee au boost applique par
+        // l'expansion (voir run()) -- 0dB pour les bandes non concernees.
+        // S'additionne a applyLoudnessTarget/applyStyle/applyFidelity dans
+        // l'editeur (meme mecanisme de somme des sources Output).
+        bool applyExpandOutput = false;
+        std::array<float, 3> expandOutputDb {};
     };
 
     // Modes de compression proposes par le bouton AI (demande explicite :
@@ -208,6 +252,74 @@ public:
     // depasser).
     static constexpr float kGainReductionCapDb[kNumGainReductionModes] = { 5.0f, 9.0f, 15.0f };
 
+    // --- Triade AI EXPAND (demande explicite : "pour l'ia de expand, il
+    // faut des reglages comme pour l'ia comp ... avec des reglages de
+    // detection d'ia propre") -- meme structure/roles que la triade
+    // Compression Mode/Attack-Release Character/Gain Reduction ci-dessus,
+    // mais appliquee UNIQUEMENT aux bandes en mode Expand/Both (voir
+    // run()), et sur une detection PROPRE (floor/quietness du signal, pas
+    // le crest factor pic/RMS utilise pour la compression -- voir
+    // floorCrestDb dans run()).
+
+    // AI Expand Mode (demande explicite : "IA expand mode Off, soft,
+    // medium, hard") -- pilote UNIQUEMENT le Ratio (demande explicite :
+    // "un pour le range, un pour le ratio et un pour l'attaque" -- 3 axes
+    // strictement independants, voir kExpandModeRatioBoost plus bas). Le
+    // Range est gouverne par AI Expand Amount (kExpandAmountRangeMinDb/MaxDb),
+    // l'Attack/Release par AI Expand Character (kExpandCharacterBias).
+    //
+    // Soft reste subtil (demande explicite d'origine), mais Medium et Hard
+    // ont ete RENFORCES (demande explicite : "il faut forcer un peu plus
+    // le medium et le hard") -- plus de ratioBoost, attack/release plus
+    // rapides (scale plus bas) pour un effet nettement plus marque a ces
+    // 2 crans, tout en gardant le ratio hors de la zone extreme (20:1,
+    // voir le plafond d'index dans run()).
+    // AI Expand Mode -- controle UNIQUEMENT le Ratio (retour utilisateur :
+    // "il y a 3 reglages d'ai. un pour le range, un pour le ratio et un
+    // pour l'attaque" -- plus de melange avec Attack/Release, qui est le
+    // role EXCLUSIF de Character ci-dessous). Ecart large pour rester
+    // audible en soi (Soft = ratio quasi neutre, Hard = ratio marque).
+    static constexpr int kNumExpandModes = 3;
+    static constexpr int kNumExpandModeChoices = 4; // + "Off"
+    static constexpr float kExpandModeRatioBoost[kNumExpandModes] = { 0.20f, 0.75f, 1.80f }; // Soft/Medium/Hard
+
+    // AI Expand Attack/Release Character -- controle UNIQUEMENT l'Attack/
+    // Release (demande explicite : "un pour l'attaque" -- role EXCLUSIF,
+    // plus melange avec Mode). Sens INVERSE de la compression : pour la
+    // compression, Smooth = attack RAPIDE (rattrape tout, transparent) ;
+    // pour l'expansion, Smooth = attack LENTE (le boost monte en douceur,
+    // sans a-coup) et Punchy = attack TRES COURTE (le boost saute
+    // immediatement, plus agressif/percutant a l'oreille). Ecart tres
+    // large pour que la difference s'entende clairement.
+    struct ExpandCharacterBias { float attackScale, releaseScale; };
+    static constexpr int kNumExpandCharacters = 3;
+    static constexpr int kNumExpandCharacterChoices = 4; // + "Off"
+    static constexpr ExpandCharacterBias kExpandCharacterBias[kNumExpandCharacters] =
+    {
+        { 3.00f, 1.80f }, // Smooth -- attack TRES LONGUE
+        { 1.00f, 1.00f }, // Medium
+        { 0.25f, 0.50f }, // Punchy -- attack TRES COURTE
+    };
+
+    // AI Expand Amount -- controle UNIQUEMENT le Range (demande explicite :
+    // "un pour le range" -- role EXCLUSIF, plus de multiplicateur sur le
+    // Ratio, qui est le role de Mode ci-dessus). Pousse DIRECTEMENT la
+    // valeur du knob Range (demande explicite : "le knob input du mode
+    // comp passe en mode range") -- pas de simulation/dichotomie, la DSP
+    // elle-meme respecte nativement cette limite (voir FeedbackCompressor::
+    // setExpandRangeDb()).
+    //
+    // Valeurs REVUES A LA BAISSE (retour utilisateur : "c'est pas tres
+    // musical la, c'est trop") -- chaque mode est desormais une PLAGE
+    // (min..max), pas une valeur fixe : Smooth 0.2-0.4dB, Mid 0.5-1dB,
+    // Hard 1-3dB. La position dans la plage suit la mesure "te" (plancher/
+    // quietness reel de la bande, voir run()) -- plus le plancher est
+    // profond/marque, plus on se rapproche du haut de la plage du mode.
+    static constexpr int kNumExpandAmountModes = 3;
+    static constexpr int kNumExpandAmountModeChoices = 4; // + "Off"
+    static constexpr float kExpandAmountRangeMinDb[kNumExpandAmountModes] = { 0.2f, 0.5f, 1.0f }; // Smooth/Mid/Hard
+    static constexpr float kExpandAmountRangeMaxDb[kNumExpandAmountModes] = { 0.4f, 1.0f, 3.0f };
+
     // Tables ratio/knee dupliquees depuis SuppressorAudioProcessor (pas
     // d'include croise possible -- PluginProcessor.h inclut deja ce
     // fichier). Doivent rester synchronisees si la table change la-bas.
@@ -249,6 +361,7 @@ public:
                         int attackReleaseCharacterIndex, int gainReductionModeIndex,
                         bool scopeCrossover, bool scopeDetectors, bool scopeCompression,
                         int styleIndex, bool fidelityEnabled,
+                        int expandModeIndex, int expandCharacterIndex, int expandAmountIndex,
                         double durationSeconds = 8.0)
     {
         auto s = state.load();
@@ -260,6 +373,9 @@ public:
         compressionMode  = juce::jlimit (0, kNumCompressionModeChoices - 1, compressionModeIndex);
         attackReleaseCharacter = juce::jlimit (0, kNumAttackReleaseCharacterChoices - 1, attackReleaseCharacterIndex);
         gainReductionMode = juce::jlimit (0, kNumGainReductionModeChoices - 1, gainReductionModeIndex);
+        expandMode       = juce::jlimit (0, kNumExpandModeChoices - 1, expandModeIndex);
+        expandCharacter  = juce::jlimit (0, kNumExpandCharacterChoices - 1, expandCharacterIndex);
+        expandAmount     = juce::jlimit (0, kNumExpandAmountModeChoices - 1, expandAmountIndex);
         applyCrossover   = scopeCrossover;
         applyDetectors   = scopeDetectors;
         applyCompression = scopeCompression;
@@ -346,6 +462,25 @@ private:
         const int compressionBiasIdx = juce::jlimit (0, kNumCompressionModes - 1, compressionModeOn ? compressionMode - 1 : 1);
         const int characterBiasIdx   = juce::jlimit (0, kNumAttackReleaseCharacters - 1, characterOn ? attackReleaseCharacter - 1 : 1);
         const int gainReductionBiasIdx = juce::jlimit (0, kNumGainReductionModes - 1, gainReductionOn ? gainReductionMode - 1 : 1);
+
+        // Meme mecanique pour la triade Expand (voir doc de classe/Result).
+        const bool expandModeOn      = expandMode > 0;
+        const bool expandCharacterOn = expandCharacter > 0;
+        const bool expandAmountOn    = expandAmount > 0;
+        // 3 axes STRICTEMENT independants (voir doc plus bas) -- chaque
+        // push* suit MAINTENANT l'axe qui gouverne reellement sa cible :
+        // pushExpandInput (Range) -> Amount, pushExpandRatio -> Mode,
+        // pushExpandAttackRelease -> Character. BUG CORRIGE : pushExpandRatio
+        // etait reste cale sur Amount (reste de l'ancien design ou Amount
+        // gouvernait aussi le Ratio) -- avec Amount sur "Off" et Mode
+        // regle, le Ratio ne se poussait jamais ("AI expand rien qui
+        // marche").
+        r.pushExpandInput         = expandAmountOn;
+        r.pushExpandAttackRelease = expandCharacterOn;
+        r.pushExpandRatio         = expandModeOn;
+        const int expandModeBiasIdx      = juce::jlimit (0, kNumExpandModes - 1, expandModeOn ? expandMode - 1 : 1);
+        const int expandCharacterBiasIdx = juce::jlimit (0, kNumExpandCharacters - 1, expandCharacterOn ? expandCharacter - 1 : 1);
+        const int expandAmountBiasIdx    = juce::jlimit (0, kNumExpandAmountModes - 1, expandAmountOn ? expandAmount - 1 : 1);
 
         const int numSamples = capturedL.getNumSamples();
         const float* left  = capturedL.getReadPointer (0);
@@ -473,9 +608,24 @@ private:
         if (totalEnergy > 1.0e-12)
         {
             r.crossoverLowHz  = juce::jlimit (20.0f,  400.0f,  (float) findCrossoverHz (0.28));
-            r.crossoverHighHz = juce::jlimit (300.0f, 6000.0f, (float) findCrossoverHz (0.72));
+
+            // XHIGH : plage resserree DEDIEE a l'AI Scope Crossover (retour
+            // utilisateur : "il me trouve souvent des incoherences ...
+            // notamment sur Xover high" -- le clamp large 300-6000Hz
+            // laissait passer des propositions peu musicales, ex. un XHIGH
+            // colle au XLOW ou perdu tres haut dans l'aigu). Resserree a
+            // 2000-4500Hz UNIQUEMENT quand le scope Crossover est actif
+            // (applyCrossover) -- le crossover HIGH manuel (knob) n'est pas
+            // touche, et le calcul "interne" garde son ancienne plage large
+            // quand le scope est desactive (utilise aussi pour decouper les
+            // bandes du scope Detecteurs, voir bandRangeHz() plus bas,
+            // meme quand Crossover est off -- pas de raison de le resserrer
+            // la).
+            const float xHighMin = applyCrossover ? 2000.0f : 300.0f;
+            const float xHighMax = applyCrossover ? 4500.0f : 6000.0f;
+            r.crossoverHighHz = juce::jlimit (xHighMin, xHighMax, (float) findCrossoverHz (0.72));
             if (r.crossoverHighHz <= r.crossoverLowHz * 1.5f)
-                r.crossoverHighHz = juce::jmin (6000.0f, r.crossoverLowHz * 3.0f);
+                r.crossoverHighHz = juce::jmin (xHighMax, r.crossoverLowHz * 3.0f);
         }
 
         if (threadShouldExit())
@@ -700,6 +850,115 @@ private:
                 }
             }
 
+            // --- AI Expand (demande explicite : "je veux que AI regle en
+            // meme temps le comp et l'expand ... pas cliquer une fois pour
+            // les compresseurs et une fois pour les expandeurs") --
+            // calcule et remplit TOUJOURS les champs expand* ci-dessous,
+            // pour les 3 bandes, EN PLUS du calcul compression ci-dessus
+            // (inputDb/ratioIndex/attackMs/releaseMs, jamais ecrase) --
+            // comme ca, basculer une bande de Comp a Expand pour comparer
+            // n'exige plus de relancer un Learn, les 2 jeux de valeurs
+            // sont deja prets. Detection PROPRE (demande explicite : "avec
+            // des reglages de detection d'ia propre") : au lieu du crest
+            // factor pic/RMS utilise pour la compression, on cherche le
+            // PLANCHER du signal -- RMS par fenetres courtes (~46ms), 15e
+            // percentile le plus bas -- qui represente le niveau des
+            // passages calmes (silence entre notes, queues de reverb) la
+            // ou l'expansion agit reellement, plutot que la RMS globale.
+            {
+                constexpr int windowSamples = 2048; // ~46ms a 44.1kHz
+                std::vector<float> blockRmsDb;
+                blockRmsDb.reserve ((size_t) (numSamples / windowSamples) + 1);
+                for (int start = 0; start < numSamples; start += windowSamples)
+                {
+                    const int n = juce::jmin (windowSamples, numSamples - start);
+                    double sumSqBlock = 0.0;
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const float mono = 0.5f * (dL[start + i] + dR[start + i]);
+                        sumSqBlock += (double) mono * (double) mono;
+                    }
+                    const float blockRms = (float) std::sqrt (sumSqBlock / juce::jmax (1, n));
+                    blockRmsDb.push_back (juce::Decibels::gainToDecibels (blockRms, -100.0f));
+                }
+                std::sort (blockRmsDb.begin(), blockRmsDb.end());
+                const float floorDb = blockRmsDb.empty() ? rmsDb
+                    : blockRmsDb[(size_t) juce::jlimit (0, (int) blockRmsDb.size() - 1,
+                                                          juce::roundToInt (0.15f * (float) (blockRmsDb.size() - 1)))];
+                // Combien le plancher est plus calme que la moyenne de la
+                // bande -- l'equivalent du crest factor, mais cote calme.
+                const float floorCrestDb = juce::jlimit (0.0f, 40.0f, rmsDb - floorDb);
+
+                // Zone morte (retour utilisateur : "le high n'est pas
+                // compresse et l'expandeur mets +1db avec le learn ...
+                // comment eviter ce genre de mesure foireuse") -- un ecart
+                // moyenne/plancher MODESTE (<10dB) releve juste de la
+                // dynamique musicale normale, pas un vrai "trou" a
+                // combler -- on ignore ces cas (te=0, aucune proposition)
+                // plutot que de coller un boost meme discret sur une bande
+                // qui n'en a pas vraiment besoin. Seul un ecart NETTEMENT
+                // marque (10-30dB) produit une proposition, avec une
+                // intensite proportionnelle a l'ampleur reelle du trou.
+                constexpr float kFloorDeadZoneDb = 10.0f;
+                const float te = juce::jlimit (0.0f, 1.0f,
+                    (floorCrestDb - kFloorDeadZoneDb) / (30.0f - kFloorDeadZoneDb));
+
+                // 3 axes STRICTEMENT independants (retour utilisateur : "il
+                // y a 3 reglages d'ai. un pour le range, un pour le ratio
+                // et un pour l'attaque") -- chacun ne touche QUE sa propre
+                // cible, plus de chevauchement entre eux.
+
+                // Range -- gouverne EXCLUSIVEMENT par Amount (demande
+                // explicite : "le knob input du mode comp passe en mode
+                // range"). Chaque mode est une PLAGE (retour utilisateur :
+                // "c'est pas tres musical, c'est trop" -- Smooth 0.2-0.4dB,
+                // Mid 0.5-1dB, Hard 1-3dB), interpolee selon "te" (voir
+                // zone morte ci-dessus) -- pas de simulation/dichotomie, la
+                // DSP elle-meme respecte nativement ce plafond (voir
+                // FeedbackCompressor::setExpandRangeDb()). 0dB (Off) =
+                // expansion desactivee.
+                r.expandInputDb[(size_t) band] = expandAmountOn
+                    ? juce::jmap (te, kExpandAmountRangeMinDb[expandAmountBiasIdx], kExpandAmountRangeMaxDb[expandAmountBiasIdx])
+                    : 0.0f;
+
+                // Ratio -- gouverne EXCLUSIVEMENT par Mode. Plafond d'index
+                // a 3.0 (max 6:1, pas 20:1) : un ratio extreme n'a plus
+                // grand interet maintenant que Range borne de toute facon
+                // le boost final, mais reste plus "dur"/abrupt a l'oreille
+                // des qu'il se declenche.
+                r.expandRatioIndex[(size_t) band] = juce::jlimit (0.0f, 3.0f, te * 2.0f * kExpandModeRatioBoost[expandModeBiasIdx]);
+
+                // Attack/Release -- gouvernes EXCLUSIVEMENT par Character.
+                // Plafond Attack a 500ms (aligne sur le plafond manuel du
+                // knob, retour utilisateur : "200ms pour l'attaque d'un
+                // expandeur c'est pas assez") pour laisser "Smooth" (x3.0)
+                // vraiment atteindre le "tres long" demande. Plancher a
+                // 2ms (subtilite + marge contre l'artefact de
+                // redressement, voir le lissage detecteur dans
+                // FeedbackCompressor).
+                const auto& expChar = kExpandCharacterBias[expandCharacterBiasIdx];
+                r.expandAttackMs[(size_t) band] = juce::jlimit (2.0f, 500.0f,
+                    (30.0f - te * 15.0f) * expChar.attackScale);
+                // Release plus long que la compression (baseReleaseMs*1.5,
+                // plancher a 80ms) : l'expansion doit suivre les
+                // fluctuations lentes du plancher, pas pomper sur chaque
+                // micro-silence.
+                r.expandReleaseMs[(size_t) band] = juce::jlimit (80.0f, 3000.0f,
+                    (baseReleaseMs[band] * 1.5f - te * 30.0f) * expChar.releaseScale);
+
+                // Output : le boost souleve la moyenne globale de la bande --
+                // petite correction negative proportionnelle, pour que
+                // "Expand" ne se traduise pas juste par "plus fort dans
+                // l'ensemble". Magnitude proportionnee au plafond de Range
+                // (voir kExpandAmountRangeMinDb/MaxDb) -- une grosse correction de
+                // makeup n'a pas de sens pour un boost de 1 a 8dB max.
+                r.applyExpandOutput = true;
+                r.expandOutputDb[(size_t) band] = juce::jlimit (-4.0f, 0.0f, -te * 1.5f);
+
+                if (threadShouldExit())
+                    return;
+            }
+
             origRmsDbArr[band] = rmsDb;
 
             if (fidelity)
@@ -776,38 +1035,83 @@ private:
         // ca ne s'applique si masteringTarget == 0 (Off). ---
         if (masteringTarget > 0)
         {
-            juce::dsp::IIR::Filter<float> shelfL, hpL, shelfR, hpR;
-            shelfL.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighShelf (sampleRate, 1500.0, 0.7071, juce::Decibels::decibelsToGain (4.0f));
-            hpL.coefficients    = juce::dsp::IIR::Coefficients<float>::makeHighPass  (sampleRate, 38.0);
-            shelfR.coefficients = shelfL.coefficients;
-            hpR.coefficients    = hpL.coefficients;
-
-            std::vector<float> kL ((size_t) numSamples), kR ((size_t) numSamples);
-            std::copy (left,  left  + numSamples, kL.begin());
-            std::copy (right, right + numSamples, kR.begin());
-
-            for (int i = 0; i < numSamples; ++i)
+            // Mesure K-weighted (approximation BS.1770) reutilisable -- sert
+            // a la fois pour la source d'origine (toujours) et, en mode
+            // Match, pour le signal APRES compression simulee.
+            auto measureLufsDb = [&] (const float* l, const float* r2, int n) -> float
             {
-                kL[(size_t) i] = hpL.processSample (shelfL.processSample (kL[(size_t) i]));
-                kR[(size_t) i] = hpR.processSample (shelfR.processSample (kR[(size_t) i]));
-            }
+                juce::dsp::IIR::Filter<float> shelfL, hpL, shelfR, hpR;
+                shelfL.coefficients = juce::dsp::IIR::Coefficients<float>::makeHighShelf (sampleRate, 1500.0, 0.7071, juce::Decibels::decibelsToGain (4.0f));
+                hpL.coefficients    = juce::dsp::IIR::Coefficients<float>::makeHighPass  (sampleRate, 38.0);
+                shelfR.coefficients = shelfL.coefficients;
+                hpR.coefficients    = hpL.coefficients;
 
-            double msL = 0.0, msR = 0.0;
-            for (int i = 0; i < numSamples; ++i)
-            {
-                msL += (double) kL[(size_t) i] * (double) kL[(size_t) i];
-                msR += (double) kR[(size_t) i] * (double) kR[(size_t) i];
-            }
-            msL /= juce::jmax (1, numSamples);
-            msR /= juce::jmax (1, numSamples);
+                double msL = 0.0, msR = 0.0;
+                for (int i = 0; i < n; ++i)
+                {
+                    const float kl = hpL.processSample (shelfL.processSample (l[i]));
+                    const float kr = hpR.processSample (shelfR.processSample (r2[i]));
+                    msL += (double) kl * (double) kl;
+                    msR += (double) kr * (double) kr;
+                }
+                msL /= juce::jmax (1, n);
+                msR /= juce::jmax (1, n);
 
-            // Formule BS.1770 (ponderation egale L/R = 1.0 chacun).
-            const double sumMs = juce::jmax (1.0e-12, msL + msR);
-            const float measuredLufs = (float) (-0.691 + 10.0 * std::log10 (sumMs));
+                // Formule BS.1770 (ponderation egale L/R = 1.0 chacun).
+                const double sumMs = juce::jmax (1.0e-12, msL + msR);
+                return (float) (-0.691 + 10.0 * std::log10 (sumMs));
+            };
+
+            const float measuredLufs = measureLufsDb (left, right, numSamples);
             r.measuredLufs = measuredLufs;
 
-            const float targetLufs = kLufsTargets[(size_t) masteringTarget];
-            const float gainNeededDb = juce::jlimit (-12.0f, 12.0f, targetLufs - measuredLufs);
+            float gainNeededDb;
+            if (masteringTarget == kMatchTargetIndex)
+            {
+                // Match (demande explicite : "ça match au meme volume que
+                // la source en RMS") -- simule le VRAI FeedbackCompressor
+                // par bande (memes reglages que ceux calcules plus haut) et
+                // somme les 3 bandes pour reconstituer le signal APRES
+                // compression (Output=0dB), puis corrige l'ecart de
+                // loudness reellement introduit -- contrairement aux
+                // cibles fixes ci-dessus, qui n'ont pas besoin de simuler
+                // quoi que ce soit.
+                std::vector<float> postL ((size_t) numSamples, 0.0f), postR ((size_t) numSamples, 0.0f);
+                for (int band = 0; band < 3; ++band)
+                {
+                    const int ratioIdxInt = juce::jlimit (0, 6, juce::roundToInt (r.ratioIndex[(size_t) band]));
+                    FeedbackCompressor simL, simR;
+                    for (auto* sim : { &simL, &simR })
+                    {
+                        sim->prepare (sampleRate);
+                        sim->setInputDriveDb (r.inputDb[(size_t) band]);
+                        sim->setRatio (kRatioTable[(size_t) ratioIdxInt]);
+                        sim->setKneeDb (kKneeTable[(size_t) ratioIdxInt]);
+                        sim->setAttackMs (r.attackMs[(size_t) band]);
+                        sim->setReleaseMs (r.releaseMs[(size_t) band]);
+                        sim->setOutputDb (0.0f);
+                    }
+
+                    const float* dL = bandL[band];
+                    const float* dR = bandR[band];
+                    for (int i = 0; i < numSamples; ++i)
+                    {
+                        postL[(size_t) i] += simL.processSample (dL[i]);
+                        postR[(size_t) i] += simR.processSample (dR[i]);
+                    }
+
+                    if (threadShouldExit())
+                        return;
+                }
+
+                const float postLufs = measureLufsDb (postL.data(), postR.data(), numSamples);
+                gainNeededDb = juce::jlimit (-12.0f, 12.0f, measuredLufs - postLufs);
+            }
+            else
+            {
+                const float targetLufs = kLufsTargets[(size_t) masteringTarget];
+                gainNeededDb = juce::jlimit (-12.0f, 12.0f, targetLufs - measuredLufs);
+            }
 
             r.applyLoudnessTarget = true;
             r.recommendSoftClipOn = true;
@@ -828,6 +1132,9 @@ private:
     bool applyCrossover = true, applyDetectors = false, applyCompression = true;
     int style = 0;
     bool fidelity = false;
+    int expandMode = 1;
+    int expandCharacter = 1;
+    int expandAmount = 1;
     int targetSamples = 0;
     int writePos = 0;
     juce::AudioBuffer<float> capturedL, capturedR;

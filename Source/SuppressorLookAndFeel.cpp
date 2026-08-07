@@ -418,6 +418,28 @@ juce::Colour SuppressorLookAndFeel::ledGradientColour (float t)
     return stops[4].colour;
 }
 
+juce::Colour SuppressorLookAndFeel::ledGradientColourExpand (float t)
+{
+    struct Stop { float pos; juce::Colour colour; };
+    static const Stop stops[] =
+    {
+        { 0.0f, SuppressorColours::ledBlue   },
+        { 0.5f, SuppressorColours::ledCyan   },
+        { 1.0f, SuppressorColours::ledPurple }
+    };
+
+    t = juce::jlimit (0.0f, 1.0f, t);
+    for (int i = 0; i < 2; ++i)
+    {
+        if (t <= stops[i + 1].pos)
+        {
+            const float local = (t - stops[i].pos) / (stops[i + 1].pos - stops[i].pos);
+            return stops[i].colour.interpolatedWith (stops[i + 1].colour, local);
+        }
+    }
+    return stops[2].colour;
+}
+
 juce::Colour SuppressorLookAndFeel::ratioLedColour (float t)
 {
     struct Stop { float pos; juce::Colour colour; };
