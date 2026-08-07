@@ -317,7 +317,7 @@ private:
         auto versionArea = headerRow.removeFromRight (56.0f);
         g.setColour (SuppressorColours::textDim);
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
-        g.drawFittedText ("v1.7.4", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
+        g.drawFittedText ("v1.7.10", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
 
         auto titleArea = headerRow.removeFromLeft (juce::jmin (240.0f, headerRow.getWidth() * 0.48f));
         g.setColour (SuppressorColours::ledAmber);
@@ -403,9 +403,9 @@ private:
               "This was probably one of the most complex parts of development, but the result was well worth it.", ColumnItem::Kind::Paragraph },
             { "Developing the two crossover filters was a major part of the project. Their goal was not just to split the bands, "
               "but to do so with the highest possible fidelity.", ColumnItem::Kind::Paragraph },
-            { "The Analog crossover shows less than 0.2dB of deviation when all bands are at unity. Its gentle, slightly overlapping slopes preserve "
+            { "The Analog crossover shows less than 0.01dB of deviation when all bands are at unity. Its gentle, slightly overlapping slopes preserve "
               "transients very naturally and give a feel close to analog processing. It is very musical, my personal favorite.", ColumnItem::Kind::Paragraph },
-            { "The Linear crossover also achieves less than 0.2dB of deviation. So the difference is not in amplitude accuracy, but in behavior. "
+            { "The Linear crossover also achieves less than 0.01dB of deviation. So the difference is not in amplitude accuracy, but in behavior. "
               "Thanks to its linear phase response, it delivers much more surgical frequency separation, ideal for very modern productions or mixes where every detail needs to stay perfectly controlled.", ColumnItem::Kind::Paragraph },
             { "So the choice between the two is not about picking the more accurate mode, but the one that best matches your mastering philosophy.", ColumnItem::Kind::Paragraph },
         });
@@ -455,7 +455,7 @@ private:
         {
             "3 Band Feedforward Compression (Low / Mid / High)",
             "Wide (Analog) / Linear (FIR) Crossover, Switchable",
-            "Crossover Amplitude Accuracy: 0.2dB, Wide and Linear",
+            "Crossover Amplitude Accuracy: 0.01dB, Wide and Linear",
             "7 Step Discrete LED Ratio Selection, 2:1 to 20:1",
             "Optical and Overkill Mode per Band",
             "Per Band Sidechain EQ: Low/High Cut plus Bell (dual Bell on Mid)",

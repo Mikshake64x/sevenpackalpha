@@ -12,10 +12,32 @@ constexpr float SuppressorAudioProcessor::kneeTable[7];
 // l'utilisateur regle au knob -- jamais visible sur l'affichage (les
 // knobs Input/Output restent a 0.00 dB par defaut), comme un trim d'usine
 // cache sur du materiel calibre. Meme principe que Nuke Mext.
-static constexpr float kInputCalibrationTrimDbAnalog[3]  = {  0.0f,  0.0f,  0.0f }; // Low, Mid, High
+//
+// Input RECALIBRE (retour utilisateur : "j'ai une petite modification des
+// calibrations des inputs des bandes de compression a modifier depuis
+// l'ajout de l'expandeur ... tu dois recalibrer les 0 inputs") -- le trim
+// Input etait reste a 0 partout depuis la mise en place de ce mecanisme ;
+// desormais qu'Above tourne EN PERMANENCE avec le pre-gain Input (voir
+// updateDspFromParams(), Input n'est plus jamais neutralise en Expand),
+// une derive de calibration mesuree au Plugin Doctor est devenue visible
+// bande par bande. Valeurs mesurees par l'utilisateur, un jeu par mode de
+// crossover (Analog et Linear divergent legerement, meme raison que
+// pour Output ci-dessus).
+static constexpr float kInputCalibrationTrimDbAnalog[3]  = {  1.0f,  0.4f,  0.1f }; // Low, Mid, High
 static constexpr float kOutputCalibrationTrimDbAnalog[3] = { -1.2f, -0.6f, -0.3f }; // Low, Mid, High
-static constexpr float kInputCalibrationTrimDbLinear[3]  = {  0.0f,  0.0f,  0.0f }; // Low, Mid, High
-static constexpr float kOutputCalibrationTrimDbLinear[3] = { -0.5f, -0.2f,  0.0f }; // Low, Mid, High
+// Linear : toute la correction repliee dans Input, Output remis a plat
+// (retour utilisateur, mesure Plugin Doctor apres remise a 0 de l'Output
+// Linear -- la bosse Mid/High venait du cumul Input+Output non concerte).
+// Valeurs affinees a la decimale pres (retour utilisateur : "voici la
+// mesure pour le linear ... la version pro est a 0.01 de deviation") --
+// le knob affiche un DIFFERENTIEL par rapport au trim cache deja en
+// place, pas la valeur finale (retour utilisateur : "il faut soustraire
+// et additionner le differentiel des inputs") -- {0.0,-0.3,-0.5} + le
+// differentiel lu au knob {-0.20,+0.10,+0.30} = {-0.20,-0.20,-0.20},
+// un trim PLAT sur les 3 bandes (coherent avec l'Analog, dont le total
+// Input+Output est deja plat a -0.2dB, voir ci-dessus).
+static constexpr float kInputCalibrationTrimDbLinear[3]  = { -0.20f, -0.20f, -0.20f }; // Low, Mid, High
+static constexpr float kOutputCalibrationTrimDbLinear[3] = {  0.0f,  0.0f,  0.0f }; // Low, Mid, High
 
 juce::String SuppressorAudioProcessor::bandParamId (const char* baseId, int band)
 {

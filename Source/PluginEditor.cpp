@@ -749,7 +749,10 @@ void SuppressorEditorContent::buildBandPanel (int band, juce::Colour accent, con
     if (band == SuppressorAudioProcessor::High)
         bp.detectorHpToggle.setText ("LP");
 
-    setupKnob (bp.inputKnob,   pid (SuppressorAudioProcessor::idInput),   "IN",  " dB", 1);
+    // 2 decimales (retour utilisateur : "pour que je puisse calibrer
+    // proprement" -- calibration fine du trim cache Input via Plugin
+    // Doctor, 1 decimale ne suffit pas pour lire les 1/100e de dB).
+    setupKnob (bp.inputKnob,   pid (SuppressorAudioProcessor::idInput),   "IN",  " dB", 2);
     setupKnob (bp.attackKnob,  pid (SuppressorAudioProcessor::idAttack),  "ATT", " ms", 2);
     setupKnob (bp.releaseKnob, pid (SuppressorAudioProcessor::idRelease), "REL", " ms", 1);
     setupKnob (bp.outputKnob,  pid (SuppressorAudioProcessor::idOutput),  "OUT", " dB", 1);
