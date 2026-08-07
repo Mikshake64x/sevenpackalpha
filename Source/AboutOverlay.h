@@ -317,7 +317,7 @@ private:
         auto versionArea = headerRow.removeFromRight (56.0f);
         g.setColour (SuppressorColours::textDim);
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
-        g.drawFittedText ("v1.7.11", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
+        g.drawFittedText ("v1.7.12", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
 
         auto titleArea = headerRow.removeFromLeft (juce::jmin (240.0f, headerRow.getWidth() * 0.48f));
         g.setColour (SuppressorColours::ledAmber);
@@ -469,7 +469,7 @@ private:
             "Link In / Link Out for Ganged Input/Output Trim",
             "Factory and User Preset Browser, with a Genuine Default Preset",
             "Resizable UI (75% to 100%), Locked Against Accidental Host Fullscreen",
-            "Calibrated I/O, 0.2dB Linearity, Hand Measured",
+            "Calibrated I/O, 0.01dB Linearity, Hand Measured",
             "AI Learn: Listens to Your Program Material and Calculates Compression, Expansion, "
             "Sidechain Detection and Crossover Settings, with Loudness Targeting for Streaming Platform Norms",
             "Independent Upward Expansion per Band (Comp / Expand), with its Own Ratio, Attack, "
