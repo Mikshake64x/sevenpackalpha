@@ -471,6 +471,26 @@ public:
         if (root == nullptr)
             return;
 
+        // BUG CORRIGE (retour utilisateur : "le standalone sur windows ne
+        // se lance pas") : en Standalone (pas d'hote), notre propre fenetre
+        // EST la racine (root == ownHwnd, pas de fenetre parente separee
+        // possedee par un DAW). Sans cette garde, le bloc ci-dessus venait
+        // de sous-classer ownHwnd, PUIS ce second SetWindowLongPtrW
+        // sous-classait la MEME HWND une deuxieme fois -- lisant NOTRE
+        // PROPRE thunk comme "procedure d'origine" et l'enregistrant comme
+        // telle dans originalProcs(). Resultat : callOriginal() rappelait
+        // le thunk lui-meme indefiniment des le premier message concerne
+        // (WM_ERASEBKGND, envoye au tout premier affichage de la fenetre)
+        // -- recursion infinie, stack overflow, crash immediat au
+        // lancement. Le hook ownHwnd ci-dessus gere deja WM_ERASEBKGND et
+        // le double-clic/maximize sur cette meme fenetre : rien de plus a
+        // accrocher ici quand root et ownHwnd coincident.
+        if (root == ownHwnd)
+        {
+            titleBarHwnd = root;
+            return;
+        }
+
         titleBarHwnd = root;
         auto original = (WNDPROC) SetWindowLongPtrW (root, GWLP_WNDPROC, (LONG_PTR) &titleBarWndProcThunk);
 
