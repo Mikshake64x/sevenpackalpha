@@ -276,11 +276,24 @@ SuppressorEditorContent::SuppressorEditorContent (SuppressorAudioProcessor& p)
 
     addChildComponent (aboutOverlay);
     aboutOverlay.setVisible (false);
+    aboutOverlay.setLicenseManager (processorRef.licenseManager);
     aboutOverlay.onDismiss = [this] { aboutOverlay.setVisible (false); };
+    aboutOverlay.onOpenLicense = [this]
+    {
+        aboutOverlay.setVisible (false);
+        if (onOpenLicenseRequested)
+            onOpenLicenseRequested();
+    };
 
     addChildComponent (optionsOverlay);
     optionsOverlay.setVisible (false);
     optionsOverlay.onDismiss = [this] { optionsOverlay.setVisible (false); };
+    optionsOverlay.onOpenLicense = [this]
+    {
+        optionsOverlay.setVisible (false);
+        if (onOpenLicenseRequested)
+            onOpenLicenseRequested();
+    };
     optionsOverlay.onScaleSelected = [this] (float scale) { if (onScaleRequested) onScaleRequested (scale); };
     // Meme avertissement que Nuke Mext (showLatencyModeMenu()) : Low CPU
     // s'applique immediatement, mais Medium/High CPU demandent confirmation

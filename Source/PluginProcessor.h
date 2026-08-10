@@ -7,6 +7,7 @@
 #include "SoftClipper.h"
 #include "Crossover.h"
 #include "AiLearnAnalyzer.h"
+#include "LicenseManager.h"
 
 /**
     SuppressorAudioProcessor (multibande)
@@ -78,6 +79,8 @@ public:
     static juce::String bandParamId (const char* baseId, int band);
 
     juce::AudioProcessorValueTreeState apvts { *this, nullptr, "PARAMETERS", createParameterLayout() };
+
+    LicenseManager licenseManager { "tripressor-pro" };
 
     // --- Lus par le GUI (thread-safe, pas d'allocation) ---
 

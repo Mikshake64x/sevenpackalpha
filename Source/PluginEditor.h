@@ -25,6 +25,7 @@
 #include "PresetNameButton.h"
 #include "PresetBrowserOverlay.h"
 #include "ParamRamper.h"
+#include "LicenseOverlay.h"
 
 #if JUCE_WINDOWS
  #include <windows.h>
@@ -149,6 +150,11 @@ public:
     // branche par SuppressorAudioProcessorEditor (le vrai proprietaire du
     // redimensionnement hote, voir plus bas).
     std::function<void (float)> onScaleRequested;
+
+    // Called when the user clicks "License" on the About screen — branched
+    // by SuppressorAudioProcessorEditor to show its LicenseOverlay (which
+    // lives outside this scaled content, see PluginEditor's constructor).
+    std::function<void()> onOpenLicenseRequested;
 
     // Doit etre public : des fonctions utilitaires de sauvegarde/chargement
     // (hors de la classe, voir writePresetXml()/readPresetXml() dans le
@@ -364,7 +370,7 @@ class SuppressorAudioProcessorEditor : public juce::AudioProcessorEditor
 {
 public:
     explicit SuppressorAudioProcessorEditor (SuppressorAudioProcessor& p)
-        : juce::AudioProcessorEditor (&p), processorRef (p), content (p)
+        : juce::AudioProcessorEditor (&p), processorRef (p), content (p), licenseOverlay (p.licenseManager)
     {
         // Opaque (retour utilisateur : "quand je change la taille du VST
         // ... clignotement blanc ... le temps qu'il calcule les positions
@@ -378,6 +384,16 @@ public:
         addAndMakeVisible (content);
         content.setBounds (0, 0, SuppressorEditorContent::baseWidth, SuppressorEditorContent::baseHeight);
         content.onScaleRequested = [this] (float scale) { applyUiScale (scale); };
+        content.onOpenLicenseRequested = [this] { licenseOverlay.showManually(); };
+
+        // Sits OUTSIDE the scaled content (sibling, not child) so it isn't
+        // stretched/shrunk by content's setTransform — always drawn at the
+        // editor's real pixel size, see resized(). addChildComponent (NOT
+        // addAndMakeVisible) -- the latter forces visible=true, which would
+        // stomp on the hidden state LicenseOverlay's own constructor just
+        // computed (grace-period check).
+        addChildComponent (licenseOverlay);
+        licenseOverlay.toFront (false);
 
         // allowHostToResize=FALSE (voir explication utilisateur) : quand
         // c'est TRUE, l'hote (ex. Ableton Live) considere la fenetre comme
@@ -415,6 +431,11 @@ public:
     // jusqu'a ce que `content` (plus petit ou plus grand selon le sens du
     // resize) le recouvre a son tour.
     void paint (juce::Graphics& g) override { g.fillAll (SuppressorColours::bg); }
+
+    void resized() override
+    {
+        licenseOverlay.setBounds (getLocalBounds());
+    }
 
    #if JUCE_WINDOWS
     // Ableton Live est un cas particulier documente dans JUCE lui-meme
@@ -600,6 +621,7 @@ public:
 private:
     SuppressorAudioProcessor& processorRef;
     SuppressorEditorContent content;
+    LicenseOverlay licenseOverlay;
 
    #if JUCE_WINDOWS
     HWND titleBarHwnd = nullptr;

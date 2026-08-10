@@ -83,6 +83,12 @@ public:
             latencyButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
         }
 
+        addAndMakeVisible (licenseButton);
+        licenseButton.setButtonText ("LICENSE MANAGER");
+        licenseButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
+        licenseButton.setColour (juce::TextButton::textColourOffId, SuppressorColours::ledAmber);
+        licenseButton.onClick = [this] { if (onOpenLicense) onOpenLicense(); };
+
         addAndMakeVisible (aiViewport);
         aiViewport.setScrollBarsShown (true, false);
         aiViewport.setViewedComponent (&aiPanel, false);
@@ -166,6 +172,9 @@ public:
             latRow.removeFromLeft ((int) gap);
         }
 
+        content.removeFromTop (14.0f);           // ligne + marge
+        licenseButton.setBounds (content.removeFromTop (34.0f).toNearestInt());
+
         aiDividerY = content.getY() + 14.0f;
         content.removeFromTop (24.0f);           // ligne + marge
 
@@ -241,6 +250,7 @@ public:
     }
 
     std::function<void()> onDismiss;
+    std::function<void()> onOpenLicense;
     std::function<void(float)> onScaleSelected;
     std::function<void(int)> onLatencySelected;
     std::function<void(int)> onAiTargetSelected;
@@ -673,6 +683,7 @@ private:
 
     juce::TextButton scaleButtons[kNumScales];
     juce::TextButton latencyButtons[kNumLatency];
+    juce::TextButton licenseButton;
     juce::TextButton closeButton;
     juce::TextButton closeCrossButton;
 

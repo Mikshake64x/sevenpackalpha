@@ -1,6 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "SuppressorLookAndFeel.h"
+#include "LicenseManager.h"
 
 /**
     AboutOverlay
@@ -258,11 +259,23 @@ public:
             return;
         }
 
+        if (licenseBounds.contains (e.position))
+        {
+            if (onOpenLicense)
+                onOpenLicense();
+            return;
+        }
+
         if (onDismiss)
             onDismiss();
     }
 
     std::function<void()> onDismiss;
+    std::function<void()> onOpenLicense;
+
+    // Set once by the editor so the footer can show either the active
+    // license key or the remaining demo days instead of a static label.
+    void setLicenseManager (LicenseManager& lm) { license = &lm; }
 
 private:
     struct Layout
@@ -317,7 +330,7 @@ private:
         auto versionArea = headerRow.removeFromRight (56.0f);
         g.setColour (SuppressorColours::textDim);
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
-        g.drawFittedText ("v1.7.12", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
+        g.drawFittedText ("v1.8.0", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
 
         auto titleArea = headerRow.removeFromLeft (juce::jmin (240.0f, headerRow.getWidth() * 0.48f));
         g.setColour (SuppressorColours::ledAmber);
@@ -604,6 +617,31 @@ private:
         g.drawFittedText ("Manual", manualBounds.toNearestInt(), juce::Justification::centredLeft, 1);
         g.drawLine (manualBounds.getX(), manualBounds.getBottom() - 3.0f,
                     manualBounds.getX() + manualW, manualBounds.getBottom() - 3.0f, 1.0f);
+
+        // License status link, same "|" separator style as Manual — shows
+        // the active key or the remaining demo days, opens the license
+        // manager (LicenseOverlay) even if already licensed/demoing. No
+        // underline (can show a full key, underline reads as cluttered).
+        juce::String licenseText = "License";
+        if (license != nullptr)
+        {
+            auto key = license->getLicenseKey();
+            if (key.isNotEmpty())
+                licenseText = key;
+            else if (license->getStatus() == LicenseManager::Status::trial)
+                licenseText = "Demo - " + juce::String (license->getTrialDaysLeft()) + " day(s) left";
+        }
+
+        juce::GlyphArrangement gaLicense;
+        gaLicense.addLineOfText (g.getCurrentFont(), licenseText, 0.0f, 0.0f);
+        const float licenseW = gaLicense.getBoundingBox (0, -1, true).getWidth();
+
+        licenseBounds = row.withX (manualBounds.getRight() + sepW).withWidth (licenseW);
+        g.setColour (SuppressorColours::textDim.withAlpha (0.5f));
+        g.drawFittedText ("|", juce::Rectangle<float> (manualBounds.getRight(), row.getY(), sepW, row.getHeight()).toNearestInt(),
+                           juce::Justification::centred, 1);
+        g.setColour (SuppressorColours::ledBlue);
+        g.drawFittedText (licenseText, licenseBounds.toNearestInt(), juce::Justification::centredLeft, 1);
     }
 
     juce::Image badgeImage;
@@ -611,6 +649,8 @@ private:
     juce::Image chromeCache;
     juce::Rectangle<float> websiteBounds;
     juce::Rectangle<float> manualBounds;
+    juce::Rectangle<float> licenseBounds;
+    LicenseManager* license = nullptr;
 
     juce::Viewport viewportA, viewportB, viewportC;
     ParagraphColumn columnA, columnB, columnC;
