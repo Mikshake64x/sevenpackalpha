@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 #include "PressAnimator.h"
 
 /**
@@ -48,7 +48,7 @@ public:
         {
             auto bounds = getLocalBounds().toFloat();
             applyPressTransform (g, bounds);
-            const auto* laf = dynamic_cast<SuppressorLookAndFeel*> (&getLookAndFeel());
+            const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
             const bool powered = (laf == nullptr) || laf->isPowered();
             // Bouton physique : l'aspect (enfonce/sureleve, texte) suit
             // l'etat mecanique, pas le courant. Seule la diode s'eteint.
@@ -76,7 +76,7 @@ public:
             g.setColour (ledLit ? accent : accent.interpolatedWith (juce::Colours::black, 0.85f));
             g.fillEllipse (ledBounds);
 
-            g.setColour (on ? SuppressorColours::textBright : SuppressorColours::textDim);
+            g.setColour (on ? SixpackColours::chipTextBright : SixpackColours::chipTextDim);
             g.setFont (juce::Font (juce::FontOptions (juce::jmin (12.5f, bounds.getWidth() * 0.34f), juce::Font::bold)));
             g.drawFittedText (text, bounds.withTrimmedTop (bounds.getHeight() * 0.5f).toNearestInt(),
                                juce::Justification::centred, 1);
@@ -93,7 +93,7 @@ public:
         for (int i = 0; i < numRatios; ++i)
         {
             // Degrade cyan (2:1, le plus doux) -> rouge (20:1, le plus dur).
-            const juce::Colour ledColour = SuppressorLookAndFeel::ratioLedColour ((float) i / (float) (numRatios - 1));
+            const juce::Colour ledColour = SixpackLookAndFeel::ratioLedColour ((float) i / (float) (numRatios - 1));
             buttons[i] = std::make_unique<RatioButton> (names[i], ledColour);
             buttons[i]->setRadioGroupId (1001, juce::dontSendNotification);
             addAndMakeVisible (*buttons[i]);

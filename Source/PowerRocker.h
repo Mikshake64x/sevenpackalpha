@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 
 /**
     PowerRocker
@@ -31,7 +31,7 @@ public:
             // Filet de securite si la ressource binaire n'a pas ete ajoutee
             // dans Projucer : on dessine un placeholder plutot que de ne
             // rien afficher du tout.
-            g.setColour (getToggleState() ? SuppressorColours::ledRed : juce::Colours::black);
+            g.setColour (getToggleState() ? SixpackColours::ledRed : juce::Colours::black);
             g.fillRoundedRectangle (bounds, 4.0f);
             return;
         }

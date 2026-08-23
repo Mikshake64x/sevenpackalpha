@@ -91,7 +91,7 @@ private:
     static juce::File getLicenseFile()
     {
         return juce::File::getSpecialLocation (juce::File::commonApplicationDataDirectory)
-            .getChildFile ("YourCompany").getChildFile ("TripressorPro").getChildFile ("license.json");
+            .getChildFile ("YourCompany").getChildFile ("SixpackPro").getChildFile ("license.json");
     }
 
     void loadStoredLicense()

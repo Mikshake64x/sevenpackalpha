@@ -82,15 +82,22 @@ public:
         0.0f,    // Match (non utilise, cible calculee dynamiquement)
     };
 
+    // 6 bandes (Low/LowMid/Mid/HighMid/Presence/High), 5 points de crossover --
+    // memes indices que SixpackAudioProcessor::Band/NumBands/NumCrossovers
+    // (pas d'include croise possible, voir kRatioTable/kKneeTable plus bas
+    // pour la meme contrainte).
+    static constexpr int kNumBands = 6;
+    static constexpr int kNumCrossovers = kNumBands - 1; // 5
+
     struct Result
     {
-        float crossoverLowHz = 121.5f, crossoverHighHz = 2521.0f;
-        std::array<float, 3> inputDb {};
-        std::array<float, 3> ratioIndex {};  // 0..6 (flottant, l'appelant arrondit)
-        std::array<float, 3> attackMs {};
-        std::array<float, 3> releaseMs {};
-        std::array<float, 3> mixPercent   { { 100.0f, 100.0f, 100.0f } }; // 0..100
-        std::array<float, 3> widthPercent { { 100.0f, 100.0f, 100.0f } }; // 0..200, 100=neutre
+        std::array<float, (size_t) kNumCrossovers> crossoverHz { { 90.0f, 270.0f, 650.0f, 1700.0f, 3500.0f } };
+        std::array<float, (size_t) kNumBands> inputDb {};
+        std::array<float, (size_t) kNumBands> ratioIndex {};  // 0..6 (flottant, l'appelant arrondit)
+        std::array<float, (size_t) kNumBands> attackMs {};
+        std::array<float, (size_t) kNumBands> releaseMs {};
+        std::array<float, (size_t) kNumBands> mixPercent   { { 100.0f, 100.0f, 100.0f, 100.0f, 100.0f, 100.0f } }; // 0..100
+        std::array<float, (size_t) kNumBands> widthPercent { { 100.0f, 100.0f, 100.0f, 100.0f, 100.0f, 100.0f } }; // 0..200, 100=neutre
 
         // Portee (menu Options, section AI, demande explicite : "AI ne
         // s'occupe que de la compression si on le souhaite") -- decide ce
@@ -105,16 +112,16 @@ public:
         // Detecteur sidechain (Bell) par bande -- pointe sur la frequence
         // dominante mesuree DANS cette bande, engage seulement si un pic
         // assez marque a ete trouve. Calcule seulement si applyDetectorsScope.
-        std::array<bool, 3>  detectorBellOn     { { false, false, false } };
-        std::array<float, 3> detectorBellFreqHz { { 650.0f, 650.0f, 650.0f } };
-        std::array<float, 3> detectorBellGainDb { { 6.0f, 6.0f, 6.0f } };
+        std::array<bool, (size_t) kNumBands>  detectorBellOn     { { false, false, false, false, false, false } };
+        std::array<float, (size_t) kNumBands> detectorBellFreqHz { { 650.0f, 650.0f, 650.0f, 650.0f, 650.0f, 650.0f } };
+        std::array<float, (size_t) kNumBands> detectorBellGainDb { { 6.0f, 6.0f, 6.0f, 6.0f, 6.0f, 6.0f } };
 
         // Cible de mastering (menu Options, section AI) -- seulement rempli
         // si un target != Off etait selectionne au moment du clic. Meme
-        // correction (en dB) appliquee aux 3 Output de bande + Soft Clip
+        // correction (en dB) appliquee aux 5 Output de bande + Soft Clip
         // recommande ON (garde-fou true-peak) -- voir doc de classe.
         bool applyLoudnessTarget = false;
-        std::array<float, 3> outputDb {};
+        std::array<float, (size_t) kNumBands> outputDb {};
         bool recommendSoftClipOn = false;
         float measuredLufs = -23.0f; // informatif seulement, pas applique tel quel
 
@@ -123,17 +130,17 @@ public:
         // outputs en fonction du style") -- simple offset statique par
         // bande, voir kStyleOutputBiasDb. "Off" = pas d'offset.
         bool applyStyle = false;
-        std::array<float, 3> styleOutputDb {};
+        std::array<float, (size_t) kNumBands> styleOutputDb {};
 
         // Fidelity (menu Options, section AI, demande explicite : "une
         // fonction qui reprend la balance bass mid aigue du mix pour la
         // remettre pareil apres compression") -- mesure la balance relative
-        // Low/Mid/High AVANT compression puis la balance qu'aurait le
-        // signal APRES (simulation), et corrige l'Output de chaque bande
-        // pour retrouver la balance d'origine. Independant de tout le
-        // reste -- se combine (s'additionne) avec Style et la cible LUFS.
+        // par bande AVANT compression puis la balance qu'aurait le signal
+        // APRES (simulation), et corrige l'Output de chaque bande pour
+        // retrouver la balance d'origine. Independant de tout le reste --
+        // se combine (s'additionne) avec Style et la cible LUFS.
         bool applyFidelity = false;
-        std::array<float, 3> fidelityOutputDb {};
+        std::array<float, (size_t) kNumBands> fidelityOutputDb {};
 
         // Chaque axe (Compression Mode / Gain Reduction / Attack-Release
         // Character) a son propre choix "Off" (demande explicite : "on doit
@@ -162,10 +169,10 @@ public:
         // quietness, pas crest factor -- voir run()). pushExpand*
         // gouvernent chacun leur propre axe, independamment des push*
         // compression ci-dessus.
-        std::array<float, 3> expandInputDb {};   // Range (dB, voir FeedbackCompressor::setExpandRangeDb())
-        std::array<float, 3> expandRatioIndex {};
-        std::array<float, 3> expandAttackMs {};
-        std::array<float, 3> expandReleaseMs {};
+        std::array<float, (size_t) kNumBands> expandInputDb {};   // Range (dB, voir FeedbackCompressor::setExpandRangeDb())
+        std::array<float, (size_t) kNumBands> expandRatioIndex {};
+        std::array<float, (size_t) kNumBands> expandAttackMs {};
+        std::array<float, (size_t) kNumBands> expandReleaseMs {};
         bool pushExpandInput         = true; // Range -- gouverne par AI Expand Amount (voir kExpandAmountRangeMinDb/MaxDb)
         bool pushExpandRatio         = true; // gouverne par AI Expand Mode (voir kExpandModeRatioBoost)
         bool pushExpandAttackRelease = true; // gouverne par AI Expand Character
@@ -175,7 +182,7 @@ public:
         // S'additionne a applyLoudnessTarget/applyStyle/applyFidelity dans
         // l'editeur (meme mecanisme de somme des sources Output).
         bool applyExpandOutput = false;
-        std::array<float, 3> expandOutputDb {};
+        std::array<float, (size_t) kNumBands> expandOutputDb {};
     };
 
     // Modes de compression proposes par le bouton AI (demande explicite :
@@ -320,7 +327,7 @@ public:
     static constexpr float kExpandAmountRangeMinDb[kNumExpandAmountModes] = { 0.2f, 0.5f, 1.0f }; // Smooth/Mid/Hard
     static constexpr float kExpandAmountRangeMaxDb[kNumExpandAmountModes] = { 0.4f, 1.0f, 3.0f };
 
-    // Tables ratio/knee dupliquees depuis SuppressorAudioProcessor (pas
+    // Tables ratio/knee dupliquees depuis SixpackAudioProcessor (pas
     // d'include croise possible -- PluginProcessor.h inclut deja ce
     // fichier). Doivent rester synchronisees si la table change la-bas.
     static constexpr float kRatioTable[7] = { 2.0f, 3.0f, 4.0f, 6.0f, 8.0f, 10.0f, 20.0f };
@@ -329,19 +336,24 @@ public:
     // Styles musicaux (menu Options, section AI, demande explicite :
     // "plusieurs styles musicaux qui vont changer la balance des outputs en
     // fonction du style. Bass +3dB sur la bande bass, Loud +3dB en bass et
-    // high...") -- offsets STATIQUES par bande (Low/Mid/High) ajoutes a
-    // l'Output, independamment de tout le reste (ratio/input/etc). Simple
-    // lookup, pas d'analyse -- contrairement a Fidelity ci-dessous. "Off"
-    // (index 0, pas d'entree ici) = aucun offset.
+    // high...") -- offsets STATIQUES par bande (Low/LowMid/Mid/HighMid/
+    // Presence/High) ajoutes a l'Output, independamment de tout le reste
+    // (ratio/input/etc). Simple lookup, pas d'analyse -- contrairement a
+    // Fidelity ci-dessous. "Off" (index 0, pas d'entree ici) = aucun
+    // offset. Colonnes LowMid/HighMid INTERPOLEES depuis les valeurs Low/
+    // Mid/High mesurees a l'origine (Tripressor, 3 bandes) -- Presence
+    // (6e bande, ajoutee ensuite) INTERPOLEE a son tour entre HighMid et
+    // High -- a affiner empiriquement, pas remesurees sur la nouvelle
+    // geometrie 6 bandes.
     static constexpr int kNumStyles = 5;
     static constexpr int kNumStyleChoices = 6; // + "Off"
-    static constexpr float kStyleOutputBiasDb[kNumStyles][3] =
+    static constexpr float kStyleOutputBiasDb[kNumStyles][(size_t) kNumBands] =
     {
-        { 3.0f, 0.0f, 0.0f }, // Bass
-        { 3.0f, 0.0f, 3.0f }, // Loud (courbe "smiley")
-        { 2.0f, 1.0f, 2.0f }, // Rock (leger boost general, un peu de presence)
-        { 0.0f, 2.0f, 1.0f }, // Pop (presence vocale + un peu d'air)
-        { 4.0f, 0.0f, 3.0f }, // Electronic (smiley plus marque)
+        { 3.0f, 1.5f, 0.0f, 0.0f, 0.0f,  0.0f }, // Bass
+        { 3.0f, 1.5f, 0.0f, 1.5f, 2.25f, 3.0f }, // Loud (courbe "smiley")
+        { 2.0f, 1.5f, 1.0f, 1.5f, 1.75f, 2.0f }, // Rock (leger boost general, un peu de presence)
+        { 0.0f, 1.0f, 2.0f, 1.5f, 1.25f, 1.0f }, // Pop (presence vocale + un peu d'air)
+        { 4.0f, 2.0f, 0.0f, 1.5f, 2.25f, 3.0f }, // Electronic (smiley plus marque)
     };
 
     AiLearnAnalyzer() : juce::Thread ("AI Learn Analyzer") {}
@@ -607,25 +619,54 @@ private:
 
         if (totalEnergy > 1.0e-12)
         {
-            r.crossoverLowHz  = juce::jlimit (20.0f,  400.0f,  (float) findCrossoverHz (0.28));
+            // 5 points de crossover -> fractions d'energie cumulee visant
+            // des bandes Low 15% / LowMid 20% / Mid 30% / HighMid 20% /
+            // Presence 7% / High 8% -- X1-X4 reprennent exactement les 4
+            // fractions historiques (decoupage 5 bandes inchange jusqu'a
+            // HighMid), X5 (nouveau, frontiere Presence/High) ajoute a 92%.
+            static constexpr float kEnergyFractions[kNumCrossovers] = { 0.15f, 0.35f, 0.65f, 0.85f, 0.92f };
 
-            // XHIGH : plage resserree DEDIEE a l'AI Scope Crossover (retour
-            // utilisateur : "il me trouve souvent des incoherences ...
-            // notamment sur Xover high" -- le clamp large 300-6000Hz
-            // laissait passer des propositions peu musicales, ex. un XHIGH
-            // colle au XLOW ou perdu tres haut dans l'aigu). Resserree a
-            // 2000-4500Hz UNIQUEMENT quand le scope Crossover est actif
-            // (applyCrossover) -- le crossover HIGH manuel (knob) n'est pas
-            // touche, et le calcul "interne" garde son ancienne plage large
-            // quand le scope est desactive (utilise aussi pour decouper les
-            // bandes du scope Detecteurs, voir bandRangeHz() plus bas,
-            // meme quand Crossover est off -- pas de raison de le resserrer
+            // Plages resserrees DEDIEES a l'AI Scope Crossover (retour
+            // utilisateur historique sur Tripressor : "il me trouve souvent
+            // des incoherences ... notamment sur Xover high" -- un clamp
+            // trop large laisse passer des propositions peu musicales)
+            // UNIQUEMENT quand le scope Crossover est actif -- le calcul
+            // "interne" garde la plage complete Crossover::kSplitMinHz/MaxHz
+            // quand le scope est desactive (utilisee aussi pour decouper
+            // les bandes du scope Detecteurs, voir bandRangeHz() plus bas,
+            // meme quand Crossover est off -- pas de raison de la resserrer
             // la).
-            const float xHighMin = applyCrossover ? 2000.0f : 300.0f;
-            const float xHighMax = applyCrossover ? 4500.0f : 6000.0f;
-            r.crossoverHighHz = juce::jlimit (xHighMin, xHighMax, (float) findCrossoverHz (0.72));
-            if (r.crossoverHighHz <= r.crossoverLowHz * 1.5f)
-                r.crossoverHighHz = juce::jmin (xHighMax, r.crossoverLowHz * 3.0f);
+            // Tolerances retour utilisateur explicite (2026-08-20, revues
+            // pour la 6e bande "Presence") : X1 60-110Hz, X2 110-300Hz, X3
+            // 300-1000Hz, X4 1000-2500Hz, X5 2500-5000Hz.
+            static constexpr float kTightMinHz[kNumCrossovers] = {  60.0f,  110.0f,  300.0f, 1000.0f, 2500.0f };
+            static constexpr float kTightMaxHz[kNumCrossovers] = { 110.0f,  300.0f, 1000.0f, 2500.0f, 5000.0f };
+
+            for (int x = 0; x < kNumCrossovers; ++x)
+            {
+                const float lo = applyCrossover ? kTightMinHz[x] : Crossover::kSplitMinHz[x];
+                const float hi = applyCrossover ? kTightMaxHz[x] : Crossover::kSplitMaxHz[x];
+                r.crossoverHz[(size_t) x] = juce::jlimit (lo, hi, (float) findCrossoverHz (kEnergyFractions[x]));
+            }
+
+            // Impose un ecart minimum (ratio 1.35, plus genereux que le
+            // ratio 1.05 de securite DSP dans PluginProcessor -- ici on veut
+            // des propositions musicalement distinctes, pas juste valides)
+            // entre 2 points consecutifs -- l'analyse d'energie cumulee peut
+            // sinon proposer 2 points quasi confondus sur un spectre plat.
+            constexpr float minRatio = 1.35f;
+            for (int x = 1; x < kNumCrossovers; ++x)
+            {
+                const float minAllowed = r.crossoverHz[(size_t) (x - 1)] * minRatio;
+                if (r.crossoverHz[(size_t) x] < minAllowed)
+                    r.crossoverHz[(size_t) x] = juce::jmin (Crossover::kSplitMaxHz[x], minAllowed);
+            }
+            for (int x = kNumCrossovers - 2; x >= 0; --x)
+            {
+                const float maxAllowed = r.crossoverHz[(size_t) (x + 1)] / minRatio;
+                if (r.crossoverHz[(size_t) x] > maxAllowed)
+                    r.crossoverHz[(size_t) x] = juce::jmax (Crossover::kSplitMinHz[x], maxAllowed);
+            }
         }
 
         if (threadShouldExit())
@@ -644,12 +685,12 @@ private:
         {
             auto bandRangeHz = [&] (int band) -> std::pair<double, double>
             {
-                if (band == 0) return { 20.0, (double) r.crossoverLowHz };
-                if (band == 1) return { (double) r.crossoverLowHz, (double) r.crossoverHighHz };
-                return { (double) r.crossoverHighHz, 18000.0 };
+                const double lo = (band == 0) ? 20.0    : (double) r.crossoverHz[(size_t) (band - 1)];
+                const double hi = (band == kNumBands - 1) ? 18000.0 : (double) r.crossoverHz[(size_t) band];
+                return { lo, hi };
             };
 
-            for (int band = 0; band < 3; ++band)
+            for (int band = 0; band < kNumBands; ++band)
             {
                 const auto range = bandRangeHz (band);
                 const int bLo = juce::jlimit (1, numBins - 1, (int) (range.first  / binHz));
@@ -689,7 +730,7 @@ private:
                 return;
         }
 
-        // --- 2. Split Low/Mid/High hors-ligne EN STEREO (crossover Wide, 0
+        // --- 2. Split 5 bandes hors-ligne EN STEREO (crossover Wide, 0
         // latence) avec les frequences tout juste calculees -- un filtre
         // par canal (memes coefficients), pour ne jamais melanger l'etat
         // interne des filtres L et R. Le split mono utilise pour Input/
@@ -701,38 +742,61 @@ private:
         {
             xo->prepare (sampleRate, numSamples);
             xo->setLinearPhaseMode (false);
-            xo->setLowCrossoverHz (r.crossoverLowHz);
-            xo->setHighCrossoverHz (r.crossoverHighHz);
+            for (int x = 0; x < kNumCrossovers; ++x)
+                xo->setCrossoverHz (x, r.crossoverHz[(size_t) x]);
         }
 
-        juce::AudioBuffer<float> lowL (1, numSamples), midL (1, numSamples), highL (1, numSamples);
-        juce::AudioBuffer<float> lowR (1, numSamples), midR (1, numSamples), highR (1, numSamples);
-        xoL.processBlock (left,  lowL.getWritePointer (0), midL.getWritePointer (0), highL.getWritePointer (0), numSamples);
-        xoR.processBlock (right, lowR.getWritePointer (0), midR.getWritePointer (0), highR.getWritePointer (0), numSamples);
+        std::array<juce::AudioBuffer<float>, (size_t) kNumBands> splitL, splitR;
+        for (int band = 0; band < kNumBands; ++band)
+        {
+            splitL[(size_t) band].setSize (1, numSamples);
+            splitR[(size_t) band].setSize (1, numSamples);
+        }
+        float* outsL[(size_t) kNumBands];
+        float* outsR[(size_t) kNumBands];
+        for (int band = 0; band < kNumBands; ++band)
+        {
+            outsL[(size_t) band] = splitL[(size_t) band].getWritePointer (0);
+            outsR[(size_t) band] = splitR[(size_t) band].getWritePointer (0);
+        }
+        xoL.processBlock (left,  outsL, numSamples);
+        xoR.processBlock (right, outsR, numSamples);
 
-        const float* bandL[3] = { lowL.getReadPointer (0), midL.getReadPointer (0), highL.getReadPointer (0) };
-        const float* bandR[3] = { lowR.getReadPointer (0), midR.getReadPointer (0), highR.getReadPointer (0) };
+        const float* bandL[(size_t) kNumBands];
+        const float* bandR[(size_t) kNumBands];
+        for (int band = 0; band < kNumBands; ++band)
+        {
+            bandL[(size_t) band] = splitL[(size_t) band].getReadPointer (0);
+            bandR[(size_t) band] = splitR[(size_t) band].getReadPointer (0);
+        }
 
-        static constexpr float baseReleaseMs[3] = { 220.0f, 120.0f, 70.0f };
+        // Temps de Release par defaut, du plus lent (Low) au plus rapide
+        // (High) -- LowMid/HighMid INTERPOLES (moyenne geometrique des
+        // voisins) depuis les 3 valeurs mesurees a l'origine (Tripressor),
+        // Presence (6e bande) INTERPOLEE a son tour entre HighMid et High.
+        static constexpr float baseReleaseMs[(size_t) kNumBands] = { 220.0f, 165.0f, 120.0f, 92.0f, 80.0f, 70.0f };
         // Biais de largeur par bande (demande explicite : jouer aussi sur
         // le Mono/Stereo Spread) -- convention mastering classique :
         // resserrer le bas (mono-compatibilite), garder le medium honnete,
         // n'ouvrir le haut que si le signal source a REELLEMENT du contenu
         // stereo la-haut (jamais elargir artificiellement du contenu deja
         // mono). facteur applique a stereonessDb (cote - milieu, en dB).
-        static constexpr float widthBiasPerDb[3] = { -3.0f, 1.0f, 3.0f };
-        static constexpr float widthMin[3] = { 40.0f, 80.0f, 100.0f };
-        static constexpr float widthMax[3] = { 100.0f, 120.0f, 170.0f };
+        // LowMid/HighMid INTERPOLES entre leurs voisins (meme reserve que
+        // baseReleaseMs/kStyleOutputBiasDb ci-dessus), Presence interpolee
+        // entre HighMid et High.
+        static constexpr float widthBiasPerDb[(size_t) kNumBands] = { -3.0f, -1.0f, 1.0f, 2.0f, 2.5f, 3.0f };
+        static constexpr float widthMin[(size_t) kNumBands] = { 40.0f, 60.0f, 80.0f, 90.0f, 95.0f, 100.0f };
+        static constexpr float widthMax[(size_t) kNumBands] = { 100.0f, 110.0f, 120.0f, 145.0f, 158.0f, 170.0f };
 
-        // Fidelity : balance relative Low/Mid/High AVANT compression
-        // (rmsDb, deja calculee dans la boucle ci-dessous) vs. APRES
-        // (simulation, meme FeedbackCompressor que le plafond GR, mais on
-        // accumule ici la RMS en SORTIE plutot que la GR crete). Rempli
-        // dans la boucle, corrige juste apres.
-        float origRmsDbArr[3]  = { 0.0f, 0.0f, 0.0f };
-        float postRmsDbArr[3]  = { 0.0f, 0.0f, 0.0f };
+        // Fidelity : balance relative par bande AVANT compression (rmsDb,
+        // deja calculee dans la boucle ci-dessous) vs. APRES (simulation,
+        // meme FeedbackCompressor que le plafond GR, mais on accumule ici
+        // la RMS en SORTIE plutot que la GR crete). Rempli dans la boucle,
+        // corrige juste apres.
+        float origRmsDbArr[(size_t) kNumBands] = {};
+        float postRmsDbArr[(size_t) kNumBands] = {};
 
-        for (int band = 0; band < 3; ++band)
+        for (int band = 0; band < kNumBands; ++band)
         {
             const float* dL = bandL[band];
             const float* dR = bandR[band];
@@ -1004,17 +1068,23 @@ private:
         }
 
         // --- 2bis. Fidelity : corrige l'Output de chaque bande pour que la
-        // balance RELATIVE Low/Mid/High retrouve, APRES compression, celle
+        // balance RELATIVE entre bandes retrouve, APRES compression, celle
         // qu'elle avait AVANT (demande explicite : "une fonction qui
         // reprend la balance bass mid aigue du mix pour la remettre pareil
         // apres compression"). On compare les deviations par rapport a la
-        // moyenne des 3 bandes (pas les RMS absolues, qui n'ont pas de
+        // moyenne des 5 bandes (pas les RMS absolues, qui n'ont pas de
         // raison d'etre egales) avant/apres, et on corrige l'ecart. ---
         if (fidelity)
         {
-            const float origMean = (origRmsDbArr[0] + origRmsDbArr[1] + origRmsDbArr[2]) / 3.0f;
-            const float postMean = (postRmsDbArr[0] + postRmsDbArr[1] + postRmsDbArr[2]) / 3.0f;
-            for (int band = 0; band < 3; ++band)
+            float origMean = 0.0f, postMean = 0.0f;
+            for (int band = 0; band < kNumBands; ++band)
+            {
+                origMean += origRmsDbArr[band];
+                postMean += postRmsDbArr[band];
+            }
+            origMean /= (float) kNumBands;
+            postMean /= (float) kNumBands;
+            for (int band = 0; band < kNumBands; ++band)
             {
                 const float origRel = origRmsDbArr[band] - origMean;
                 const float postRel = postRmsDbArr[band] - postMean;
@@ -1071,13 +1141,13 @@ private:
                 // Match (demande explicite : "ça match au meme volume que
                 // la source en RMS") -- simule le VRAI FeedbackCompressor
                 // par bande (memes reglages que ceux calcules plus haut) et
-                // somme les 3 bandes pour reconstituer le signal APRES
+                // somme les 5 bandes pour reconstituer le signal APRES
                 // compression (Output=0dB), puis corrige l'ecart de
                 // loudness reellement introduit -- contrairement aux
                 // cibles fixes ci-dessus, qui n'ont pas besoin de simuler
                 // quoi que ce soit.
                 std::vector<float> postL ((size_t) numSamples, 0.0f), postR ((size_t) numSamples, 0.0f);
-                for (int band = 0; band < 3; ++band)
+                for (int band = 0; band < kNumBands; ++band)
                 {
                     const int ratioIdxInt = juce::jlimit (0, 6, juce::roundToInt (r.ratioIndex[(size_t) band]));
                     FeedbackCompressor simL, simR;
@@ -1115,7 +1185,7 @@ private:
 
             r.applyLoudnessTarget = true;
             r.recommendSoftClipOn = true;
-            for (int band = 0; band < 3; ++band)
+            for (int band = 0; band < kNumBands; ++band)
                 r.outputDb[(size_t) band] = juce::jlimit (-30.0f, 30.0f, gainNeededDb);
         }
 

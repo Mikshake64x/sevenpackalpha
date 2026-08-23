@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 
 /**
     ThdEngageSwitch
@@ -8,7 +8,7 @@
     Interrupteur ON/OFF du THD Valve (SOFTCLIP), sprite
     Button-08-S-Filmstrip.png (filmstrip vertical 2 images -- haut =
     engage, bas = off), meme famille que PowerRocker.h. La diode d'etat
-    reste sur ThdValveModule (voir ThdValveModule.h) -- ce composant est
+    reste sur ThdHeaderModule (voir ThdHeaderModule.h) -- ce composant est
     juste l'actionneur physique.
 */
 class ThdEngageSwitch : public juce::Button
@@ -26,7 +26,7 @@ public:
 
         if (sprite.isNull())
         {
-            g.setColour (getToggleState() ? SuppressorColours::ledAmber : juce::Colours::black);
+            g.setColour (getToggleState() ? SixpackColours::ledAmber : juce::Colours::black);
             g.fillEllipse (bounds);
             return;
         }

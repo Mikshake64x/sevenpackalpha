@@ -12,7 +12,7 @@
       setDoubleClickReturnValue, applique par l'appelant dans setupKnob()).
 
     La zone LCD est calculee avec EXACTEMENT la meme formule geometrique
-    que SuppressorLookAndFeel::drawRotarySlider (bounds reduits de 2,
+    que SixpackLookAndFeel::drawRotarySlider (bounds reduits de 2,
     R = rayon*0.92, lcdR = R*0.62*0.62) -- a garder synchronisee si ce
     dessin change.
 */
@@ -20,7 +20,7 @@ class KnobSlider : public juce::Slider,
                     private juce::TextEditor::Listener
 {
 public:
-    KnobSlider() : juce::Slider (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox)
+    KnobSlider() : juce::Slider (juce::Slider::RotaryVerticalDrag, juce::Slider::NoTextBox)
     {
         editor.setJustification (juce::Justification::centred);
         editor.setInputRestrictions (0, "0123456789.-");

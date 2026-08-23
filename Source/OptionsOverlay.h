@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 
 /**
     OptionsOverlay
@@ -61,8 +61,8 @@ public:
                     onScaleSelected (kScaleValues[i]);
             };
             scaleButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-            scaleButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledAmber);
-            scaleButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+            scaleButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledAmber);
+            scaleButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
             scaleButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
         }
 
@@ -78,15 +78,28 @@ public:
                     onLatencySelected (i);
             };
             latencyButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-            latencyButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledAmber);
-            latencyButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+            latencyButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledAmber);
+            latencyButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
             latencyButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
         }
+
+        // Theme SOMBRE/CLAIR -- retour utilisateur explicite : "je souhaite
+        // faire un design plus clair qu'on peut change dans l'engrenage".
+        // Simple interrupteur ON/OFF (meme mecanique que AI FIDELITY plus
+        // bas) : ON = theme clair "metal brosse argente".
+        addAndMakeVisible (themeButton);
+        themeButton.setButtonText ("LIGHT THEME");
+        themeButton.setClickingTogglesState (true);
+        themeButton.onClick = [this] { if (onThemeToggled) onThemeToggled (themeButton.getToggleState()); };
+        themeButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
+        themeButton.setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledAmber);
+        themeButton.setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
+        themeButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
 
         addAndMakeVisible (licenseButton);
         licenseButton.setButtonText ("LICENSE MANAGER");
         licenseButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-        licenseButton.setColour (juce::TextButton::textColourOffId, SuppressorColours::ledAmber);
+        licenseButton.setColour (juce::TextButton::textColourOffId, SixpackColours::ledAmber);
         licenseButton.onClick = [this] { if (onOpenLicense) onOpenLicense(); };
 
         addAndMakeVisible (aiViewport);
@@ -97,7 +110,7 @@ public:
         addAndMakeVisible (closeButton);
         closeButton.setButtonText ("CLOSE");
         closeButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-        closeButton.setColour (juce::TextButton::textColourOffId, SuppressorColours::textBright);
+        closeButton.setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextBright);
         closeButton.onClick = [this] { if (onDismiss) onDismiss(); };
 
         // Croix de fermeture en haut a droite du panneau (demande explicite,
@@ -105,7 +118,10 @@ public:
         addAndMakeVisible (closeCrossButton);
         closeCrossButton.setButtonText ("X");
         closeCrossButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-        closeCrossButton.setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+        // Fond transparent (sur le panneau vitre, theme-reactif) -- garde
+        // textDim MUTABLE ici (pas chipTextDim), contrairement aux autres
+        // boutons ci-dessus qui ont un fond FIXE fonce.
+        closeCrossButton.setColour (juce::TextButton::textColourOffId, SixpackColours::textDim);
         closeCrossButton.onClick = [this] { if (onDismiss) onDismiss(); };
     }
 
@@ -119,6 +135,11 @@ public:
     {
         for (int i = 0; i < kNumLatency; ++i)
             latencyButtons[i].setToggleState (i == idx, juce::dontSendNotification);
+    }
+
+    void setLightThemeState (bool light)
+    {
+        themeButton.setToggleState (light, juce::dontSendNotification);
     }
 
     void setCurrentAiTargetIndex (int idx)          { aiPanel.setCurrentAiTargetIndex (idx); }
@@ -172,6 +193,10 @@ public:
             latRow.removeFromLeft ((int) gap);
         }
 
+        content.removeFromTop (18.0f);           // ligne + marge
+        themeLabelBounds = content.removeFromTop (18.0f).toNearestInt();
+        themeButton.setBounds (content.removeFromTop (34.0f).toNearestInt());
+
         content.removeFromTop (14.0f);           // ligne + marge
         licenseButton.setBounds (content.removeFromTop (34.0f).toNearestInt());
 
@@ -201,23 +226,23 @@ public:
         g.setColour (juce::Colours::black.withAlpha (0.88f));
         g.fillRect (bounds);
 
-        SuppressorLookAndFeel::renderGlassPanel (g, panelBounds, 12.0f);
-        SuppressorLookAndFeel::renderGlossySheen (g, panelBounds);
-        g.setColour (SuppressorColours::ledAmber.withAlpha (0.5f));
+        SixpackLookAndFeel::renderGlassPanel (g, panelBounds, 12.0f);
+        SixpackLookAndFeel::renderGlossySheen (g, panelBounds);
+        g.setColour (SixpackColours::ledAmber.withAlpha (0.5f));
         g.drawRoundedRectangle (panelBounds.reduced (0.5f), 12.0f, 1.0f);
 
         auto content = panelBounds.reduced (26.0f, 20.0f);
         auto titleArea = content.removeFromTop (38.0f);
-        g.setColour (SuppressorColours::ledAmber);
+        g.setColour (SixpackColours::ledAmber);
         g.setFont (juce::Font (juce::FontOptions (20.0f, juce::Font::bold)).withExtraKerningFactor (0.1f));
         g.drawFittedText ("OPTIONS", titleArea.toNearestInt(), juce::Justification::centredLeft, 1);
 
-        g.setColour (SuppressorColours::gridLine);
+        g.setColour (SixpackColours::gridLine);
         g.drawLine (content.getX(), content.getY(), content.getRight(), content.getY(), 1.0f);
 
         auto drawSectionLabel = [&] (const juce::Rectangle<int>& area, const juce::String& text)
         {
-            g.setColour (SuppressorColours::ledBlue);
+            g.setColour (SixpackColours::ledBlue);
             g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
             g.drawFittedText (text, area, juce::Justification::centredLeft, 1);
         };
@@ -228,7 +253,7 @@ public:
         // les reglages de base des reglages IA.
         auto drawGroupHeader = [&] (const juce::Rectangle<int>& area, const juce::String& text)
         {
-            g.setColour (SuppressorColours::ledAmber);
+            g.setColour (SixpackColours::ledAmber);
             g.setFont (juce::Font (juce::FontOptions (14.5f, juce::Font::bold)).withExtraKerningFactor (0.16f));
             g.drawFittedText (text, area, juce::Justification::centredLeft, 1);
         };
@@ -236,9 +261,11 @@ public:
         drawGroupHeader (generalHeaderBounds, "GENERAL");
         drawSectionLabel (scaleLabelBounds, "WINDOW SIZE");
         drawSectionLabel (latencyLabelBounds, "LINEAR MODE CPU BUDGET");
+        drawSectionLabel (themeLabelBounds, "DESIGN");
 
-        g.setColour (SuppressorColours::gridLine);
+        g.setColour (SixpackColours::gridLine);
         g.drawLine (content.getX(), latencyLabelBounds.getY() - 18.0f, content.getRight(), latencyLabelBounds.getY() - 18.0f, 1.0f);
+        g.drawLine (content.getX(), themeLabelBounds.getY() - 18.0f, content.getRight(), themeLabelBounds.getY() - 18.0f, 1.0f);
         g.drawLine (content.getX(), aiDividerY, content.getRight(), aiDividerY, 1.0f);
         drawGroupHeader (aiHeaderBounds, "AI");
     }
@@ -251,6 +278,7 @@ public:
 
     std::function<void()> onDismiss;
     std::function<void()> onOpenLicense;
+    std::function<void(bool)> onThemeToggled;
     std::function<void(float)> onScaleSelected;
     std::function<void(int)> onLatencySelected;
     std::function<void(int)> onAiTargetSelected;
@@ -299,8 +327,8 @@ private:
                         owner.onAiTargetSelected (i);
                 };
                 aiTargetButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                aiTargetButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledCyan);
-                aiTargetButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                aiTargetButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledCyan);
+                aiTargetButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
                 aiTargetButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
             }
 
@@ -316,8 +344,8 @@ private:
                         owner.onAiCompressionModeSelected (i);
                 };
                 compressionModeButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                compressionModeButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledCyan);
-                compressionModeButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                compressionModeButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledCyan);
+                compressionModeButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
                 compressionModeButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
             }
 
@@ -333,8 +361,8 @@ private:
                         owner.onAiCharacterSelected (i);
                 };
                 characterButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                characterButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledCyan);
-                characterButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                characterButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledCyan);
+                characterButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
                 characterButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
             }
 
@@ -354,8 +382,8 @@ private:
                         owner.onAiGainReductionSelected (i);
                 };
                 gainReductionButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                gainReductionButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledCyan);
-                gainReductionButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                gainReductionButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledCyan);
+                gainReductionButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
                 gainReductionButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
             }
 
@@ -370,8 +398,8 @@ private:
                         owner.onAiScopeChanged (i, scopeButtons[i].getToggleState());
                 };
                 scopeButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                scopeButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledGreen);
-                scopeButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                scopeButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledGreen);
+                scopeButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
                 scopeButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
             }
 
@@ -390,8 +418,8 @@ private:
                         owner.onAiStyleSelected (i);
                 };
                 styleButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                styleButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledCyan);
-                styleButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                styleButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledCyan);
+                styleButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
                 styleButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
             }
 
@@ -408,8 +436,8 @@ private:
                     owner.onAiFidelityChanged (fidelityButton.getToggleState());
             };
             fidelityButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-            fidelityButton.setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledGreen);
-            fidelityButton.setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+            fidelityButton.setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledGreen);
+            fidelityButton.setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
             fidelityButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
 
             // Triade AI EXPAND (demande explicite : "pour l'ia de expand,
@@ -433,8 +461,8 @@ private:
                 // utilisateur : "il faut faire correspondre les couleurs
                 // pour les options de l'expandeur en violet comme la diode
                 // expand".
-                expandModeButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledPurple);
-                expandModeButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                expandModeButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledPurple);
+                expandModeButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
                 expandModeButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
             }
 
@@ -450,8 +478,8 @@ private:
                         owner.onAiExpandCharacterSelected (i);
                 };
                 expandCharacterButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                expandCharacterButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledPurple);
-                expandCharacterButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                expandCharacterButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledPurple);
+                expandCharacterButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
                 expandCharacterButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
             }
 
@@ -467,8 +495,8 @@ private:
                         owner.onAiExpandAmountSelected (i);
                 };
                 expandAmountButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                expandAmountButtons[i].setColour (juce::TextButton::buttonOnColourId, SuppressorColours::ledPurple);
-                expandAmountButtons[i].setColour (juce::TextButton::textColourOffId, SuppressorColours::textDim);
+                expandAmountButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledPurple);
+                expandAmountButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
                 expandAmountButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
             }
         }
@@ -620,7 +648,7 @@ private:
         {
             auto drawSectionLabel = [&] (const juce::Rectangle<int>& area, const juce::String& text)
             {
-                g.setColour (SuppressorColours::ledBlue);
+                g.setColour (SixpackColours::ledBlue);
                 g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
                 g.drawFittedText (text, area, juce::Justification::centredLeft, 1);
             };
@@ -636,7 +664,7 @@ private:
             drawSectionLabel (expandCharacterLabelBounds, "AI EXPAND ATTACK / RELEASE CHARACTER");
             drawSectionLabel (expandAmountLabelBounds, "AI EXPAND AMOUNT");
 
-            g.setColour (SuppressorColours::gridLine);
+            g.setColour (SixpackColours::gridLine);
             g.drawLine (0.0f, compressionModeLabelBounds.getY() - 12.0f, (float) getWidth(), compressionModeLabelBounds.getY() - 12.0f, 1.0f);
             g.drawLine (0.0f, characterLabelBounds.getY() - 12.0f, (float) getWidth(), characterLabelBounds.getY() - 12.0f, 1.0f);
             g.drawLine (0.0f, gainReductionLabelBounds.getY() - 12.0f, (float) getWidth(), gainReductionLabelBounds.getY() - 12.0f, 1.0f);
@@ -683,6 +711,7 @@ private:
 
     juce::TextButton scaleButtons[kNumScales];
     juce::TextButton latencyButtons[kNumLatency];
+    juce::TextButton themeButton;
     juce::TextButton licenseButton;
     juce::TextButton closeButton;
     juce::TextButton closeCrossButton;
@@ -691,7 +720,7 @@ private:
     AiPanel aiPanel { *this };
 
     juce::Rectangle<float> panelBounds;
-    juce::Rectangle<int> scaleLabelBounds, latencyLabelBounds;
+    juce::Rectangle<int> scaleLabelBounds, latencyLabelBounds, themeLabelBounds;
     juce::Rectangle<int> generalHeaderBounds, aiHeaderBounds;
     float aiDividerY = 0.0f;
 

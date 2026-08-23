@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 #include "PressAnimator.h"
 
 /**
@@ -20,7 +20,7 @@
 class RackButton : public juce::Button, private PressAnimator
 {
 public:
-    explicit RackButton (const juce::String& labelText = {}, juce::Colour accentColour = SuppressorColours::ledAmber)
+    explicit RackButton (const juce::String& labelText = {}, juce::Colour accentColour = SixpackColours::ledAmber)
         : juce::Button (labelText), accent (accentColour)
     {
         setButtonText (labelText);
@@ -67,7 +67,7 @@ public:
         }
 
         const bool enabledLook = isEnabled();
-        g.setColour ((on ? accent : (enabledLook ? SuppressorColours::textBright : SuppressorColours::textDim))
+        g.setColour ((on ? accent : (enabledLook ? SixpackColours::chipTextBright : SixpackColours::chipTextDim))
                           .withAlpha (enabledLook ? 1.0f : 0.4f));
         g.setFont (juce::Font (juce::FontOptions (juce::jmin (11.5f, bounds.getHeight() * 0.5f), juce::Font::bold)).withExtraKerningFactor (0.06f));
         g.drawFittedText (getButtonText().toUpperCase(), bounds.toNearestInt(), juce::Justification::centred, 1);

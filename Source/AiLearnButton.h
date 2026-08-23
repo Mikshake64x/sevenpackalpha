@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 #include "PressAnimator.h"
 #include "PluginProcessor.h"
 
@@ -20,7 +20,7 @@
 class AiLearnButton : public juce::Button, private PressAnimator
 {
 public:
-    explicit AiLearnButton (SuppressorAudioProcessor& p)
+    explicit AiLearnButton (SixpackAudioProcessor& p)
         : juce::Button ("AI Learn"), processor (p)
     {
         setClickingTogglesState (false);
@@ -86,10 +86,10 @@ public:
         const float ledDiameter = juce::jmin (7.0f, bounds.getHeight() * 0.36f);
         auto ledBounds = juce::Rectangle<float> (ledDiameter, ledDiameter)
                               .withCentre ({ bounds.getX() + ledDiameter * 1.5f, bounds.getCentreY() });
-        g.setColour (ledLit ? SuppressorColours::ledCyan : SuppressorColours::ledCyan.interpolatedWith (juce::Colours::black, 0.85f));
+        g.setColour (ledLit ? SixpackColours::ledCyan : SixpackColours::ledCyan.interpolatedWith (juce::Colours::black, 0.85f));
         g.fillEllipse (ledBounds);
 
-        g.setColour (busy ? SuppressorColours::ledCyan : SuppressorColours::textBright);
+        g.setColour (busy ? SixpackColours::ledCyan : SixpackColours::chipTextBright);
         g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)).withExtraKerningFactor (0.12f));
         g.drawFittedText ("AI", bounds.withTrimmedLeft (ledDiameter * 2.4f).toNearestInt(),
                            juce::Justification::centred, 1);
@@ -102,7 +102,7 @@ private:
         void timerCallback() override { if (callback) callback(); }
     };
 
-    SuppressorAudioProcessor& processor;
+    SixpackAudioProcessor& processor;
     BlinkTimer blinkTimer;
     bool blinkOn = false;
 

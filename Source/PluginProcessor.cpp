@@ -1,10 +1,13 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-constexpr float SuppressorAudioProcessor::ratioTable[7];
-constexpr float SuppressorAudioProcessor::kneeTable[7];
+constexpr float SixpackAudioProcessor::ratioTable[7];
+constexpr float SixpackAudioProcessor::kneeTable[7];
+constexpr const char* SixpackAudioProcessor::idCrossover[NumCrossovers];
+constexpr const char* SixpackAudioProcessor::idCrossoverEnabled[NumCrossovers];
+constexpr const char* SixpackAudioProcessor::idSolo[NumBands];
 
-// Correction de calibration fixe (Low/Mid/High), mesuree via PluginDoctor
+// Correction de calibration fixe PAR BANDE, mesuree via PluginDoctor
 // (Linear Analysis, Release au plus court pour eviter tout artefact
 // d'enveloppe) pour obtenir une reponse parfaitement plate -- SEPAREE par
 // mode de crossover (ANALOG/WIDE vs LINEAR), la reconstruction n'etant pas
@@ -13,40 +16,28 @@ constexpr float SuppressorAudioProcessor::kneeTable[7];
 // knobs Input/Output restent a 0.00 dB par defaut), comme un trim d'usine
 // cache sur du materiel calibre. Meme principe que Nuke Mext.
 //
-// Input RECALIBRE (retour utilisateur : "j'ai une petite modification des
-// calibrations des inputs des bandes de compression a modifier depuis
-// l'ajout de l'expandeur ... tu dois recalibrer les 0 inputs") -- le trim
-// Input etait reste a 0 partout depuis la mise en place de ce mecanisme ;
-// desormais qu'Above tourne EN PERMANENCE avec le pre-gain Input (voir
-// updateDspFromParams(), Input n'est plus jamais neutralise en Expand),
-// une derive de calibration mesuree au Plugin Doctor est devenue visible
-// bande par bande. Valeurs mesurees par l'utilisateur, un jeu par mode de
-// crossover (Analog et Linear divergent legerement, meme raison que
-// pour Output ci-dessus).
-static constexpr float kInputCalibrationTrimDbAnalog[3]  = {  1.0f,  0.4f,  0.1f }; // Low, Mid, High
-static constexpr float kOutputCalibrationTrimDbAnalog[3] = { -1.2f, -0.6f, -0.3f }; // Low, Mid, High
-// Linear : toute la correction repliee dans Input, Output remis a plat
-// (retour utilisateur, mesure Plugin Doctor apres remise a 0 de l'Output
-// Linear -- la bosse Mid/High venait du cumul Input+Output non concerte).
-// Valeurs affinees a la decimale pres (retour utilisateur : "voici la
-// mesure pour le linear ... la version pro est a 0.01 de deviation") --
-// le knob affiche un DIFFERENTIEL par rapport au trim cache deja en
-// place, pas la valeur finale (retour utilisateur : "il faut soustraire
-// et additionner le differentiel des inputs") -- {0.0,-0.3,-0.5} + le
-// differentiel lu au knob {-0.20,+0.10,+0.30} = {-0.20,-0.20,-0.20},
-// un trim PLAT sur les 3 bandes (coherent avec l'Analog, dont le total
-// Input+Output est deja plat a -0.2dB, voir ci-dessus).
-static constexpr float kInputCalibrationTrimDbLinear[3]  = { -0.20f, -0.20f, -0.20f }; // Low, Mid, High
-static constexpr float kOutputCalibrationTrimDbLinear[3] = {  0.0f,  0.0f,  0.0f }; // Low, Mid, High
+// IMPORTANT (generalisation 5 bandes) : les valeurs mesurees historiques
+// (Tripressor, 3 bandes/2 crossovers) ne s'appliquent PAS a la nouvelle
+// topologie a 4 crossovers -- une mesure PluginDoctor n'a de sens que pour
+// la geometrie de filtres EXACTE qui produit la derive. Plutot que de
+// reconduire par erreur des chiffres qui ne correspondent a rien ici, les
+// 5 trims sont remis A PLAT (0.0) en attendant une nouvelle campagne de
+// mesure sur le crossover 4 points -- a refaire avant une sortie publique
+// de sixpack, voir note de suivi laissee au demandeur.
+static constexpr float kInputCalibrationTrimDbAnalog[(size_t) SixpackAudioProcessor::NumBands]  = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+static constexpr float kOutputCalibrationTrimDbAnalog[(size_t) SixpackAudioProcessor::NumBands] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+static constexpr float kInputCalibrationTrimDbLinear[(size_t) SixpackAudioProcessor::NumBands]  = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+static constexpr float kOutputCalibrationTrimDbLinear[(size_t) SixpackAudioProcessor::NumBands] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 
-juce::String SuppressorAudioProcessor::bandParamId (const char* baseId, int band)
+juce::String SixpackAudioProcessor::bandParamId (const char* baseId, int band)
 {
     if (band == Mid)
         return juce::String (baseId); // compat presets/sessions Suppressor mono-bande
-    return juce::String (baseId) + (band == Low ? "_low" : "_high");
+    static const char* suffix[SixpackAudioProcessor::NumBands] = { "_low", "_lowmid", "", "_highmid", "_presence", "_high" };
+    return juce::String (baseId) + suffix[band];
 }
 
-SuppressorAudioProcessor::SuppressorAudioProcessor()
+SixpackAudioProcessor::SixpackAudioProcessor()
      : AudioProcessor (BusesProperties()
                        #if ! JucePlugin_IsMidiEffect
                         #if ! JucePlugin_IsSynth
@@ -61,6 +52,9 @@ SuppressorAudioProcessor::SuppressorAudioProcessor()
                        #endif
                          )
 {
+    for (auto& v : bandOutputLevelDb)
+        v.store (-100.0f);
+
     for (int band = 0; band < (int) NumBands; ++band)
     {
         const size_t b = (size_t) band;
@@ -90,7 +84,6 @@ SuppressorAudioProcessor::SuppressorAudioProcessor()
         audioDist3Param[b]       = apvts.getRawParameterValue (bandParamId (idAudioDist3, band));
         opticalParam[b]          = apvts.getRawParameterValue (bandParamId (idOptical, band));
         britishParam[b]          = apvts.getRawParameterValue (bandParamId (idBritish, band));
-        aboveBelowParam[b]       = apvts.getRawParameterValue (bandParamId (idAboveBelow, band));
         bandMixParam[b]          = apvts.getRawParameterValue (bandParamId (idBandMix, band));
         bandWidthParam[b]        = apvts.getRawParameterValue (bandParamId (idBandWidth, band));
     }
@@ -110,23 +103,25 @@ SuppressorAudioProcessor::SuppressorAudioProcessor()
     aiExpandAmountParam    = apvts.getRawParameterValue (idAiExpandAmount);
     aiStyleParam    = apvts.getRawParameterValue (idAiStyle);
     aiFidelityParam = apvts.getRawParameterValue (idAiFidelity);
-    crossoverLowParam     = apvts.getRawParameterValue (idCrossoverLow);
-    crossoverHighParam    = apvts.getRawParameterValue (idCrossoverHigh);
+    for (int x = 0; x < NumCrossovers; ++x)
+    {
+        crossoverFreqParam[(size_t) x]    = apvts.getRawParameterValue (idCrossover[x]);
+        crossoverEnabledParam[(size_t) x] = apvts.getRawParameterValue (idCrossoverEnabled[x]);
+    }
     digitalCrossoverParam = apvts.getRawParameterValue (idDigitalCrossover);
     linearLatencyModeParam = apvts.getRawParameterValue (idLinearLatencyMode);
-    soloLowParam  = apvts.getRawParameterValue (idSoloLow);
-    soloMidParam  = apvts.getRawParameterValue (idSoloMid);
-    soloHighParam = apvts.getRawParameterValue (idSoloHigh);
+    for (int band = 0; band < (int) NumBands; ++band)
+        soloParam[(size_t) band] = apvts.getRawParameterValue (idSolo[band]);
 
     startTimerHz (10);
 }
 
-SuppressorAudioProcessor::~SuppressorAudioProcessor()
+SixpackAudioProcessor::~SixpackAudioProcessor()
 {
     stopTimer();
 }
 
-void SuppressorAudioProcessor::timerCallback()
+void SixpackAudioProcessor::timerCallback()
 {
     const juce::uint32 now = juce::Time::getMillisecondCounter();
     const juce::uint32 last = lastProcessBlockMs.load();
@@ -143,12 +138,12 @@ void SuppressorAudioProcessor::timerCallback()
     }
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout SuppressorAudioProcessor::createParameterLayout()
+juce::AudioProcessorValueTreeState::ParameterLayout SixpackAudioProcessor::createParameterLayout()
 {
     using namespace juce;
     std::vector<std::unique_ptr<RangedAudioParameter>> params;
 
-    static const char* bandNamePrefix[3] = { "Low ", "", "High " };
+    static const char* bandNamePrefix[(size_t) NumBands] = { "Low ", "Low-Mid ", "", "High-Mid ", "Presence ", "High " };
 
     for (int band = 0; band < (int) NumBands; ++band)
     {
@@ -402,15 +397,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout SuppressorAudioProcessor::cr
     params.push_back (std::make_unique<AudioParameterBool> (
         ParameterID { idAiFidelity, 1 }, "AI Fidelity", true));
 
-    params.push_back (std::make_unique<AudioParameterFloat> (
-        ParameterID { idCrossoverLow, 1 }, "Crossover Low",
-        NormalisableRange<float> (20.0f, 400.0f, 0.1f, 0.4f), 121.5f,
-        AudioParameterFloatAttributes().withLabel ("Hz")));
+    static const char* crossoverName[NumCrossovers] = { "Crossover A", "Crossover B", "Crossover C", "Crossover D", "Crossover E" };
+    for (int x = 0; x < NumCrossovers; ++x)
+    {
+        params.push_back (std::make_unique<AudioParameterFloat> (
+            ParameterID { idCrossover[x], 1 }, crossoverName[x],
+            NormalisableRange<float> (Crossover::kSplitMinHz[x], Crossover::kSplitMaxHz[x], 0.1f, 0.4f), Crossover::kSplitDefaultHz[x],
+            AudioParameterFloatAttributes().withLabel ("Hz")));
 
-    params.push_back (std::make_unique<AudioParameterFloat> (
-        ParameterID { idCrossoverHigh, 1 }, "Crossover High",
-        NormalisableRange<float> (300.0f, 6000.0f, 1.0f, 0.4f), 2521.0f,
-        AudioParameterFloatAttributes().withLabel ("Hz")));
+        // Actif par defaut sur les 5 -- comportement "6 bandes" par
+        // defaut a l'ouverture, coherent avec l'ancien plugin 3 bandes qui
+        // n'avait pas de notion de fusion. Voir doc de classe
+        // (PluginProcessor.h) pour le mecanisme de fusion.
+        params.push_back (std::make_unique<AudioParameterBool> (
+            ParameterID { idCrossoverEnabled[x], 1 }, crossoverName[x] + juce::String (" Enabled"), true));
+    }
 
     params.push_back (std::make_unique<AudioParameterBool> (
         ParameterID { idDigitalCrossover, 1 }, "Linear Crossover", false));
@@ -419,17 +420,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout SuppressorAudioProcessor::cr
         ParameterID { idLinearLatencyMode, 1 }, "Linear Latency",
         StringArray { "Low", "Medium", "High" }, 0));
 
-    params.push_back (std::make_unique<AudioParameterBool> (
-        ParameterID { idSoloLow, 1 }, "Solo Low", false));
-    params.push_back (std::make_unique<AudioParameterBool> (
-        ParameterID { idSoloMid, 1 }, "Solo Mid", false));
-    params.push_back (std::make_unique<AudioParameterBool> (
-        ParameterID { idSoloHigh, 1 }, "Solo High", false));
+    static const char* soloName[(size_t) NumBands] = { "Solo Low", "Solo Low-Mid", "Solo Mid", "Solo High-Mid", "Solo Presence", "Solo High" };
+    for (int band = 0; band < (int) NumBands; ++band)
+        params.push_back (std::make_unique<AudioParameterBool> (
+            ParameterID { idSolo[band], 1 }, soloName[band], false));
 
     return { params.begin(), params.end() };
 }
 
-void SuppressorAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+void SixpackAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     const int numChannels = juce::jmax (1, getTotalNumInputChannels());
 
@@ -450,9 +449,8 @@ void SuppressorAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
     clipperL.reset();
     clipperR.reset();
 
-    lowBandBuffer.setSize (numChannels, samplesPerBlock);
-    midBandBuffer.setSize (numChannels, samplesPerBlock);
-    highBandBuffer.setSize (numChannels, samplesPerBlock);
+    for (auto& buf : rawBandBuffers)
+        buf.setSize (numChannels, samplesPerBlock);
 
     thdAnalysisCrossovers.clear();
     thdAnalysisCrossovers.reserve ((size_t) numChannels);
@@ -462,17 +460,28 @@ void SuppressorAudioProcessor::prepareToPlay (double sampleRate, int samplesPerB
         xoPtr->prepare (sampleRate, samplesPerBlock);
 
     thdResidualBuffer.setSize (numChannels, samplesPerBlock);
-    thdLowBuffer.setSize (numChannels, samplesPerBlock);
-    thdMidBuffer.setSize (numChannels, samplesPerBlock);
-    thdHighBuffer.setSize (numChannels, samplesPerBlock);
+    for (auto& buf : thdBandBuffers)
+        buf.setSize (numChannels, samplesPerBlock);
+
+    spectrumAnalyzer.prepare (sampleRate);
+
+    // Coefficient de retombee PAR ECHANTILLON pour bandOutputEnvLin (voir
+    // doc du membre, PluginProcessor.h) -- meme taux que l'ancienne
+    // ballistique bloc (40dB/s), mais applique en continu : gain qui
+    // multiplie l'enveloppe a CHAQUE echantillon pour une decroissance de
+    // 40dB par seconde en continu (independant de la taille de bloc de
+    // l'hote).
+    bandOutputPerSampleDecay = (float) std::pow (10.0, -40.0 / 20.0 / juce::jmax (1.0, sampleRate));
+    for (auto& env : bandOutputEnvLin)
+        env = 0.0f;
 
     lastReportedLatencySamples = -1; // force la premiere mise a jour dans processBlock()
 }
 
-void SuppressorAudioProcessor::releaseResources() {}
+void SixpackAudioProcessor::releaseResources() {}
 
 #ifndef JucePlugin_PreferredChannelConfigurations
-bool SuppressorAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+bool SixpackAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
      && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
@@ -489,7 +498,7 @@ bool SuppressorAudioProcessor::isBusesLayoutSupported (const BusesLayout& layout
 }
 #endif
 
-void SuppressorAudioProcessor::updateDspFromParams()
+void SixpackAudioProcessor::updateDspFromParams()
 {
     const bool xoLinear = digitalCrossoverParam->load() > 0.5f;
     const float* inputTrim  = xoLinear ? kInputCalibrationTrimDbLinear  : kInputCalibrationTrimDbAnalog;
@@ -501,54 +510,35 @@ void SuppressorAudioProcessor::updateDspFromParams()
         const bool isOpto = opticalParam[b]->load() > 0.5f;
         const bool isBritish = britishParam[b]->load() > 0.5f;
 
-        // idAboveBelow n'expose plus que 2 choix cote UI -- Comp/Expand
-        // (demande explicite : "on va juste mettre expand et comp ...
-        // quand on est en mode comp c'est comme si on etait en both").
-        // Mapping interne : TOUJOURS AboveBelowMode::Both, quel que soit
-        // le choix Comp/Expand (retour utilisateur : "quand on appuie sur
-        // expand, on doit voir et entendre le compresseur travailler ...
-        // si on entend pas le compresseur, comment on travaille proprement
-        // l'expandeur" -- l'ancien mapping Expand -> Below coupait purement
-        // et simplement la reduction au-dessus du seuil des qu'on
-        // selectionnait Expand, rendant le compresseur totalement muet/
-        // invisible pendant qu'on regle l'expandeur. Desormais Comp/Expand
-        // ne fait plus que choisir QUEL jeu de parametres (Ratio/Attack/
-        // Release, partages par les deux branches Above et Below de cette
-        // meme instance -- voir doc de FeedbackCompressor::AboveBelowMode)
-        // pilote le tout ; les deux branches tournent TOUJOURS ensemble.
-        const bool useExpandSettings = juce::roundToInt (aboveBelowParam[b]->load()) == 1;
+        // Compresseur (branche ABOVE) et Expandeur (branche BELOW) tournent
+        // TOUJOURS ensemble, chacun avec ses PROPRES reglages en permanence
+        // (retour utilisateur explicite : "on va faire apparaitre les
+        // expandeurs" -- ils ont maintenant chacun leurs knobs dedies dans
+        // l'UI, voir BandPanel::expandRangeKnob/expandAttackKnob). Plus de
+        // bouton Comp/Expand pour choisir quel jeu de parametres s'applique
+        // -- idAboveBelow reste dans l'APVTS pour la compat des presets/
+        // automations existants mais n'est plus lu ici.
         const auto aboveBelowMode = FeedbackCompressor::AboveBelowMode::Both;
 
-        // Branche ABOVE (compression) : TOUJOURS les reglages Compression,
-        // quel que soit le bouton Comp/Expand -- retour utilisateur
-        // ("j'entends que l'expand" en mode Expand) : avant, la branche
-        // Above utilisait le jeu de parametres Expand des qu'on bascule sur
-        // Expand (ratio/attaque souvent tres doux, penses pour
-        // l'expansion), rendant la compression quasi-inaudible. Desormais
-        // seule la branche BELOW (expansion) bascule vers le jeu dedie.
         const int ratioIdx = juce::jlimit (0, 6, (int) std::round (ratioIndexParam[b]->load()));
         const float ratio = ratioTable[(size_t) ratioIdx];
         const float knee  = kneeTable[(size_t) ratioIdx];
         const float effAttackMs  = attackParam[b]->load();
         const float effReleaseMs = releaseParam[b]->load();
-        const float effOutputDb  = outputParam[b]->load();
 
-        // Branche BELOW (expansion) : Comp (mode Comp) mire les reglages
-        // Compression (comportement identique a l'ancien "Both"), Expand
-        // (mode Expand) bascule vers le jeu de parametres Expand dedie.
-        const int belowRatioIdx = juce::jlimit (0, 6, (int) std::round (
-            (useExpandSettings ? ratioIndexExpandParam[b] : ratioIndexParam[b])->load()));
+        // Branche BELOW (expansion) : TOUJOURS le jeu de parametres Expand
+        // dedie (Ratio/Release n'ont pas de knob expose -- "pas besoin du
+        // reglage release sur les expandeurs" -- mais restent automatables
+        // via l'APVTS a leur valeur par defaut).
+        const int belowRatioIdx = juce::jlimit (0, 6, (int) std::round (ratioIndexExpandParam[b]->load()));
         const float belowRatio = ratioTable[(size_t) belowRatioIdx];
         const float belowKnee  = kneeTable[(size_t) belowRatioIdx];
-        const float belowAttackMs  = (useExpandSettings ? attackExpandParam[b]  : attackParam[b])->load();
-        const float belowReleaseMs = (useExpandSettings ? releaseExpandParam[b] : releaseParam[b])->load();
-        // Output : desormais UN SEUL knob partage entre Comp et Expand
-        // (retour utilisateur : "j'ai l'impression que je clique sur comp
-        // et expand" -- deux Output independants faisaient sauter le
-        // niveau au clic entre les deux modes ; Above et Below tournant
-        // maintenant TOUJOURS ensemble, un seul makeup gain a du sens).
-        // idOutputExpand n'est plus lu ici (reste dans l'APVTS pour la
-        // compat des anciens presets, mais n'a plus d'effet DSP).
+        const float belowAttackMs  = attackExpandParam[b]->load();
+        const float belowReleaseMs = releaseExpandParam[b]->load();
+        // Output : UN SEUL knob partage entre Comp et Expand (retour
+        // utilisateur explicite : pas de knob Output dedie a l'expandeur --
+        // idOutputExpand reste dans l'APVTS pour la compat des anciens
+        // presets, mais n'a pas d'effet DSP).
         const float belowOutputDb  = outputParam[b]->load();
 
         // Le knob "Input" du jeu de parametres Expand est REAFFECTE en
@@ -635,7 +625,55 @@ void SuppressorAudioProcessor::updateDspFromParams()
     }
 }
 
-void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+std::array<int, (size_t) SixpackAudioProcessor::NumBands> SixpackAudioProcessor::computeGroupOwners() const noexcept
+{
+    std::array<int, (size_t) NumBands> owner {};
+    owner[0] = 0;
+    for (int b = 1; b < (int) NumBands; ++b)
+    {
+        const bool crossoverIsEnabled = crossoverEnabledParam[(size_t) (b - 1)]->load() > 0.5f;
+        // Crossover eteint -> b rejoint le groupe de son voisin bas
+        // (proprietaire deja resolu -- propage a travers une chaine de
+        // plusieurs crossovers eteints consecutifs, pas juste le voisin
+        // immediat).
+        owner[(size_t) b] = crossoverIsEnabled ? b : owner[(size_t) (b - 1)];
+    }
+    return owner;
+}
+
+std::array<float, (size_t) SixpackAudioProcessor::NumCrossovers> SixpackAudioProcessor::sanitizeCrossoverFrequencies() const noexcept
+{
+    std::array<float, (size_t) NumCrossovers> hz {};
+    for (int x = 0; x < NumCrossovers; ++x)
+        hz[(size_t) x] = juce::jlimit (Crossover::kSplitMinHz[x], Crossover::kSplitMaxHz[x], crossoverFreqParam[(size_t) x]->load());
+
+    // Ecart minimum en RATIO de frequence (echelle log, plus coherent
+    // perceptivement sur 20Hz-18kHz qu'un ecart en Hz absolu) entre 2
+    // points consecutifs -- protege le DSP d'un ordre non-croissant si
+    // l'utilisateur fait glisser un curseur au-dela de son voisin dans
+    // l'UI (celle-ci reste libre de le permettre visuellement, seul le
+    // signal pousse au Crossover est protege ici).
+    constexpr float minRatio = 1.05f;
+    for (int x = 1; x < NumCrossovers; ++x)
+    {
+        const float minAllowed = hz[(size_t) (x - 1)] * minRatio;
+        if (hz[(size_t) x] < minAllowed)
+            hz[(size_t) x] = juce::jmin (Crossover::kSplitMaxHz[x], minAllowed);
+    }
+    // 2e passe descendante : cas limite ou la passe ascendante pousserait
+    // un point au-dela de sa PROPRE borne max (curseurs tous compresses en
+    // butee haute) -- retro-propage la contrainte pour rester strictement
+    // croissant meme dans ce cas extreme.
+    for (int x = NumCrossovers - 2; x >= 0; --x)
+    {
+        const float maxAllowed = hz[(size_t) (x + 1)] / minRatio;
+        if (hz[(size_t) x] > maxAllowed)
+            hz[(size_t) x] = juce::jmax (Crossover::kSplitMinHz[x], maxAllowed);
+    }
+    return hz;
+}
+
+void SixpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     lastProcessBlockMs.store (juce::Time::getMillisecondCounter());
 
@@ -654,7 +692,10 @@ void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     // l'etat n'est pas Capturing (verifie en interne), donc cout nul le
     // reste du temps.
     if (dataL != nullptr)
+    {
         aiLearnAnalyzer.pushSamples (dataL, dataR, numSamples);
+        spectrumAnalyzer.pushSamples (dataL, numSamples); // fond de spectre de l'editeur de crossover, voir SpectrumAnalyzerState.h
+    }
 
     // Bus sidechain externe -- voir constructeur. Le bouton SC de CHAQUE
     // bande decide independamment si celle-ci ecoute ce signal.
@@ -681,14 +722,14 @@ void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         outputLevelDbL.store (-100.0f); outputLevelDbR.store (-100.0f);
         clipMeterAmount.store (0.0f);
         clipMeterAmountL.store (0.0f); clipMeterAmountR.store (0.0f);
-        clipMeterAmountLow.store (0.0f); clipMeterAmountMid.store (0.0f); clipMeterAmountHigh.store (0.0f);
+        for (auto& amt : clipMeterAmountBand)
+            amt.store (0.0f);
         return;
     }
 
     updateDspFromParams();
 
-    const float xoLowHz  = crossoverLowParam->load();
-    const float xoHighHz = crossoverHighParam->load();
+    const auto xoHz = sanitizeCrossoverFrequencies();
     const bool  xoLinear = digitalCrossoverParam->load() > 0.5f;
     const int latencyModeIndex = juce::jlimit (0, 2, (int) std::round (linearLatencyModeParam->load()));
     const auto latencyMode = (Crossover::LatencyMode) latencyModeIndex;
@@ -701,15 +742,31 @@ void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     clipperL.setMode (satMode);
     clipperR.setMode (satMode);
 
-    const bool bypassOn = bypassHeld.load();
+    // Calcule UNE SEULE FOIS ici (reutilise plus bas pour la fusion des
+    // buffers) -- necessaire des maintenant pour le Solo ci-dessous : une
+    // bande fusionnee/non-owner ne traite jamais rien (voir plus bas), son
+    // solo n'a donc aucun sens et ne doit JAMAIS pouvoir couper le son de
+    // la bande "owner" qui la remplace (bug corrige : un solo reste sur
+    // une bande fusionnee restait actif/silencieux sans plus jamais
+    // pouvoir etre entendu, et pouvait meme faire taire l'owner si lui
+    // seul n'etait pas soloe).
+    const auto groupOwner = computeGroupOwners();
+    bool bandIsOwner[(size_t) NumBands];
+    for (int band = 0; band < (int) NumBands; ++band)
+        bandIsOwner[(size_t) band] = groupOwner[(size_t) band] == band;
 
-    // Solo par bande : des qu'une bande est soloee, les 2 autres sont
-    // exclues du mix (pas seulement attenuees).
-    const bool soloLow  = soloLowParam->load()  > 0.5f;
-    const bool soloMid  = soloMidParam->load()  > 0.5f;
-    const bool soloHigh = soloHighParam->load() > 0.5f;
-    const bool anySolo  = soloLow || soloMid || soloHigh;
-    const bool playBand[(size_t) NumBands] = { ! anySolo || soloLow, ! anySolo || soloMid, ! anySolo || soloHigh };
+    // Solo par bande : des qu'une bande OWNER est soloee, les autres
+    // groupes sont exclus du mix (pas seulement attenues).
+    bool soloOn[(size_t) NumBands];
+    bool anySolo = false;
+    for (int band = 0; band < (int) NumBands; ++band)
+    {
+        soloOn[(size_t) band] = bandIsOwner[(size_t) band] && soloParam[(size_t) band]->load() > 0.5f;
+        anySolo = anySolo || soloOn[(size_t) band];
+    }
+    bool playBand[(size_t) NumBands];
+    for (int band = 0; band < (int) NumBands; ++band)
+        playBand[(size_t) band] = ! anySolo || soloOn[(size_t) band];
 
     bool bandSidechainOn[(size_t) NumBands];
     bool bandDetectorLink[(size_t) NumBands];
@@ -726,29 +783,47 @@ void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
                                               + (xoLinear ? kOutputCalibrationTrimDbLinear[(size_t) band] : kOutputCalibrationTrimDbAnalog[(size_t) band]));
     }
 
-    // --- Split Low/Mid/High, une passe par canal sur tout le bloc --
-    // obligatoire pour le mode LINEAR (convolution FFT bloc entier). ---
+    // --- Split 5 bandes, une passe par canal sur tout le bloc -- obligatoire
+    // pour le mode LINEAR (convolution FFT bloc entier). ---
     for (int ch = 0; ch < numChannels && ch < (int) crossovers.size(); ++ch)
     {
         auto& xo = *crossovers[(size_t) ch];
-        xo.setLowCrossoverHz (xoLowHz);
-        xo.setHighCrossoverHz (xoHighHz);
+        for (int x = 0; x < NumCrossovers; ++x)
+            xo.setCrossoverHz (x, xoHz[(size_t) x]);
         xo.setLinearPhaseMode (xoLinear);
         xo.setLatencyMode (latencyMode);
 
-        xo.processBlock (buffer.getReadPointer (ch),
-                          lowBandBuffer.getWritePointer (ch),
-                          midBandBuffer.getWritePointer (ch),
-                          highBandBuffer.getWritePointer (ch),
-                          numSamples);
+        float* outs[(size_t) NumBands];
+        for (int band = 0; band < (int) NumBands; ++band)
+            outs[(size_t) band] = rawBandBuffers[(size_t) band].getWritePointer (ch);
+        xo.processBlock (buffer.getReadPointer (ch), outs, numSamples);
     }
 
-    const float* lowL  = lowBandBuffer.getReadPointer (0);
-    const float* midL  = midBandBuffer.getReadPointer (0);
-    const float* highL = highBandBuffer.getReadPointer (0);
-    const float* lowR  = dataR != nullptr ? lowBandBuffer.getReadPointer (1)  : nullptr;
-    const float* midR  = dataR != nullptr ? midBandBuffer.getReadPointer (1)  : nullptr;
-    const float* highR = dataR != nullptr ? highBandBuffer.getReadPointer (1) : nullptr;
+    // --- Fusion des bandes voisines dont le crossover est desactive (voir
+    // doc de classe / computeGroupOwners()) -- fait ICI au niveau du buffer
+    // ENTIER, pas dans la boucle par-echantillon plus bas : le contenu de
+    // rawBandBuffers[owner] devient directement la somme brute de tout son
+    // groupe, les buffers des bandes non-owner restent inchanges mais ne
+    // sont plus lus pour le reste du bloc (voir bandIsOwner ci-dessous).
+    // Correct quel que soit l'ordre/la longueur de la chaine de fusion :
+    // on parcourt les bandes en indice CROISSANT et chaque bande n'est lue
+    // comme source qu'UNE SEULE fois, avant d'avoir pu etre elle-meme
+    // modifiee en tant que cible (groupOwner[b] <= b toujours). groupOwner/
+    // bandIsOwner deja calcules plus haut (voir bloc Solo).
+    for (int band = 1; band < (int) NumBands; ++band)
+    {
+        if (groupOwner[(size_t) band] != band)
+            for (int ch = 0; ch < numChannels; ++ch)
+                rawBandBuffers[(size_t) groupOwner[(size_t) band]].addFrom (ch, 0, rawBandBuffers[(size_t) band], ch, 0, numSamples);
+    }
+
+    const float* bandL[(size_t) NumBands];
+    const float* bandR[(size_t) NumBands];
+    for (int band = 0; band < (int) NumBands; ++band)
+    {
+        bandL[(size_t) band] = rawBandBuffers[(size_t) band].getReadPointer (0);
+        bandR[(size_t) band] = dataR != nullptr ? rawBandBuffers[(size_t) band].getReadPointer (1) : nullptr;
+    }
 
     FeedbackCompressor* compL[(size_t) NumBands];
     FeedbackCompressor* compR[(size_t) NumBands];
@@ -775,41 +850,27 @@ void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         peakInL = juce::jmax (peakInL, std::abs (dryL));
         peakInR = juce::jmax (peakInR, std::abs (dryR));
 
-        const float bandSampleL[(size_t) NumBands] = { lowL[i], midL[i], highL[i] };
-        const float bandSampleR[(size_t) NumBands] = { dataR != nullptr ? lowR[i]  : 0.0f,
-                                                         dataR != nullptr ? midR[i]  : 0.0f,
-                                                         dataR != nullptr ? highR[i] : 0.0f };
+        float bandSampleL[(size_t) NumBands], bandSampleR[(size_t) NumBands];
+        for (int band = 0; band < (int) NumBands; ++band)
+        {
+            bandSampleL[(size_t) band] = bandL[(size_t) band][i];
+            bandSampleR[(size_t) band] = dataR != nullptr ? bandR[(size_t) band][i] : 0.0f;
+        }
 
         float sumL = 0.0f, sumR = 0.0f;
 
         for (int band = 0; band < (int) NumBands; ++band)
         {
-            // Bypass momentane : le signal ne traverse plus les
-            // compresseurs (sortie = somme des bandes SECHES, voir plus
-            // bas), mais l'aiguille/LED de GR de CHAQUE bande doit retomber
-            // a 0 en suivant son propre temps de Release -- pas de saut
-            // net. Le bypass HERITE du Solo : si une bande est soloee, le
-            // bypass ne fait entendre QUE cette bande (a l'etat sec), pas
-            // le signal d'entree complet -- "une fonction bypass qui prend
-            // la fonction solo", comme demande.
-            if (bypassOn)
+            // Bande fusionnee dans une voisine (crossover desactive, voir
+            // doc de classe) : son audio est deja compte dans la bande
+            // "owner" ci-dessus (fusion faite au niveau buffer, avant la
+            // boucle) -- ne rien ajouter au mix ici (double comptage sinon),
+            // juste laisser le GR meter retomber doucement a 0.
+            if (! bandIsOwner[(size_t) band])
             {
                 compL[(size_t) band]->relaxGainReductionToZero();
                 if (compR[(size_t) band] != nullptr)
                     compR[(size_t) band]->relaxGainReductionToZero();
-
-                if (playBand[(size_t) band])
-                {
-                    if (compR[(size_t) band] != nullptr)
-                    {
-                        sumL += bandSampleL[(size_t) band];
-                        sumR += bandSampleR[(size_t) band];
-                    }
-                    else
-                    {
-                        sumL += bandSampleL[(size_t) band];
-                    }
-                }
                 continue;
             }
 
@@ -839,6 +900,16 @@ void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             const float wetL = dryBandL + (yL - dryBandL) * bandMixLin[(size_t) band];
             const float wetR = dryBandR + (yR - dryBandR) * bandMixLin[(size_t) band];
 
+            // Enveloppe de niveau de sortie -- attaque instantanee, retombee
+            // ECHANTILLON PAR ECHANTILLON (voir doc de bandOutputEnvLin,
+            // PluginProcessor.h) -- corrige un affichage "crante" au VU-metre
+            // avec de gros buffers hote (retour utilisateur explicite).
+            {
+                auto& env = bandOutputEnvLin[(size_t) band];
+                const float instant = juce::jmax (std::abs (wetL), std::abs (wetR));
+                env = instant > env ? instant : env * bandOutputPerSampleDecay;
+            }
+
             // Fader Width : encodage Mid/Side sur le signal WET de la bande
             // (apres Mix), applique uniquement si le canal R existe --
             // sans effet audible sur un bus mono (Side toujours nul).
@@ -861,16 +932,24 @@ void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             }
         }
 
-        // Bypass momentane (bouton maintenu, voir bypassHeld) : sumL/sumR
-        // contiennent deja la somme des bandes SECHES (remplies ci-dessus
-        // en respectant le Solo -- voir boucle par bande) au lieu du
-        // signal compresse -- le clipper/THD est aussi court-circuite,
-        // comme un vrai bypass hardware.
-        const bool applyClip = softClipOn && ! bypassOn;
+        // Publier l'enveloppe vers l'UI PLUSIEURS FOIS par bloc (pas
+        // seulement a la fin, voir ancien code plus bas) : avec de gros
+        // buffers hote, ne publier qu'une fois par callback recreait un
+        // affichage "crante" meme apres avoir lisse la retombee interne
+        // echantillon par echantillon -- l'UI (Timer 30Hz, BandMetersRack)
+        // ne voyait jamais qu'UNE seule nouvelle valeur par bloc. Retour
+        // utilisateur explicite : toujours cranté apres le 1er correctif.
+        if ((i & 63) == 0 || i == numSamples - 1)
+        {
+            for (int band = 0; band < (int) NumBands; ++band)
+                bandOutputLevelDb[(size_t) band].store (juce::Decibels::gainToDecibels (bandOutputEnvLin[(size_t) band], -100.0f));
+        }
+
+        const bool applyClip = softClipOn;
         if (dataL != nullptr)
         {
             dataL[i] = applyClip ? clipperL.processSample (sumL) : sumL;
-            residL[i] = sumL - dataL[i]; // 0 si pas de clip (applyClip false) ou en bypass
+            residL[i] = sumL - dataL[i]; // 0 si pas de clip
         }
         if (dataR != nullptr)
         {
@@ -895,28 +974,25 @@ void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
         for (int ch = 0; ch < numChannels && ch < (int) thdAnalysisCrossovers.size(); ++ch)
         {
             auto& xo = *thdAnalysisCrossovers[(size_t) ch];
-            xo.setLowCrossoverHz (xoLowHz);
-            xo.setHighCrossoverHz (xoHighHz);
+            for (int x = 0; x < NumCrossovers; ++x)
+                xo.setCrossoverHz (x, xoHz[(size_t) x]);
             xo.setLinearPhaseMode (xoLinear);
             xo.setLatencyMode (latencyMode);
-            xo.processBlock (thdResidualBuffer.getReadPointer (ch),
-                              thdLowBuffer.getWritePointer (ch),
-                              thdMidBuffer.getWritePointer (ch),
-                              thdHighBuffer.getWritePointer (ch),
-                              numSamples);
+
+            float* outs[(size_t) NumBands];
+            for (int band = 0; band < (int) NumBands; ++band)
+                outs[(size_t) band] = thdBandBuffers[(size_t) band].getWritePointer (ch);
+            xo.processBlock (thdResidualBuffer.getReadPointer (ch), outs, numSamples);
         }
 
-        float peakResidLow = 0.0f, peakResidMid = 0.0f, peakResidHigh = 0.0f;
+        float peakResid[(size_t) NumBands] = {};
         for (int ch = 0; ch < numChannels; ++ch)
         {
-            const float* lo = thdLowBuffer.getReadPointer (ch);
-            const float* mi = thdMidBuffer.getReadPointer (ch);
-            const float* hi = thdHighBuffer.getReadPointer (ch);
-            for (int i = 0; i < numSamples; ++i)
+            for (int band = 0; band < (int) NumBands; ++band)
             {
-                peakResidLow  = juce::jmax (peakResidLow,  std::abs (lo[i]));
-                peakResidMid  = juce::jmax (peakResidMid,  std::abs (mi[i]));
-                peakResidHigh = juce::jmax (peakResidHigh, std::abs (hi[i]));
+                const float* bp = thdBandBuffers[(size_t) band].getReadPointer (ch);
+                for (int i = 0; i < numSamples; ++i)
+                    peakResid[(size_t) band] = juce::jmax (peakResid[(size_t) band], std::abs (bp[i]));
             }
         }
 
@@ -931,18 +1007,16 @@ void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
             const float current = amt.load();
             amt.store (target > current ? target : current * blockDecay);
         };
-        updateBandAmount (clipMeterAmountLow,  peakResidLow);
-        updateBandAmount (clipMeterAmountMid,  peakResidMid);
-        updateBandAmount (clipMeterAmountHigh, peakResidHigh);
+        for (int band = 0; band < (int) NumBands; ++band)
+            updateBandAmount (clipMeterAmountBand[(size_t) band], peakResid[(size_t) band]);
     }
     else
     {
         // THD desengage -- retombee douce vers 0 (meme ballistique), pas
         // un saut net.
         const float blockDecay = std::pow (0.995f, (float) numSamples);
-        clipMeterAmountLow.store  (clipMeterAmountLow.load()  * blockDecay);
-        clipMeterAmountMid.store  (clipMeterAmountMid.load()  * blockDecay);
-        clipMeterAmountHigh.store (clipMeterAmountHigh.load() * blockDecay);
+        for (int band = 0; band < (int) NumBands; ++band)
+            clipMeterAmountBand[(size_t) band].store (clipMeterAmountBand[(size_t) band].load() * blockDecay);
     }
 
     float overallGrL = 0.0f, overallGrR = 0.0f;
@@ -967,6 +1041,10 @@ void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     // global de la plaque du haut, voir doc de classe (PluginProcessor.h).
     grMeterDbL.store (overallGrL);
     grMeterDbR.store (overallGrR);
+
+    // Niveau de sortie par bande : deja publie plusieurs fois pendant la
+    // boucle ci-dessus (voir doc de bandOutputEnvLin, PluginProcessor.h),
+    // rien a faire ici.
 
     inputLevelDbL.store  (juce::Decibels::gainToDecibels (peakInL, -100.0f));
     inputLevelDbR.store  (juce::Decibels::gainToDecibels (peakInR, -100.0f));
@@ -993,9 +1071,9 @@ void SuppressorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, j
     }
 }
 
-juce::AudioProcessorEditor* SuppressorAudioProcessor::createEditor()
+juce::AudioProcessorEditor* SixpackAudioProcessor::createEditor()
 {
-    return new SuppressorAudioProcessorEditor (*this);
+    return new SixpackAudioProcessorEditor (*this);
 }
 
 // Tous les parametres de compression des 3 bandes (+ faders Mix/Width) + les
@@ -1009,42 +1087,45 @@ static const std::vector<juce::String>& getABParamIds()
         std::vector<juce::String> v;
         static constexpr const char* bandBaseIds[] =
         {
-            SuppressorAudioProcessor::idInput, SuppressorAudioProcessor::idRatioIndex,
-            SuppressorAudioProcessor::idAttack, SuppressorAudioProcessor::idRelease,
-            SuppressorAudioProcessor::idOutput,
-            SuppressorAudioProcessor::idInputExpand, SuppressorAudioProcessor::idRatioIndexExpand,
-            SuppressorAudioProcessor::idAttackExpand, SuppressorAudioProcessor::idReleaseExpand,
-            SuppressorAudioProcessor::idOutputExpand,
-            SuppressorAudioProcessor::idDetectorHp, SuppressorAudioProcessor::idDetectorHpFreq,
-            SuppressorAudioProcessor::idDetectorHpSlope, SuppressorAudioProcessor::idDetectorBell,
-            SuppressorAudioProcessor::idDetectorBellFreq, SuppressorAudioProcessor::idDetectorBellGain,
-            SuppressorAudioProcessor::idDetectorBell2, SuppressorAudioProcessor::idDetectorBell2Freq,
-            SuppressorAudioProcessor::idDetectorBell2Gain,
-            SuppressorAudioProcessor::idDetectorLink, SuppressorAudioProcessor::idSidechainEnable,
-            SuppressorAudioProcessor::idAudioHp, SuppressorAudioProcessor::idAudioDist2,
-            SuppressorAudioProcessor::idAudioDist3, SuppressorAudioProcessor::idOptical,
-            SuppressorAudioProcessor::idBritish, SuppressorAudioProcessor::idAboveBelow,
-            SuppressorAudioProcessor::idBandMix, SuppressorAudioProcessor::idBandWidth,
+            SixpackAudioProcessor::idInput, SixpackAudioProcessor::idRatioIndex,
+            SixpackAudioProcessor::idAttack, SixpackAudioProcessor::idRelease,
+            SixpackAudioProcessor::idOutput,
+            SixpackAudioProcessor::idInputExpand, SixpackAudioProcessor::idRatioIndexExpand,
+            SixpackAudioProcessor::idAttackExpand, SixpackAudioProcessor::idReleaseExpand,
+            SixpackAudioProcessor::idOutputExpand,
+            SixpackAudioProcessor::idDetectorHp, SixpackAudioProcessor::idDetectorHpFreq,
+            SixpackAudioProcessor::idDetectorHpSlope, SixpackAudioProcessor::idDetectorBell,
+            SixpackAudioProcessor::idDetectorBellFreq, SixpackAudioProcessor::idDetectorBellGain,
+            SixpackAudioProcessor::idDetectorBell2, SixpackAudioProcessor::idDetectorBell2Freq,
+            SixpackAudioProcessor::idDetectorBell2Gain,
+            SixpackAudioProcessor::idDetectorLink, SixpackAudioProcessor::idSidechainEnable,
+            SixpackAudioProcessor::idAudioHp, SixpackAudioProcessor::idAudioDist2,
+            SixpackAudioProcessor::idAudioDist3, SixpackAudioProcessor::idOptical,
+            SixpackAudioProcessor::idBritish, SixpackAudioProcessor::idAboveBelow,
+            SixpackAudioProcessor::idBandMix, SixpackAudioProcessor::idBandWidth,
         };
-        for (int band = 0; band < (int) SuppressorAudioProcessor::NumBands; ++band)
+        for (int band = 0; band < (int) SixpackAudioProcessor::NumBands; ++band)
             for (auto* base : bandBaseIds)
-                v.push_back (SuppressorAudioProcessor::bandParamId (base, band));
+                v.push_back (SixpackAudioProcessor::bandParamId (base, band));
 
-        v.push_back (SuppressorAudioProcessor::idCrossoverLow);
-        v.push_back (SuppressorAudioProcessor::idCrossoverHigh);
-        v.push_back (SuppressorAudioProcessor::idSoftClip);
-        v.push_back (SuppressorAudioProcessor::idThdMode);
-        // Analog/Linear -- INCLUS (chaque slot A/B memorise et restaure
-        // son propre mode de crossover, sur demande explicite -- pas
-        // exclu comme Power/Solo, contrairement au comportement par
+        for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
+        {
+            v.push_back (SixpackAudioProcessor::idCrossover[x]);
+            v.push_back (SixpackAudioProcessor::idCrossoverEnabled[x]);
+        }
+        v.push_back (SixpackAudioProcessor::idSoftClip);
+        v.push_back (SixpackAudioProcessor::idThdMode);
+        // Analog/Linear -- INCLUS (chaque slot A/B memorise et
+        // restaure son propre mode de crossover, sur demande explicite --
+        // pas exclu comme Power/Solo, contrairement au comportement par
         // defaut copie de Nuke Mext).
-        v.push_back (SuppressorAudioProcessor::idDigitalCrossover);
+        v.push_back (SixpackAudioProcessor::idDigitalCrossover);
         return v;
     }();
     return ids;
 }
 
-void SuppressorAudioProcessor::toggleABCompare()
+void SixpackAudioProcessor::toggleABCompare()
 {
     auto& activeSlot = usingSlotB ? abSlotB : abSlotA;
 
@@ -1063,10 +1144,11 @@ void SuppressorAudioProcessor::toggleABCompare()
             p->setValueNotifyingHost (value);
 }
 
-void SuppressorAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
+void SixpackAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     apvts.state.setProperty ("needleModeIndex1", needleModeIndex1, nullptr);
     apvts.state.setProperty ("needleModeIndex2", needleModeIndex2, nullptr);
+    apvts.state.setProperty ("lightTheme", lightTheme.load() > 0.5f, nullptr);
 
     auto state = apvts.copyState();
 
@@ -1085,7 +1167,7 @@ void SuppressorAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     state.writeToStream (stream);
 }
 
-void SuppressorAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
+void SixpackAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     auto tree = juce::ValueTree::readFromData (data, (size_t) sizeInBytes);
     if (! tree.isValid())
@@ -1113,9 +1195,10 @@ void SuppressorAudioProcessor::setStateInformation (const void* data, int sizeIn
     apvts.replaceState (tree);
     needleModeIndex1 = apvts.state.getProperty ("needleModeIndex1", 1);
     needleModeIndex2 = apvts.state.getProperty ("needleModeIndex2", 1);
+    lightTheme.store ((bool) apvts.state.getProperty ("lightTheme", false) ? 1.0f : 0.0f);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    return new SuppressorAudioProcessor();
+    return new SixpackAudioProcessor();
 }

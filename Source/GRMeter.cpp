@@ -104,12 +104,12 @@ void GRMeter::paint (juce::Graphics& g)
             if (i < litExpandCount)
             {
                 const float t = (float) i / (float) (numExpandLeds - 1);
-                g.setColour (SuppressorLookAndFeel::ledGradientColourExpand (t));
+                g.setColour (SixpackLookAndFeel::ledGradientColourExpand (t));
                 g.fillEllipse (dot);
             }
             else
             {
-                g.setColour (SuppressorColours::ledOff);
+                g.setColour (SixpackColours::ledOff);
                 g.fillEllipse (dot);
             }
         }
@@ -143,7 +143,7 @@ void GRMeter::paint (juce::Graphics& g)
         const int j = i;
         const bool lit = j >= (numLeds - litCount);
         const float t = 1.0f - (float) j / (float) (numLeds - 1);
-        const juce::Colour ledColour = SuppressorLookAndFeel::ledGradientColour (t);
+        const juce::Colour ledColour = SixpackLookAndFeel::ledGradientColour (t);
 
         auto ledBounds = juce::Rectangle<float> (ledDiameter, ledDiameter)
                               .withY (ledArea.getCentreY() - ledDiameter * 0.5f)
@@ -151,13 +151,13 @@ void GRMeter::paint (juce::Graphics& g)
 
         if (lit)
         {
-            SuppressorLookAndFeel::drawGlossyDot (g, ledBounds, ledColour, true);
+            SixpackLookAndFeel::drawGlossyDot (g, ledBounds, ledColour, true);
         }
         else
         {
-            g.setColour (SuppressorColours::ledOff);
+            g.setColour (SixpackColours::ledOff);
             g.fillEllipse (ledBounds);
-            g.setColour (SuppressorColours::gridLine);
+            g.setColour (SixpackColours::gridLine);
             g.drawEllipse (ledBounds, 0.4f);
         }
     }
@@ -168,18 +168,25 @@ void GRMeter::paint (juce::Graphics& g)
     // construction de l'echelle (voir GRMeter.h), ces reperes tombent a
     // intervalles EGAUX en pixels (0, -2, -4, -6, -8, -10, -15, -20, -25,
     // -30), meme si leurs valeurs dB ne sont pas lineaires. ---
-    g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));
-    g.setColour (SuppressorColours::textBright.withAlpha (0.78f));
+    g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));
 
     constexpr float labelW = 26.0f;
     for (float db : scaleMarksDb)
     {
+        // PAS de clamp haut a numLeds-1 ici (contrairement au litCount de
+        // remplissage ci-dessus, qui indexe une VRAIE diode) : le repere
+        // "0" tombe pile UNE diode au-dela de la derniere (aucune diode
+        // n'est allumee a 0dB), et le clamper sur la derniere diode
+        // rapprochait ce repere de son voisin "-2" d'un cran entier par
+        // rapport a tous les autres intervalles -- bug rapporte : "le 0 et
+        // -2 sont colles l'un a l'autre" (on dirait une diode manquante).
         const int litCountAtMark = (int) std::round (dbToFraction (db) * numLeds);
-        const int ledIndex = juce::jlimit (0, numLeds - 1, numLeds - litCountAtMark);
+        const float ledIndex = (float) juce::jmax (0, numLeds - litCountAtMark);
         const float xPos = startX + ledIndex * (ledDiameter + gap) + ledDiameter * 0.5f;
         const juce::String text = (db <= 0.0f) ? juce::String (0) : "-" + juce::String ((int) db);
 
-        g.drawFittedText (text, juce::Rectangle<float> (xPos - labelW * 0.5f, scaleArea.getY(), labelW, scaleArea.getHeight()).toNearestInt(),
-                           juce::Justification::centred, 1);
+        SixpackLookAndFeel::drawEngravedText (g, text,
+            juce::Rectangle<float> (xPos - labelW * 0.5f, scaleArea.getY(), labelW, scaleArea.getHeight()).toNearestInt(),
+            SixpackColours::textBright.withAlpha (0.78f));
     }
 }

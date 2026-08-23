@@ -6,17 +6,25 @@
 /**
     Crossover
     ---------
-    Separe un signal mono en 3 bandes (Low / Mid / High) via 2 points de
-    crossover. Deux modes, bouton "WIDE / LINEAR" cote UI (voir
-    PluginEditor et XoverModeButton) :
+    Separe un signal mono en 6 bandes via 5 points de crossover (kNumSplits
+    = 5, kNumBandsOut = 6) -- generalisation du crossover 3 bandes/2 points
+    de Tripressor (porte tel quel depuis Nuke Mext) a sixpack. Deux
+    modes, selecteur ANALOG / LINEAR cote UI (voir PluginEditor et
+    XoverModeButton) :
 
-    - WIDE (par defaut, INCHANGE) : extraction par un vrai passe-bas 1er
-      ordre (6dB/octave), et le "reste" a chaque etage est calcule par
-      SOUSTRACTION EXACTE (reste = entree - bas). Latence nulle.
+    - ANALOG (WIDE, par defaut) : extraction par un vrai passe-bas 1er
+      ordre (6dB/octave) a CHAQUE point de crossover, et le "reste" a
+      chaque etage est calcule par SOUSTRACTION EXACTE (reste = entree -
+      bas). Latence nulle.
 
     - LINEAR (ex-"DIGITAL") : FIR a PHASE LINEAIRE, meme architecture de
-      reconstruction par SOUSTRACTION EXACTE que WIDE. Latence reglable
+      reconstruction par SOUSTRACTION EXACTE que ANALOG. Latence reglable
       via 3 budgets (Low/Medium/High, voir setLatencyMode()).
+
+    (ANALOG 2 -- variante pente 2e ordre testee un temps pour reduire le
+    residu grave dans les bandes hautes -- retiree a la demande de
+    l'utilisateur : "on va supprimer analog 2". setWideSteepSlope() et le
+    parametre idWideSteepSlope n'existent plus.)
 
     ============================================================================
     HISTORIQUE -- pourquoi LINEAR remplace l'ancien mode "DIGITAL" (LR4) :
@@ -31,12 +39,14 @@
 
     LINEAR resout ca en reconstruisant par SOUSTRACTION EXACTE (algebrique,
     immune a toute difference de gain entre bandes), comme WIDE, mais avec
-    un vrai FIR a phase lineaire (bien plus raide que le 1er ordre de WIDE) :
+    un vrai FIR a phase lineaire (bien plus raide que le 1er ordre de WIDE).
+    Generalisation a K = kNumSplits etages en cascade (K=2 dans l'original
+    Tripressor, K=4 ici) :
 
-        low   = FIR_LP(x)
-        reste = delay(x, D)      - low     -- D = retard de groupe du FIR_LP
-        mid   = FIR_LP2(reste)
-        high  = delay(reste, D2) - mid     -- D2 = retard de groupe du FIR_LP2
+        rest_0 = x
+        band_i        = FIR_LP_i(rest_i)                          pour i = 0..K-1
+        rest_{i+1}     = delay(rest_i, D_i) - band_i               -- D_i = retard de groupe de FIR_LP_i
+        band_K (finale) = rest_K                                   -- dernier reste, jamais filtre
 
     ============================================================================
     IMPLEMENTATION FIR -- POURQUOI UNE CONVOLUTION DIRECTE, PAS juce::dsp::Convolution :
@@ -50,7 +60,7 @@
          moteur -- a corrompu durablement l'etat interne du moteur de
          PRODUCTION (resonances en dents de scie), puis, une fois corrige
          pour mesurer sur une instance jetable, a quand meme laisse un motif
-         d'oscillations en peigne sur les etages Mid/High (signature d'un
+         d'oscillations en peigne sur les etages internes (signature d'un
          leger desalignement temporel, plus visible sur les filtres courts
          car l'erreur absolue pese proportionnellement plus lourd).
     Plutot que de continuer a deviner le comportement interne d'un moteur
@@ -59,21 +69,20 @@
     symetrique (Type I, N coefficients impair) est alors EXACTEMENT (N-1)/2
     PAR CONSTRUCTION MATHEMATIQUE, sans aucune ambiguite. Cout CPU plus
     eleve par echantillon (O(N) au lieu d'une FFT partitionnee), mais pour
-    les longueurs utilisees ici (quelques centaines a ~2000 coefficients),
-    largement gerable en temps reel (build Release) -- la garantie de
-    justesse prime desormais sur l'optimisation.
+    les longueurs utilisees ici, largement gerable en temps reel (build
+    Release) -- la garantie de justesse prime desormais sur l'optimisation.
 
-    BUG D'ALIGNEMENT TEMPOREL CORRIGE (trouve via un test Dry/Wet a 0%, qui
-    isole le crossover pur de toute compression) : au 2eme etage,
-    mid+high = rest[n-D2] porte un retard CUMULE D+D2 (D du 1er etage, D2
-    du 2eme). Mais "low" seul ne porte que D (celui de son propre FIR). Au
-    MEME indice de sortie n, low et (mid+high) referencaient donc 2 instants
-    DIFFERENTS du signal d'entree -- pas une identite algebrique valide,
-    meme sans compression. Un retard supplementaire de D2 sur Low
-    (lowOutputAligner) aligne les 3 bandes sur la MEME reference temporelle
-    cumulee D+D2. C'est l'equivalent, pour cette architecture par
-    soustraction, du passe-tout de compensation de phase que l'ancien mode
-    DIGITAL appliquait deja sur Low pour la meme raison structurelle.
+    ALIGNEMENT TEMPOREL (generalisation du bug corrige sur Tripressor 3
+    bandes) : chaque band_i (i<K) ne porte intrinsequement que le retard
+    cumule JUSQU'A son propre etage (D_0+...+D_i), alors que le dernier
+    reste band_K porte le retard cumule TOTAL (D_0+...+D_{K-1}). Sommer les
+    bandes brutes sans compensation melangerait donc K+1 references
+    temporelles differentes -- pas une identite algebrique valide, meme
+    sans aucune compression. Chaque band_i (i<K) recoit donc un retard
+    supplementaire de compensation = somme des D_j pour j>i (voir
+    bandAligners ci-dessous), pour que les 5 bandes en sortie partagent
+    TOUTES la meme reference temporelle cumulee -- generalisation directe
+    du lowOutputAligner (D2) de l'architecture 3 bandes.
 
     Le parametre APVTS reste "digitalCrossover" (compatibilite des sessions
     et projets DAW existants) -- seuls le nom d'affichage ("LINEAR" au lieu
@@ -81,18 +90,45 @@
     change.
     ============================================================================
 
-    Points de crossover calibres via mesures PluginDoctor (point -3dB aux 2
-    butees mesurees de chaque knob hardware) :
-      - Low  crossover (-3dB) : ~30Hz (mini) a ~155Hz (maxi)
-      - High crossover (-3dB) : ~570Hz (mini) a ~2930Hz (maxi)
+    IMPORTANT -- fusion de bandes desactivees (voir PluginEditor/
+    PluginProcessor) : cette classe splitte TOUJOURS le signal aux 4
+    frequences configurees, meme si l'utilisateur a "desactive" un
+    crossover dans l'UI pour fusionner 2 bandes voisines. La fusion
+    (sommation des sous-bandes brutes + choix du compresseur "proprietaire"
+    du groupe fusionne) est geree cote PluginProcessor::processBlock(), pas
+    ici -- Crossover reste un simple splitteur a 4 points fixes, sans
+    notion d'activation.
 */
 class Crossover
 {
 public:
-    struct Bands
-    {
-        float low = 0.0f, mid = 0.0f, high = 0.0f;
-    };
+    static constexpr int kNumSplits   = 5;
+    static constexpr int kNumBandsOut = kNumSplits + 1; // 6
+
+    // Bornes et defauts par point de crossover (index 0 = le plus bas, 3 =
+    // le plus haut). Reference partagee avec PluginProcessor::
+    // createParameterLayout(), qui construit ses NormalisableRange/valeurs
+    // par defaut a partir de ces memes tableaux (evite toute divergence
+    // entre le DSP et les parametres APVTS).
+    //
+    // Les 4 bornes sont VOLONTAIREMENT identiques (20Hz-20kHz, la plage
+    // audible complete) plutot que resserrees par "slot" comme dans une
+    // premiere version -- retour utilisateur : quand une bande voisine est
+    // fusionnee (crossover desactive, voir SixpackAudioProcessor::
+    // computeGroupOwners()), le crossover actif adjacent doit pouvoir
+    // s'etendre librement sur toute la largeur ainsi liberee, pas rester
+    // coince dans l'ancien intervalle etroit prevu pour 5 bandes actives.
+    // L'ordre croissant entre les 4 (necessaire au DSP, voir Crossover::
+    // processBlock()) reste applique dynamiquement cote UI/DSP (voir
+    // SixpackAudioProcessor::sanitizeCrossoverFrequencies() et
+    // CrossoverSpectrumEditor -- un crossover desactive se laisse pousser
+    // par ses voisins actifs plutot que de leur faire obstacle), pas par
+    // des bornes de parametre distinctes par indice.
+    static constexpr float kSplitMinHz[kNumSplits]     = {   20.0f,   20.0f,    20.0f,    20.0f,    20.0f };
+    static constexpr float kSplitMaxHz[kNumSplits]     = { 20000.0f, 20000.0f, 20000.0f, 20000.0f, 20000.0f };
+    // Valeurs d'ouverture retour utilisateur explicite (2026-08-20, revues
+    // pour la 6e bande "Presence") : 60 / 110 / 300 / 1000 / 2500 Hz.
+    static constexpr float kSplitDefaultHz[kNumSplits] = {   60.0f,  110.0f,   300.0f, 1000.0f, 2500.0f };
 
     // EXPLICITE et necessaire : JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR
     // (voir tout en bas de la classe) supprime le constructeur de copie --
@@ -112,15 +148,13 @@ public:
         fs = sampleRate;
         maxBlockSize = juce::jmax (1, maximumBlockSize);
 
-        for (auto* f : allWideFilters())
-            f->reset();
+        for (auto& b : branches)
+            b.reset();
         dirtyWide = true;
 
-        lowFilter.reset();
-        midFilter.reset();
-        delayLowSplit.reset();
-        delayHighSplit.reset();
-        lowOutputAligner.reset();
+        for (auto& f : firFilters)       f.reset();
+        for (auto& d : restDelays)       d.reset();
+        for (auto& a : bandAligners)     a.reset();
 
         dirtyLinear = true;
         updateLinearFilters();
@@ -128,25 +162,28 @@ public:
 
     void reset()
     {
-        for (auto* f : allWideFilters())
-            f->reset();
-        lowFilter.reset();
-        midFilter.reset();
-        delayLowSplit.reset();
-        delayHighSplit.reset();
-        lowOutputAligner.reset();
+        for (auto& b : branches)
+            b.reset();
+        for (auto& f : firFilters)       f.reset();
+        for (auto& d : restDelays)       d.reset();
+        for (auto& a : bandAligners)     a.reset();
     }
 
-    void setLowCrossoverHz (float hz) noexcept
+    // splitIndex 0..3 (0 = crossover le plus bas). Clampe aux bornes
+    // kSplitMinHz/kSplitMaxHz[splitIndex] -- l'ORDRE croissant entre les 4
+    // frequences n'est PAS garanti ici (juste les bornes individuelles) :
+    // c'est PluginProcessor qui applique la contrainte de monotonie/ecart
+    // minimum avant d'appeler ce setter (voir sanitizeCrossoverFrequencies()).
+    void setCrossoverHz (int splitIndex, float hz) noexcept
     {
-        hz = juce::jlimit (20.0f, 400.0f, hz);
-        if (! juce::approximatelyEqual (lowHz, hz)) { lowHz = hz; dirtyWide = true; dirtyLinear = true; }
-    }
-
-    void setHighCrossoverHz (float hz) noexcept
-    {
-        hz = juce::jlimit (300.0f, 6000.0f, hz);
-        if (! juce::approximatelyEqual (highHz, hz)) { highHz = hz; dirtyWide = true; dirtyLinear = true; }
+        jassert (splitIndex >= 0 && splitIndex < kNumSplits);
+        hz = juce::jlimit (kSplitMinHz[splitIndex], kSplitMaxHz[splitIndex], hz);
+        if (! juce::approximatelyEqual (crossoverHz[(size_t) splitIndex], hz))
+        {
+            crossoverHz[(size_t) splitIndex] = hz;
+            dirtyWide = true;
+            dirtyLinear = true;
+        }
     }
 
     // false = WIDE (1er ordre, soustraction exacte, 0 latence, comportement
@@ -164,15 +201,17 @@ public:
         if (mode != latencyMode) { latencyMode = mode; dirtyLinear = true; }
     }
 
-    // Latence CUMULEE (etage bas + etage haut), en echantillons, du mode
+    // Latence CUMULEE (tous les etages), en echantillons, du mode
     // actuellement actif -- 0 en WIDE.
     int getLatencySamples() const noexcept
     {
         return linearMode ? currentLinearLatencySamples : 0;
     }
 
-    // Point d'entree unique, quel que soit le mode.
-    void processBlock (const float* in, float* outLow, float* outMid, float* outHigh, int numSamples) noexcept
+    // Point d'entree unique, quel que soit le mode. outs doit pointer vers
+    // kNumBandsOut (5) buffers d'au moins numSamples echantillons, dans
+    // l'ordre croissant de frequence (outs[0] = bande la plus basse).
+    void processBlock (const float* in, float* const* outs, int numSamples) noexcept
     {
         if (linearMode)
         {
@@ -181,28 +220,21 @@ public:
 
             for (int i = 0; i < numSamples; ++i)
             {
-                const float x = in[i];
-                const float low = lowFilter.processSample (x);
-                const float delayedX = delayLowSplit.processSample (x);
-                const float rest = delayedX - low;
+                float rawBand[kNumSplits];
+                float rest = in[i];
 
-                const float mid = midFilter.processSample (rest);
-                const float delayedRest = delayHighSplit.processSample (rest);
-                const float high = delayedRest - mid;
+                for (int s = 0; s < kNumSplits; ++s)
+                {
+                    const float filtered     = firFilters[(size_t) s].processSample (rest);
+                    const float delayedRest  = restDelays[(size_t) s].processSample (rest);
+                    rest = delayedRest - filtered; // complement EXACT
+                    rawBand[s] = filtered;
+                }
 
-                // BUG STRUCTUREL CORRIGE : mid+high porte un retard cumule
-                // D+D2 (D du 1er etage + D2 du 2eme, voir note de classe),
-                // alors que "low" seul ne porte que D (celui de son propre
-                // FIR). Sans ce retard supplementaire de D2 sur Low, la
-                // somme low+mid+high melange 2 references temporelles
-                // differentes -- pas une identite algebrique valide, meme
-                // sans aucune compression (confirme par un test Dry/Wet a
-                // 0%, qui isole le crossover pur de toute dynamique).
-                const float lowAligned = lowOutputAligner.processSample (low);
+                outs[kNumSplits][i] = rest; // derniere bande = dernier reste, deja aligne (retard cumule = total)
 
-                outLow[i]  = lowAligned;
-                outMid[i]  = mid;
-                outHigh[i] = high;
+                for (int s = 0; s < kNumSplits; ++s)
+                    outs[s][i] = bandAligners[(size_t) s].processSample (rawBand[s]);
             }
         }
         else
@@ -212,63 +244,38 @@ public:
 
             for (int i = 0; i < numSamples; ++i)
             {
-                const auto b = processWideSample (in[i]);
-                outLow[i]  = b.low;
-                outMid[i]  = b.mid;
-                outHigh[i] = b.high;
+                float rest = in[i];
+                for (int s = 0; s < kNumSplits; ++s)
+                {
+                    const float low = branches[(size_t) s].processSample (rest);
+                    outs[s][i] = low;
+                    rest = rest - low; // complement EXACT, WIDE = filtres 1er ordre, aucun retard a compenser
+                }
+                outs[kNumSplits][i] = rest;
             }
         }
     }
 
 private:
-    // ================= WIDE (INCHANGE) =================
-    struct BranchFilterFloat
-    {
-        juce::dsp::IIR::Filter<float> stage1, stage2;
-        inline float processSample (float x) noexcept { return stage2.processSample (stage1.processSample (x)); }
-        void reset() { stage1.reset(); stage2.reset(); }
-    };
-
-    inline Bands processWideSample (float x) noexcept
-    {
-        Bands b;
-        b.low = loBranch.processSample (x);
-        const float rest1 = x - b.low; // complement EXACT
-
-        b.mid  = hiBranch.processSample (rest1);
-        b.high = rest1 - b.mid; // complement EXACT
-        return b;
-    }
-
-    std::array<juce::dsp::IIR::Filter<float>*, 4> allWideFilters()
-    {
-        return { &loBranch.stage1, &loBranch.stage2, &hiBranch.stage1, &hiBranch.stage2 };
-    }
+    // ================= WIDE =================
+    // Un seul passe-bas 1er ordre par point de crossover (l'ancien 2e
+    // etage "identite" de l'implementation 3-bandes ne faisait rien --
+    // simplifie ici en un filtre unique par branche).
+    std::array<juce::dsp::IIR::Filter<float>, kNumSplits> branches;
 
     void updateWideCoefficients()
     {
         const float nyquistMargin = (float) (fs * 0.45);
-        const float safeLow  = juce::jlimit (20.0f, nyquistMargin, lowHz);
-        const float safeHigh = juce::jlimit (20.0f, nyquistMargin, highHz);
-
-        loBranch.stage1.coefficients = juce::dsp::IIR::Coefficients<float>::makeFirstOrderLowPass (fs, safeLow);
-        loBranch.stage2.coefficients = identityCoeffsFloat();
-
-        hiBranch.stage1.coefficients = juce::dsp::IIR::Coefficients<float>::makeFirstOrderLowPass (fs, safeHigh);
-        hiBranch.stage2.coefficients = identityCoeffsFloat();
-
+        for (int s = 0; s < kNumSplits; ++s)
+        {
+            const float safeHz = juce::jlimit (20.0f, nyquistMargin, crossoverHz[(size_t) s]);
+            branches[(size_t) s].coefficients = juce::dsp::IIR::Coefficients<float>::makeFirstOrderLowPass (fs, safeHz);
+        }
         dirtyWide = false;
     }
 
-    static juce::dsp::IIR::Coefficients<float>::Ptr identityCoeffsFloat()
-    {
-        return new juce::dsp::IIR::Coefficients<float> (1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f);
-    }
-
-    BranchFilterFloat loBranch, hiBranch;
-    float lowHz  = 80.0f;
-    float highHz = 1200.0f;
-    bool  dirtyWide = true;
+    std::array<float, kNumSplits> crossoverHz { { kSplitDefaultHz[0], kSplitDefaultHz[1], kSplitDefaultHz[2], kSplitDefaultHz[3], kSplitDefaultHz[4] } };
+    bool dirtyWide = true;
 
     // ================= LINEAR (FIR phase lineaire, convolution directe) =================
 
@@ -370,7 +377,7 @@ private:
     };
 
     // Budget de latence CIBLE par mode, en millisecondes -- reparti entre
-    // les 2 etages de crossover (bas et haut), pour que la latence CUMULEE
+    // les kNumSplits etages de crossover, pour que la latence CUMULEE
     // corresponde a la cible choisie par l'utilisateur.
     static constexpr float targetLatencyMs[3] = { 7.0f, 25.0f, 80.0f };
 
@@ -437,51 +444,82 @@ private:
     void updateLinearFilters()
     {
         const int latencyIndex = (int) latencyMode;
-        const int samplesForTarget = juce::jmax (14, (int) std::round (targetLatencyMs[(size_t) latencyIndex] * 0.001 * fs));
+        // Plancher releve a kNumSplits*14 (etait 14 pour 2 etages) : une
+        // fois le meme budget reparti sur 4 etages au lieu de 2, chaque
+        // etage a besoin d'un minimum de coefficients avant que son propre
+        // plancher jmax(15,...) individuel ne prenne le relais -- choix de
+        // conception propre a la generalisation 5 bandes, absent du code
+        // 3-bandes d'origine.
+        const int samplesForTarget = juce::jmax (kNumSplits * 14, (int) std::round (targetLatencyMs[(size_t) latencyIndex] * 0.001 * fs));
 
         const float nyquistMargin = (float) (fs * 0.45);
-        const float safeLow  = juce::jlimit (20.0f, nyquistMargin, lowHz);
-        const float safeHigh = juce::jlimit (20.0f, nyquistMargin, highHz);
+        float safeHz[kNumSplits];
+        double invFreq[kNumSplits];
+        double invSum = 0.0;
+        for (int s = 0; s < kNumSplits; ++s)
+        {
+            safeHz[s] = juce::jlimit (20.0f, nyquistMargin, crossoverHz[(size_t) s]);
+            invFreq[s] = 1.0 / (double) safeHz[s];
+            invSum += invFreq[s];
+        }
 
-        // Repartition PROPORTIONNELLE a 1/sqrt(frequence), pas 50/50 -- un
-        // FIR a besoin d'un nombre de coefficients ~ fs/frequence pour une
-        // raideur RELATIVE (en octaves) donnee : a nombre de coefficients
-        // egal, un crossover a 97Hz reste tres mou alors qu'un crossover a
-        // 2845Hz devient bien plus raide que necessaire.
-        const double invLow  = 1.0 / std::sqrt ((double) safeLow);
-        const double invHigh = 1.0 / std::sqrt ((double) safeHigh);
-        const double lowFraction = invLow / (invLow + invHigh);
+        // Repartition PROPORTIONNELLE a 1/frequence (PAS 1/sqrt(frequence),
+        // bug corrige -- retour utilisateur explicite : "quand je monte le
+        // output de la bande low qui a son crossover a 48hz ca monte
+        // jusqu'a 100hz, les frequences des bandes en lineaire ne sont pas
+        // bien respectees") -- un FIR a une largeur de transition ABSOLUE
+        // (en Hz) qui ne depend QUE du nombre de coefficients (a fenetre
+        // Kaiser fixee), pas de la frequence de coupure -- donc pour une
+        // raideur RELATIVE (en octaves) constante d'un etage a l'autre, il
+        // faut N ~ fs/frequence (proportionnel a 1/f), pas 1/sqrt(f) : ce
+        // dernier sous-alloue les basses frequences, qui se retrouvent avec
+        // une transition bien plus large que necessaire par rapport a leur
+        // frequence de coupure (une pente 1/sqrt(f) etait un compromis
+        // insuffisant, pas la formule exacte decrite par le commentaire
+        // d'origine ci-dessus). Le dernier etage absorbe le reste de
+        // l'arrondi pour que la somme reste EXACTEMENT samplesForTarget
+        // (meme principe que l'original 2 etages).
+        int tapsRaw[kNumSplits];
+        int assigned = 0;
+        for (int s = 0; s < kNumSplits - 1; ++s)
+        {
+            const double fraction = invFreq[s] / invSum;
+            tapsRaw[s] = (int) std::round (samplesForTarget * fraction);
+            assigned += tapsRaw[s];
+        }
+        tapsRaw[kNumSplits - 1] = samplesForTarget - assigned;
 
-        const int tapsLowRaw  = (int) std::round (samplesForTarget * lowFraction);
-        const int tapsHighRaw = samplesForTarget - tapsLowRaw;
+        int delaySamples[kNumSplits];
+        for (int s = 0; s < kNumSplits; ++s)
+        {
+            const int taps = makeOdd (juce::jmax (15, tapsRaw[s]));
+            auto coeffs = designLowpassFIR (fs, safeHz[s], taps);
+            firFilters[(size_t) s].setCoefficients (std::move (coeffs));
 
-        const int tapsLow  = makeOdd (juce::jmax (15, tapsLowRaw));
-        const int tapsHigh = makeOdd (juce::jmax (15, tapsHighRaw));
+            // Retard EXACT (pas mesure, pas suppose approximativement) :
+            // c'est la position du pic du sinc fenetre dans
+            // designLowpassFIR(), qui est TOUJOURS a l'indice (N-1)/2 par
+            // construction (symetrie du FIR Type I).
+            delaySamples[s] = (taps - 1) / 2;
+            restDelays[(size_t) s].setDelaySamples (delaySamples[s]);
+        }
 
-        auto lowCoeffs  = designLowpassFIR (fs, safeLow,  tapsLow);
-        auto highCoeffs = designLowpassFIR (fs, safeHigh, tapsHigh);
+        int cumDelay = 0;
+        for (int s = 0; s < kNumSplits; ++s)
+            cumDelay += delaySamples[s];
+        currentLinearLatencySamples = cumDelay;
 
-        lowFilter.setCoefficients (std::move (lowCoeffs));
-        midFilter.setCoefficients (std::move (highCoeffs));
-
-        // Retard EXACT (pas mesure, pas suppose approximativement) : c'est
-        // la position du pic du sinc fenetre dans designLowpassFIR(), qui
-        // est TOUJOURS a l'indice (N-1)/2 par construction (symetrie du
-        // FIR Type I). Aucune ambiguite possible, contrairement au moteur
-        // de convolution boite noire utilise precedemment.
-        lowSplitDelaySamples  = (tapsLow  - 1) / 2;
-        highSplitDelaySamples = (tapsHigh - 1) / 2;
-        currentLinearLatencySamples = lowSplitDelaySamples + highSplitDelaySamples;
-
-        delayLowSplit.setDelaySamples (lowSplitDelaySamples);
-        delayHighSplit.setDelaySamples (highSplitDelaySamples);
-
-        // Retard SUPPLEMENTAIRE sur Low : D2 uniquement (pas D+D2) -- Low
-        // porte deja intrinsequement D via son propre filtrage, il ne lui
-        // manque que le D2 accumule par Mid/High au 2eme etage pour etre
-        // sur la MEME reference temporelle (voir note de classe / bug
-        // structurel corrige).
-        lowOutputAligner.setDelaySamples (highSplitDelaySamples);
+        // bandAligners[s] compense l'ecart entre le retard intrinseque de
+        // band_s (somme des delais JUSQU'A l'etage s inclus) et le retard
+        // cumule TOTAL -- generalisation du lowOutputAligner (D2) de
+        // l'architecture 3 bandes. Le dernier etage (s = kNumSplits-1)
+        // recoit toujours un retard de 0 (deja a la reference totale).
+        int running = 0;
+        for (int s = 0; s < kNumSplits; ++s)
+        {
+            running += delaySamples[s];
+            bandAligners[(size_t) s].setDelaySamples (cumDelay - running);
+        }
 
         dirtyLinear = false;
     }
@@ -493,14 +531,10 @@ private:
     LatencyMode latencyMode = LatencyMode::Low; // coherent avec le defaut APVTS ("Low CPU")
     bool dirtyLinear = true;
 
-    DirectFirFilter lowFilter;  // extrait LOW = FIR_LP(x)
-    DirectFirFilter midFilter;  // extrait MID = FIR_LP2(reste)
-    IntegerDelayLine delayLowSplit;  // compense le retard du FIR_LP  avant soustraction
-    IntegerDelayLine delayHighSplit; // compense le retard du FIR_LP2 avant soustraction
-    IntegerDelayLine lowOutputAligner; // retard supplementaire D2 sur Low, pour aligner avec Mid+High (voir note de classe)
+    std::array<DirectFirFilter, kNumSplits>   firFilters;   // extrait band_s = FIR_LP_s(rest_s)
+    std::array<IntegerDelayLine, kNumSplits>  restDelays;   // compense le retard du FIR_LP_s avant soustraction (rest_{s+1})
+    std::array<IntegerDelayLine, kNumSplits>  bandAligners; // retard de compensation par bande, voir note de classe
 
-    int lowSplitDelaySamples  = 0;
-    int highSplitDelaySamples = 0;
     int currentLinearLatencySamples = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Crossover)

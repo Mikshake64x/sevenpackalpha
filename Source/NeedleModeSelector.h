@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 #include "PressAnimator.h"
 
 /**
@@ -36,7 +36,7 @@ public:
         {
             auto bounds = getLocalBounds().toFloat();
             applyPressTransform (g, bounds);
-            const auto* laf = dynamic_cast<SuppressorLookAndFeel*> (&getLookAndFeel());
+            const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
             const bool powered = (laf == nullptr) || laf->isPowered();
             const bool on = getToggleState();
             const float corner = juce::jmin (5.0f, bounds.getHeight() * 0.22f);
@@ -54,7 +54,7 @@ public:
             g.setColour (juce::Colours::black.withAlpha (0.55f));
             g.drawRoundedRectangle (bounds.reduced (0.5f), corner, 1.0f);
 
-            g.setColour (on ? (powered ? SuppressorColours::ledAmber : SuppressorColours::textBright) : SuppressorColours::textDim);
+            g.setColour (on ? (powered ? SixpackColours::ledAmber : SixpackColours::chipTextBright) : SixpackColours::chipTextDim);
             g.setFont (juce::Font (juce::FontOptions (11.5f, juce::Font::bold)).withExtraKerningFactor (0.02f));
             g.drawFittedText (text, bounds.reduced (1.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1);
         }

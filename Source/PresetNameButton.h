@@ -1,16 +1,16 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 #include "PressAnimator.h"
 
 /**
     PresetNameButton
     ----------------
     Petit "ecran LCD" cliquable affichant le nom du preset courant --
-    MEME traitement que l'ecran central des knobs (fond SuppressorColours::
+    MEME traitement que l'ecran central des knobs (fond SixpackColours::
     lcdBg, ombre interne, texte lumineux) au lieu d'un juce::TextButton par
     defaut. Le clic ouvre le navigateur de presets (voir
-    SuppressorEditorContent::openPresetBrowser()).
+    SixpackEditorContent::openPresetBrowser()).
 */
 class PresetNameButton : public juce::Button, private PressAnimator
 {
@@ -35,7 +35,7 @@ public:
         juce::DropShadow shadow (juce::Colours::black.withAlpha (0.5f), 3, { 0, 1 });
         shadow.drawForPath (g, shape);
 
-        g.setColour (SuppressorColours::lcdBg);
+        g.setColour (SixpackColours::lcdBg);
         g.fillRoundedRectangle (bounds, corner);
 
         juce::ColourGradient innerShadow (juce::Colours::black.withAlpha (0.6f), bounds.getCentreX(), bounds.getY(),
@@ -59,7 +59,7 @@ public:
         g.setColour (juce::Colours::white.withAlpha (0.06f));
         g.drawRoundedRectangle (bounds.reduced (1.2f), corner, 0.8f);
 
-        g.setColour (SuppressorColours::ledCyan);
+        g.setColour (SixpackColours::ledCyan);
         g.setFont (juce::Font (juce::FontOptions (juce::jmin (13.0f, bounds.getHeight() * 0.5f), juce::Font::bold)));
         g.drawFittedText (getButtonText(), bounds.reduced (8.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 1);
 
@@ -68,7 +68,7 @@ public:
         const auto c = chevronArea.getCentre();
         juce::Path chevron;
         chevron.addTriangle (c.x - 4.0f, c.y - 3.0f, c.x + 4.0f, c.y - 3.0f, c.x, c.y + 3.5f);
-        g.setColour (SuppressorColours::ledCyan.withAlpha (0.6f));
+        g.setColour (SixpackColours::ledCyan.withAlpha (0.6f));
         g.fillPath (chevron);
     }
 

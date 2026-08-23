@@ -15,7 +15,7 @@ public:
     explicit LicenseOverlay (LicenseManager& lm) : license (lm)
     {
         addAndMakeVisible (titleLabel);
-        titleLabel.setText ("Activate Tripressor", juce::dontSendNotification);
+        titleLabel.setText ("Activate Sixpack", juce::dontSendNotification);
         titleLabel.setJustificationType (juce::Justification::centred);
         titleLabel.setFont (juce::Font (20.0f, juce::Font::bold));
         titleLabel.setColour (juce::Label::textColourId, juce::Colours::white);
@@ -172,13 +172,13 @@ private:
 
         if (status == LicenseManager::Status::licensed)
         {
-            titleLabel.setText ("Tripressor License", juce::dontSendNotification);
+            titleLabel.setText ("Sixpack License", juce::dontSendNotification);
             statusLabel.setColour (juce::Label::textColourId, juce::Colours::white);
             statusLabel.setText ("Licensed and active. Key: " + license.getLicenseKey(), juce::dontSendNotification);
         }
         else if (status == LicenseManager::Status::trial || status == LicenseManager::Status::offlineGrace)
         {
-            titleLabel.setText ("Tripressor - Demo Mode", juce::dontSendNotification);
+            titleLabel.setText ("Sixpack - Demo Mode", juce::dontSendNotification);
             statusLabel.setColour (juce::Label::textColourId, juce::Colours::white);
             statusLabel.setText ("Demo mode - " + juce::String (license.getTrialDaysLeft())
                                       + " day(s) left. Enter a key below to unlock the full version.",
@@ -186,7 +186,7 @@ private:
         }
         else if (status == LicenseManager::Status::invalid)
         {
-            titleLabel.setText ("Activate Tripressor", juce::dontSendNotification);
+            titleLabel.setText ("Activate Sixpack", juce::dontSendNotification);
             statusLabel.setColour (juce::Label::textColourId, juce::Colours::orangered);
             auto err = license.getLastError();
             statusLabel.setText (err.isNotEmpty() ? ("Invalid license: " + err) : "Invalid or revoked license.",
@@ -196,11 +196,11 @@ private:
         {
             titleLabel.setText ("Your 14-day trial has ended", juce::dontSendNotification);
             statusLabel.setColour (juce::Label::textColourId, juce::Colours::orangered);
-            statusLabel.setText ("Enter a license key to keep using Tripressor.", juce::dontSendNotification);
+            statusLabel.setText ("Enter a license key to keep using Sixpack.", juce::dontSendNotification);
         }
         else
         {
-            titleLabel.setText ("Activate Tripressor", juce::dontSendNotification);
+            titleLabel.setText ("Activate Sixpack", juce::dontSendNotification);
             statusLabel.setText ({}, juce::dontSendNotification);
         }
 

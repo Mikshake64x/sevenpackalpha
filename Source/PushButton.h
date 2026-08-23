@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 #include "PressAnimator.h"
 
 /**
@@ -43,7 +43,7 @@ public:
 
         if (sprite.isNull())
         {
-            g.setColour (isButtonDown ? SuppressorColours::bg.darker (0.3f) : SuppressorColours::bg);
+            g.setColour (isButtonDown ? SixpackColours::bg.darker (0.3f) : SixpackColours::bg);
             g.fillEllipse (bounds);
             return;
         }

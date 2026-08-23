@@ -1,12 +1,12 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 #include "LicenseManager.h"
 
 /**
     AboutOverlay
     ------------
-    Voile plein ecran affiche au clic sur le logo Tripressor.
+    Voile plein ecran affiche au clic sur le logo Sixpack.
 
     Mise en page EN LONGUEUR (3 colonnes cote a cote, separees par de
     fines lignes -- meme langage que les dividers du panneau principal).
@@ -72,25 +72,25 @@ public:
                 switch (it.kind)
                 {
                     case ColumnItem::Kind::Header:
-                        g.setColour (SuppressorColours::ledBlue);
+                        g.setColour (SixpackColours::ledBlue);
                         g.setFont (headFont);
                         g.drawFittedText (it.text, { 0, (int) y, (int) w, 18 }, juce::Justification::centredLeft, 1);
                         break;
 
                     case ColumnItem::Kind::Bullet:
-                        g.setColour (SuppressorColours::ledAmber);
+                        g.setColour (SixpackColours::ledAmber);
                         g.fillEllipse (0.0f, y + 6.0f, 5.0f, 5.0f);
                         // Texte indente de 12px, largeur RETIREE de ces 12px
                         // (pas de troncature a 2 lignes fixes -- hauteur
                         // reellement calculee, voir itemHeight, pour que la
                         // puce et le texte restent alignes meme si le libelle
                         // fait 3 lignes -- bug rapporte : "pas bien en face").
-                        drawParagraph (g, it.text, { 12.0f, y, w - 12.0f, 0.0f }, bodyFont, SuppressorColours::textBright, 1.25f);
+                        drawParagraph (g, it.text, { 12.0f, y, w - 12.0f, 0.0f }, bodyFont, SixpackColours::textBright, 1.25f);
                         break;
 
                     case ColumnItem::Kind::Paragraph:
                     default:
-                        drawParagraph (g, it.text, { 0.0f, y, w, 0.0f }, bodyFont, SuppressorColours::textBright, 1.3f);
+                        drawParagraph (g, it.text, { 0.0f, y, w, 0.0f }, bodyFont, SixpackColours::textBright, 1.3f);
                         break;
                 }
 
@@ -111,7 +111,7 @@ public:
                     // libelle fait 2-3 lignes doit reserver la vraie
                     // hauteur, sinon la puce/le texte suivants chevauchent.
                     juce::AttributedString as;
-                    as.append (it.text, bodyFont, SuppressorColours::textBright);
+                    as.append (it.text, bodyFont, SixpackColours::textBright);
                     as.setWordWrap (juce::AttributedString::byWord);
                     as.setLineSpacing (1.25f);
                     juce::TextLayout tl;
@@ -122,7 +122,7 @@ public:
                 default:
                 {
                     juce::AttributedString as;
-                    as.append (it.text, bodyFont, SuppressorColours::textBright);
+                    as.append (it.text, bodyFont, SixpackColours::textBright);
                     as.setWordWrap (juce::AttributedString::byWord);
                     as.setLineSpacing (1.3f);
                     juce::TextLayout tl;
@@ -167,6 +167,11 @@ public:
     {
         badgeImage = juce::ImageCache::getFromMemory (BinaryData::sidekey_monogram_png, BinaryData::sidekey_monogram_pngSize);
         photoImage = juce::ImageCache::getFromMemory (BinaryData::mikshake_about_png, BinaryData::mikshake_about_pngSize);
+        // Variante BLANCHE (pas la noire utilisee sous le logo SIXPACK sur
+        // la barre de controle claire) -- ce voile About est sombre (voile
+        // noir + panneau verre, voir rebuildChromeCache()), une signature
+        // noire y serait quasi invisible.
+        signatureImage = juce::ImageCache::getFromMemory (BinaryData::signature_mikshake_white_png, BinaryData::signature_mikshake_white_pngSize);
 
         buildOverviewColumns();
         buildFeaturesAndPhilosophyColumn();
@@ -255,7 +260,7 @@ public:
 
         if (manualBounds.contains (e.position))
         {
-            juce::URL ("https://sidekey.fr/manuals/Tripressor_Manual_EN.pdf").launchInDefaultBrowser();
+            juce::URL ("https://sidekey.fr/manuals/Sixpack_Manual_EN.pdf").launchInDefaultBrowser();
             return;
         }
 
@@ -276,6 +281,16 @@ public:
     // Set once by the editor so the footer can show either the active
     // license key or the remaining demo days instead of a static label.
     void setLicenseManager (LicenseManager& lm) { license = &lm; }
+
+    // Called by the editor's theme toggle -- chromeCache is only rebuilt
+    // from resized() otherwise, so a theme switch while this overlay is
+    // hidden (or already shown) left it stuck on the stale bitmap until
+    // the whole plugin was reopened.
+    void refreshTheme()
+    {
+        chromeCache = juce::Image();
+        repaint();
+    }
 
 private:
     struct Layout
@@ -306,9 +321,9 @@ private:
         g.fillRect (bounds);
 
         auto panel = panelBounds();
-        SuppressorLookAndFeel::renderGlassPanel (g, panel, 12.0f);
-        SuppressorLookAndFeel::renderGlossySheen (g, panel);
-        g.setColour (SuppressorColours::ledAmber.withAlpha (0.5f));
+        SixpackLookAndFeel::renderGlassPanel (g, panel, 12.0f);
+        SixpackLookAndFeel::renderGlossySheen (g, panel);
+        g.setColour (SixpackColours::ledAmber.withAlpha (0.5f));
         g.drawRoundedRectangle (panel.reduced (0.5f), 12.0f, 1.0f);
 
         auto layout = computeLayout();
@@ -328,21 +343,25 @@ private:
         }
 
         auto versionArea = headerRow.removeFromRight (56.0f);
-        g.setColour (SuppressorColours::textDim);
+        g.setColour (SixpackColours::textDim);
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
         g.drawFittedText ("v1.8.0", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
 
         auto titleArea = headerRow.removeFromLeft (juce::jmin (240.0f, headerRow.getWidth() * 0.48f));
-        g.setColour (SuppressorColours::ledAmber);
+        g.setColour (SixpackColours::ledAmber);
         g.setFont (juce::Font (juce::FontOptions (24.0f, juce::Font::bold)).withExtraKerningFactor (0.1f));
-        g.drawFittedText ("ABOUT TRIPRESSOR", titleArea.toNearestInt(), juce::Justification::centredLeft, 1);
+        // "ABOUT TRIPRESSOR" -> "ABOUT SIXPACK" (retour utilisateur : "il
+        // faut reecrire la about en fonction de ce qu'est Sixpack") -- le
+        // texte entier de ce voile date du portage 3 bandes Tripressor,
+        // jamais mis a jour depuis le passage a 6 bandes.
+        g.drawFittedText ("ABOUT SIXPACK", titleArea.toNearestInt(), juce::Justification::centredLeft, 1);
 
         headerRow.removeFromLeft (14.0f);
-        g.setColour (SuppressorColours::ledBlue.withAlpha (0.85f));
+        g.setColour (SixpackColours::ledBlue.withAlpha (0.85f));
         g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::italic)).withExtraKerningFactor (0.10f));
         g.drawFittedText ("Dynamics. Refined.", headerRow.toNearestInt(), juce::Justification::centredLeft, 1);
 
-        g.setColour (SuppressorColours::gridLine);
+        g.setColour (SixpackColours::gridLine);
         g.drawLine (layout.headerDividerY.getX(), layout.headerDividerY.getY(), layout.headerDividerY.getRight(), layout.headerDividerY.getY(), 1.0f);
 
         drawFooter (g, layout.footerRow); // met aussi a jour websiteBounds (coordonnees composant, pas image)
@@ -350,7 +369,7 @@ private:
         g.drawLine (layout.footerDividerY.getX(), layout.footerDividerY.getY(), layout.footerDividerY.getRight(), layout.footerDividerY.getY(), 1.0f);
 
         // --- Separateurs verticaux entre les 3 colonnes ---
-        g.setColour (SuppressorColours::gridLine);
+        g.setColour (SixpackColours::gridLine);
         g.drawLine (layout.dividerX1, layout.colTop, layout.dividerX1, layout.colBottom, 1.0f);
         g.drawLine (layout.dividerX2, layout.colTop, layout.dividerX2, layout.colBottom, 1.0f);
     }
@@ -400,60 +419,41 @@ private:
     void buildOverviewColumns()
     {
         columnA.setItems ({
-            { "Tripressor: Built for My Way of Mastering", ColumnItem::Kind::Header },
-            { "I developed Tripressor with a very simple goal: to create the mastering compressor I have always wanted to use. "
-              "A tool capable of controlling dynamics with surgical precision, while still respecting the musicality of a mix.", ColumnItem::Kind::Paragraph },
-            { "My starting point was clear: preserve the transparency of a wideband compressor when working with very gentle ratios, "
-              "while still being able to tame aggressive transients when a mix engineer has gone a bit heavy handed on transient shapers or envelopers.", ColumnItem::Kind::Paragraph },
-            { "A feedforward architecture quickly became the obvious choice. It offers an extremely precise response, allowing Tripressor "
-              "to stay clean, predictable, and flexible enough to shape dynamics exactly the way I want.", ColumnItem::Kind::Paragraph },
-            { "Over the years, I have tried a huge number of mastering compressors. Some sounded great but were always missing one essential feature. "
-              "Others were extremely effective, but their wideband design meant that a simple kick hit or an energetic sub would trigger compression across the entire spectrum. "
-              "On the other hand, some were so transparent that the difference was only really audible on very high end monitoring systems, "
-              "when 99.9% of listeners today hear their music on a phone, earbuds, or small speakers.", ColumnItem::Kind::Paragraph },
-            { "Tripressor was born to close that gap.", ColumnItem::Kind::Paragraph },
-            { "Inspired by the Distressor philosophy, but entirely rethought for mastering, I designed my own crossover filter from the ground up. "
-              "This was probably one of the most complex parts of development, but the result was well worth it.", ColumnItem::Kind::Paragraph },
-            { "Developing the two crossover filters was a major part of the project. Their goal was not just to split the bands, "
-              "but to do so with the highest possible fidelity.", ColumnItem::Kind::Paragraph },
-            { "The Analog crossover shows less than 0.01dB of deviation when all bands are at unity. Its gentle, slightly overlapping slopes preserve "
-              "transients very naturally and give a feel close to analog processing. It is very musical, my personal favorite.", ColumnItem::Kind::Paragraph },
-            { "The Linear crossover also achieves less than 0.01dB of deviation. So the difference is not in amplitude accuracy, but in behavior. "
-              "Thanks to its linear phase response, it delivers much more surgical frequency separation, ideal for very modern productions or mixes where every detail needs to stay perfectly controlled.", ColumnItem::Kind::Paragraph },
-            { "So the choice between the two is not about picking the more accurate mode, but the one that best matches your mastering philosophy.", ColumnItem::Kind::Paragraph },
+            { "SIXPACK: Six Bands, One Mastering Chain", ColumnItem::Kind::Header },
+            { "I designed SIXPACK with an experimental goal above all else. After many attempts at building multiband compressors, "
+              "I started multiplying the bands right from the earliest stages of development, with a fairly simple idea: chase the "
+              "best possible mastering, even if it meant making the CPU cry.", ColumnItem::Kind::Paragraph },
+            { "The goal was to push the boundaries of multiband processing and explore just how far dynamic control could go without "
+              "turning the mix into a spectral puzzle.", ColumnItem::Kind::Paragraph },
+            { "I already have several ideas for what comes next, especially as processors keep bulking up on steroids. But for now, "
+              "I want SIXPACK to stay accessible and usable across a wide range of hardware configurations.", ColumnItem::Kind::Paragraph },
+            { "The principle itself is fairly simple: 6 bands, in the philosophy of Tripressor, with a feedforward compressor built "
+              "on Tripressor's current DSP, and a crossover designed to be as transparent as possible.", ColumnItem::Kind::Paragraph },
+            { "With THD disabled, the measured deviation reaches about 0.001dB. In other words, the crossover tries very hard not to "
+              "be noticed. It does its job and goes back to its office.", ColumnItem::Kind::Paragraph },
+            { "The other distinctive trait of SIXPACK is the way the compressor and the expander work in tandem. The goal is to "
+              "optimize mastering dynamics without needlessly losing energy after every release phase.", ColumnItem::Kind::Paragraph },
+            { "The result is compression that can be extremely natural, or, at the other end of the scale, much more aggressive, all "
+              "while keeping maximum energy for LUFS.", ColumnItem::Kind::Paragraph },
+            { "In short, SIXPACK lets you compress hard, very hard, or not at all, while trying to preserve what actually matters: "
+              "the energy of the mix.", ColumnItem::Kind::Paragraph },
+            { "And yes, there are six bands.", ColumnItem::Kind::Paragraph },
+            { "I could have called it Quadruple Compressor Extended Pro Ultimate, but SIXPACK seemed slightly more honest.", ColumnItem::Kind::Paragraph },
         });
 
         columnB.setItems ({
-            { "The compression engine was also extensively reworked. The knee curves, ratios, and detector behavior were redesigned "
-              "to achieve smoother, more natural, more musical compression. Each band also gets a very subtle touch of harmonic coloration. "
-              "Do not expect a metal zone effect or anything dramatic, that is not the goal of this project. This coloration is intentionally subtle "
-              "and exists only to add a bit of density without compromising transparency. It is a modification of the 2nd, 3rd, 4th, and 5th order harmonics.", ColumnItem::Kind::Paragraph },
-            { "A Different Approach to Multiband", ColumnItem::Kind::Header },
-            { "Tripressor also features independent Dry/Wet controls per band, allowing you to blend compressed and original signal with great precision. "
-              "This approach opens up a new dimension of control: you can tighten dynamic control in one frequency zone while still preserving some of the natural character of the source signal.", ColumnItem::Kind::Paragraph },
-            { "Each band also has a Mono/Stereo Spread control, letting you shape stereo width in a targeted way. The goal is not to create excessive artificial "
-              "width, but to add a touch of space and depth exactly where it is actually needed.", ColumnItem::Kind::Paragraph },
-            { "Why Only Three Bands?", ColumnItem::Kind::Header },
-            { "A question that comes up often: why not four bands?", ColumnItem::Kind::Paragraph },
-            { "The choice of three bands is above all a choice for precision and musicality. Designing a high performing multiband crossover is a particularly "
-              "complex exercise. Every additional band increases the difficulty of frequency separation, phase coherence, and transient preservation.", ColumnItem::Kind::Paragraph },
-            { "But the main reason has to do with how multiband is actually used in mastering.", ColumnItem::Kind::Paragraph },
-            { "In most situations, you rarely need to compress extreme high frequencies independently. Very high frequencies carry a lot of transient "
-              "information and energy that can easily be degraded by overly aggressive processing.", ColumnItem::Kind::Paragraph },
-            { "Rather than adding a fourth band that would rarely get used, I chose to build in an advanced sidechain detection system that lets you precisely "
-              "define which zones trigger compression, using Bell, High Pass, and Low Pass filters.", ColumnItem::Kind::Paragraph },
-            { "This approach gives you more control while better preserving transients. It lets you target a specific problem in the spectrum without creating "
-              "unnecessary extra separation between bands.", ColumnItem::Kind::Paragraph },
-            { "Tripressor prioritizes real world effectiveness over feature count. Every element was added with a specific purpose: to deliver surgical "
-              "dynamic control while keeping the musical feel of a wideband treatment.", ColumnItem::Kind::Paragraph },
-            { "I then added my Signature THD stage.", ColumnItem::Kind::Paragraph },
-            { "The idea is simple: make it possible to complete a full mastering chain in a single processor, without needing to open a final limiter whose "
-              "only real effect is sometimes to crush transients or degrade the signal.", ColumnItem::Kind::Paragraph },
-            { "The THD module includes three independent VU meters, one per band, so you can precisely monitor saturation level. No more guessing whether "
-              "you are pushing the signal too far or drifting into unwanted clipping territory.", ColumnItem::Kind::Paragraph },
-            { "Tripressor was not designed to impress in a five second A/B comparison. It was designed to produce masters that translate correctly on every "
-              "playback system, whether that is a pair of high end studio monitors, earbuds, a Bluetooth speaker, or a phone's built in speaker.", ColumnItem::Kind::Paragraph },
-            { "At the end of the day, that is where your audience actually listens to your music.", ColumnItem::Kind::Paragraph },
+            { "Learn: A Starting Point, Not an Autopilot", ColumnItem::Kind::Header },
+            { "I also built in a Learn module, designed to automatically provide a coherent starting point for compression and "
+              "expansion.", ColumnItem::Kind::Paragraph },
+            { "Because with six bands, finding the right attack and release for every single one can quickly turn into a small "
+              "exercise in mental torture. Eventually you end up practically negotiating with each transient.", ColumnItem::Kind::Paragraph },
+            { "The Learn module analyzes the behavior of the signal to suggest a coherent starting point for your dynamics settings. "
+              "The goal, obviously, is not to replace your ears, but to save you time and spare you from starting on a blank page.", ColumnItem::Kind::Paragraph },
+            { "I naturally encourage you to experiment from there and find whatever sounds the most musical and professional for "
+              "your mix and your own approach to mastering.", ColumnItem::Kind::Paragraph },
+            { "With this many bands and this many things to tweak, the Learn module felt like an almost indispensable extension of "
+              "SIXPACK.", ColumnItem::Kind::Paragraph },
+            { "Six bands, two dynamics processors per band, and one button to try and put a little order back into all of it.", ColumnItem::Kind::Paragraph },
         });
     }
 
@@ -464,27 +464,36 @@ private:
         std::vector<ColumnItem> items;
         items.push_back ({ "Features", ColumnItem::Kind::Header });
 
+        // Liste reecrite pour l'architecture 6 bandes actuelle (retour
+        // utilisateur explicite : "les features correspondantes, la
+        // deviation a 0.001db") -- l'ancienne liste datait du portage 3
+        // bandes Tripressor. Verifiee contre les vrais identifiants de
+        // parametres (PluginProcessor.h) : NumBands=6/NumCrossovers=5,
+        // fusion de bandes via idCrossoverEnabled (feature reelle, absente
+        // de l'ancienne liste), pas de filtre passe-bas cote detecteur SAUF
+        // sur la derniere bande (comp.setDetectorHpIsLowPass(band==High)) --
+        // l'ancien "Low/High Cut plus Bell" et "Bell, High Pass, and Low
+        // Pass filters" etaient inexacts, corriges ici.
         static const char* features[] =
         {
-            "3 Band Feedforward Compression (Low / Mid / High)",
+            "6 Band Feedforward Compression (Low / LowMid / Mid / HighMid / Presence / High)",
+            "5 Point Crossover, Every Point Independently Foldable to Fuse Adjacent Bands",
             "Wide (Analog) / Linear (FIR) Crossover, Switchable",
-            "Crossover Amplitude Accuracy: 0.01dB, Wide and Linear",
+            "Crossover Amplitude Accuracy: 0.001dB, Wide and Linear",
             "7 Step Discrete LED Ratio Selection, 2:1 to 20:1",
             "Optical and Overkill Mode per Band",
-            "Per Band Sidechain EQ: Low/High Cut plus Bell (dual Bell on Mid)",
             "Stereo Detector Link per Band",
-            "Audio Tube and Fuzz Colouration per Band",
             "Per Band Solo",
             "THD Valve: Soft / Tape / Iron / Air Mastering Saturation, One Shared Stage",
             "True Peak Safety Ceiling on the THD Valve",
-            "Dual Needle VU (Input / Output / THD) plus 3 Per Band THD Needles",
+            "Dual Needle VU (Input / Output / THD) plus One THD Needle per Band",
             "Global Power with Full Unit Dim",
             "Link In / Link Out for Ganged Input/Output Trim",
             "Factory and User Preset Browser, with a Genuine Default Preset",
             "Resizable UI (75% to 100%), Locked Against Accidental Host Fullscreen",
-            "Calibrated I/O, 0.01dB Linearity, Hand Measured",
-            "AI Learn: Listens to Your Program Material and Calculates Compression, Expansion, "
-            "Sidechain Detection and Crossover Settings, with Loudness Targeting for Streaming Platform Norms",
+            "Calibrated I/O, 0.001dB Linearity, Hand Measured",
+            "AI Learn: Listens to Your Program Material and Calculates Compression, Expansion "
+            "and Crossover Settings, with Loudness Targeting for Streaming Platform Norms",
             "Independent Upward Expansion per Band (Comp / Expand), with its Own Ratio, Attack, "
             "Release and Range, Running Alongside Compression at All Times"
         };
@@ -525,10 +534,28 @@ private:
                          0, 0, photoImage.getWidth(), photoImage.getHeight());
             g.restoreState();
 
-            g.setColour (SuppressorColours::ledAmber.withAlpha (0.4f));
+            g.setColour (SixpackColours::ledAmber.withAlpha (0.4f));
             g.drawRoundedRectangle (photoBounds, 6.0f, 1.0f);
 
             area.removeFromLeft (photoBounds.getWidth() + 16.0f);
+        }
+
+        // Signature, fond transparent, juste apres la photo (retour
+        // utilisateur explicite : "dans la page about dans le cadre du bas
+        // ou il y a la ma photo et les licences", puis "elle doit etre
+        // completement noire. pas de transparence, pas d'opacite" -- meme
+        // fix que sous le logo SIXPACK, voir PluginEditor.cpp : le PNG est
+        // genere DIRECTEMENT a sa taille d'affichage finale (45x30, seuil
+        // binaire) et dessine ici en 1:1 EXACT (drawImageAt, pas de
+        // destW/destH -- tout resample reintroduit des bords semi-opaques,
+        // meme depuis une source deja binaire). Variante BLANCHE (voile
+        // sombre ici, voir signatureImage/constructeur).
+        if (! signatureImage.isNull())
+        {
+            auto sigBounds = signatureImage.getBounds().toFloat().withCentre (area.getCentre()).withX (area.getX());
+            g.drawImageAt (signatureImage, (int) sigBounds.getX(), (int) sigBounds.getY());
+
+            area.removeFromLeft (sigBounds.getWidth() + 16.0f);
         }
 
         auto stampArea = area.removeFromRight (58.0f);
@@ -538,7 +565,7 @@ private:
         auto copyrightRow = area.removeFromBottom (13.0f);
         drawWebsiteLink (g, area);
 
-        g.setColour (SuppressorColours::textDim.withAlpha (0.75f));
+        g.setColour (SixpackColours::textDim.withAlpha (0.75f));
         g.setFont (juce::Font (juce::FontOptions (9.5f, juce::Font::plain)).withExtraKerningFactor (0.04f));
         g.drawFittedText ("(c) 2026 Side Key System. All rights reserved.   Made in France",
                            copyrightRow.toNearestInt(), juce::Justification::centredLeft, 1);
@@ -551,7 +578,7 @@ private:
     {
         const auto centre = area.getCentre();
         const float r = juce::jmin (area.getWidth(), area.getHeight()) * 0.5f;
-        const juce::Colour ink = SuppressorColours::ledRed.withAlpha (0.82f);
+        const juce::Colour ink = SixpackColours::ledRed.withAlpha (0.82f);
 
         g.saveState();
         g.addTransform (juce::AffineTransform::rotation (juce::degreesToRadians (-8.0f), centre.x, centre.y));
@@ -599,7 +626,7 @@ private:
         const float siteW = gaSite.getBoundingBox (0, -1, true).getWidth();
 
         websiteBounds = row.withWidth (siteW);
-        g.setColour (SuppressorColours::ledBlue);
+        g.setColour (SixpackColours::ledBlue);
         g.drawFittedText ("sidekey.fr", websiteBounds.toNearestInt(), juce::Justification::centredLeft, 1);
         g.drawLine (websiteBounds.getX(), websiteBounds.getBottom() - 3.0f,
                     websiteBounds.getX() + siteW, websiteBounds.getBottom() - 3.0f, 1.0f);
@@ -610,10 +637,10 @@ private:
         const float manualW = gaManual.getBoundingBox (0, -1, true).getWidth();
 
         manualBounds = row.withX (websiteBounds.getRight() + sepW).withWidth (manualW);
-        g.setColour (SuppressorColours::textDim.withAlpha (0.5f));
+        g.setColour (SixpackColours::textDim.withAlpha (0.5f));
         g.drawFittedText ("|", juce::Rectangle<float> (websiteBounds.getRight(), row.getY(), sepW, row.getHeight()).toNearestInt(),
                            juce::Justification::centred, 1);
-        g.setColour (SuppressorColours::ledAmber);
+        g.setColour (SixpackColours::ledAmber);
         g.drawFittedText ("Manual", manualBounds.toNearestInt(), juce::Justification::centredLeft, 1);
         g.drawLine (manualBounds.getX(), manualBounds.getBottom() - 3.0f,
                     manualBounds.getX() + manualW, manualBounds.getBottom() - 3.0f, 1.0f);
@@ -637,15 +664,16 @@ private:
         const float licenseW = gaLicense.getBoundingBox (0, -1, true).getWidth();
 
         licenseBounds = row.withX (manualBounds.getRight() + sepW).withWidth (licenseW);
-        g.setColour (SuppressorColours::textDim.withAlpha (0.5f));
+        g.setColour (SixpackColours::textDim.withAlpha (0.5f));
         g.drawFittedText ("|", juce::Rectangle<float> (manualBounds.getRight(), row.getY(), sepW, row.getHeight()).toNearestInt(),
                            juce::Justification::centred, 1);
-        g.setColour (SuppressorColours::ledBlue);
+        g.setColour (SixpackColours::ledBlue);
         g.drawFittedText (licenseText, licenseBounds.toNearestInt(), juce::Justification::centredLeft, 1);
     }
 
     juce::Image badgeImage;
     juce::Image photoImage;
+    juce::Image signatureImage;
     juce::Image chromeCache;
     juce::Rectangle<float> websiteBounds;
     juce::Rectangle<float> manualBounds;

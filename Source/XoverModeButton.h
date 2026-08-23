@@ -1,18 +1,24 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 
 /**
     XoverModeButton
     ---------------
-    Selecteur WIDE / LINEAR -- 2 pilules EMPILEES VERTICALEMENT (WIDE en
-    haut, LINEAR en dessous), style radio : cliquer sur l'une eteint
-    l'autre. Chacune est un VRAI sous-composant independant (Segment,
-    juce::Button), pas juste 2 zones peintes dans un seul Component -- ca
-    permet a chacune d'avoir son PROPRE tooltip.
+    Selecteur ANALOG / LINEAR -- 2 pilules EMPILEES VERTICALEMENT, style
+    radio exclusif : cliquer sur l'une eteint l'autre. Chacune est un VRAI
+    sous-composant independant (Segment, juce::Button), pas juste des
+    zones peintes dans un seul Component -- permet a chacune d'avoir son
+    PROPRE tooltip.
+
+    Pilote idDigitalCrossover (bool) : true = LINEAR, false = ANALOG.
+
+    (ANALOG 2 -- 3e segment ajoute puis retire, voir doc de classe
+    Crossover.h -- retour utilisateur explicite : "on va supprimer analog
+    2". Le composant redevient un simple toggle 2 voies.)
 
     Porte depuis Nuke Mext (meme fichier, couleurs/LookAndFeel adaptes a
-    SuppressorColours / SuppressorLookAndFeel).
+    SixpackColours / SixpackLookAndFeel).
 
     Lit directement le parametre APVTS via un petit Timer interne, pour
     rester synchronise meme si la valeur change par un autre biais que le
@@ -22,41 +28,43 @@
 class XoverModeButton : public juce::Component, private juce::Timer
 {
 public:
+    enum class Mode { Analog = 0, Linear = 1 };
+
     explicit XoverModeButton (std::atomic<float>& digitalCrossoverParamToWatch)
         : digitalCrossoverParam (digitalCrossoverParamToWatch)
     {
-        wideSegment.setButtonText ("ANALOG");
+        analogSegment.setButtonText ("ANALOG");
         linearSegment.setButtonText ("LINEAR");
-        wideSegment.setName ("Wide Crossover");
+        analogSegment.setName ("Analog Crossover");
         linearSegment.setName ("Linear Crossover");
-        wideSegment.accent = SuppressorColours::ledBlue;
-        linearSegment.accent = SuppressorColours::ledRed;
+        analogSegment.accent = SixpackColours::ledBlue;
+        linearSegment.accent = SixpackColours::ledRed;
 
-        wideSegment.onClick   = [this] { if (onSelect) onSelect (false); };
-        linearSegment.onClick = [this] { if (onSelect) onSelect (true); };
+        analogSegment.onClick = [this] { if (onSelect) onSelect (Mode::Analog); };
+        linearSegment.onClick = [this] { if (onSelect) onSelect (Mode::Linear); };
 
-        addAndMakeVisible (wideSegment);
+        addAndMakeVisible (analogSegment);
         addAndMakeVisible (linearSegment);
 
-        activeLinear = digitalCrossoverParam.load() > 0.5f;
+        activeMode = readMode();
         updateSegmentStates();
         startTimerHz (15);
     }
 
     ~XoverModeButton() override { stopTimer(); }
 
-    std::function<void (bool wantLinear)> onSelect;
+    std::function<void (Mode)> onSelect;
 
-    void setWideTooltip (const juce::String& text) { wideSegment.setTooltip (text); }
+    void setAnalogTooltip (const juce::String& text) { analogSegment.setTooltip (text); }
     void setLinearTooltip (const juce::String& text) { linearSegment.setTooltip (text); }
 
     void resized() override
     {
         auto bounds = getLocalBounds();
-        constexpr int gapPx = 4;
+        constexpr int gapPx = 3;
         const int segH = (bounds.getHeight() - gapPx) / 2;
 
-        wideSegment.setBounds (bounds.removeFromTop (segH));
+        analogSegment.setBounds (bounds.removeFromTop (segH));
         bounds.removeFromTop (gapPx);
         linearSegment.setBounds (bounds);
     }
@@ -81,42 +89,47 @@ private:
             }
             else
             {
-                g.setColour (SuppressorColours::bg.withAlpha (0.7f));
+                g.setColour (SixpackColours::bg.withAlpha (0.7f));
                 g.fillRoundedRectangle (area, radius);
-                g.setColour (SuppressorColours::gridLine);
+                g.setColour (SixpackColours::gridLine);
                 g.drawRoundedRectangle (area.reduced (0.5f), radius, 1.0f);
             }
 
-            g.setColour (active ? SuppressorColours::textBright : SuppressorColours::textDim);
-            g.setFont (juce::Font (juce::FontOptions (9.5f, juce::Font::bold)).withExtraKerningFactor (0.06f));
+            g.setColour (active ? SixpackColours::textBright : SixpackColours::textDim);
+            g.setFont (juce::Font (juce::FontOptions (8.5f, juce::Font::bold)).withExtraKerningFactor (0.04f));
             g.drawFittedText (getButtonText(), getLocalBounds(), juce::Justification::centred, 1);
         }
 
         juce::Colour accent;
     };
 
+    Mode readMode() const noexcept
+    {
+        return digitalCrossoverParam.load() > 0.5f ? Mode::Linear : Mode::Analog;
+    }
+
     void timerCallback() override
     {
-        const bool live = digitalCrossoverParam.load() > 0.5f;
-        if (live != activeLinear)
+        const auto live = readMode();
+        if (live != activeMode)
         {
-            activeLinear = live;
+            activeMode = live;
             updateSegmentStates();
         }
     }
 
     void updateSegmentStates()
     {
-        wideSegment.setToggleState (! activeLinear, juce::dontSendNotification);
-        linearSegment.setToggleState (activeLinear, juce::dontSendNotification);
-        wideSegment.repaint();
+        analogSegment.setToggleState (activeMode == Mode::Analog, juce::dontSendNotification);
+        linearSegment.setToggleState (activeMode == Mode::Linear, juce::dontSendNotification);
+        analogSegment.repaint();
         linearSegment.repaint();
     }
 
     std::atomic<float>& digitalCrossoverParam;
-    bool activeLinear = false;
+    Mode activeMode = Mode::Analog;
 
-    Segment wideSegment, linearSegment;
+    Segment analogSegment, linearSegment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (XoverModeButton)
 };

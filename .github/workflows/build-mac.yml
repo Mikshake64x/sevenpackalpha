@@ -28,29 +28,29 @@ jobs:
           PROJUCER="../JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer"
           "$PROJUCER" --set-global-search-path osx defaultJuceModulePath "$(cd ../JUCE/modules && pwd)"
 
-      - name: Générer le projet Xcode depuis Tripsressor.jucer
+      - name: Générer le projet Xcode depuis Sixpack.jucer
         run: |
-          ../JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer --resave "Tripsressor.jucer"
+          ../JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer --resave "Sixpack.jucer"
 
       - name: Compiler le plugin (VST3)
         run: |
-          xcodebuild -project "Builds/MacOSX/Tripressor.xcodeproj" -target "Tripressor - VST3" -configuration Release
+          xcodebuild -project "Builds/MacOSX/Sixpack.xcodeproj" -target "Sixpack - VST3" -configuration Release
 
       - name: Compiler le plugin (AU)
         run: |
-          xcodebuild -project "Builds/MacOSX/Tripressor.xcodeproj" -target "Tripressor - AU" -configuration Release
+          xcodebuild -project "Builds/MacOSX/Sixpack.xcodeproj" -target "Sixpack - AU" -configuration Release
 
       - name: Uploader le VST3
         uses: actions/upload-artifact@v4
         with:
-          name: Tripressor-macOS-VST3
-          path: "Builds/MacOSX/build/Release/Tripressor.vst3"
+          name: Sixpack-macOS-VST3
+          path: "Builds/MacOSX/build/Release/Sixpack.vst3"
 
       - name: Uploader le composant AU
         uses: actions/upload-artifact@v4
         with:
-          name: Tripressor-macOS-AU
-          path: "Builds/MacOSX/build/Release/Tripressor.component"
+          name: Sixpack-macOS-AU
+          path: "Builds/MacOSX/build/Release/Sixpack.component"
 
   build-dmg:
     needs: build-mac
@@ -63,14 +63,14 @@ jobs:
       - name: Télécharger le VST3
         uses: actions/download-artifact@v4
         with:
-          name: Tripressor-macOS-VST3
-          path: staging/Tripressor.vst3
+          name: Sixpack-macOS-VST3
+          path: staging/Sixpack.vst3
 
       - name: Télécharger le composant AU
         uses: actions/download-artifact@v4
         with:
-          name: Tripressor-macOS-AU
-          path: staging/Tripressor.component
+          name: Sixpack-macOS-AU
+          path: staging/Sixpack.component
 
       - name: Assembler le DMG
         run: |
@@ -81,12 +81,12 @@ jobs:
           ln -s /Library/Audio/Plug-Ins/VST3 "staging/VST3 (drag plugin here)"
           ln -s /Library/Audio/Plug-Ins/Components "staging/Components (drag plugin here)"
 
-          hdiutil create -volname "Tripressor 1.8.0" \
+          hdiutil create -volname "Sixpack 1.0.0" \
             -srcfolder staging -ov -format UDZO \
-            "Tripressor-1.8.0.dmg"
+            "Sixpack-1.0.0.dmg"
 
       - name: Uploader le DMG
         uses: actions/upload-artifact@v4
         with:
-          name: Tripressor-1.8.0-DMG
-          path: "Tripressor-1.8.0.dmg"
+          name: Sixpack-1.0.0-DMG
+          path: "Sixpack-1.0.0.dmg"

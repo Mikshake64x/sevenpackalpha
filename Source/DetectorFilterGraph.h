@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 
 /**
     DetectorFilterGraph
@@ -33,14 +33,15 @@ public:
     // FeedbackCompressor::setDetectorHpIsLowPass()).
     // viewMinHzParam/viewMaxHzParam : bornes de l'axe X, ADAPTEES EN TEMPS
     // REEL a la bande (LOW: 20->XLO, MID: XLO->XHI, HIGH: XHI->20000) --
-    // voir SuppressorAudioProcessorEditor::buildBandPanel(). Ce sont les
+    // voir SixpackAudioProcessorEditor::buildBandPanel(). Ce sont les
     // memes atomics que les knobs XLO/XHI de la barre de controle, pas une
     // copie -- suit donc les Xover en direct, meme quand ils bougent via
     // automation hote.
     // bell2* : OPTIONNELS (nullptr par defaut) -- quand fournis, active un
     // 2e point Bell independant (meme mecanique X=freq/Y=gain, couleur
-    // bleue) EN PLUS du point HP -- utilise UNIQUEMENT par la bande MID
-    // (voir PluginEditor::buildBandPanel()), qui n'a pas de bouton HP visible.
+    // bleue) EN PLUS du point HP -- utilise par les bandes intermediaires
+    // (LowMid/Mid/HighMid, voir PluginEditor::buildBandPanel()), qui n'ont
+    // pas de bouton HP visible.
     DetectorFilterGraph (std::atomic<float>& hpOnParamToWatch, juce::RangedAudioParameter& hpFreqP, juce::RangedAudioParameter& hpSlopeP,
                          std::atomic<float>& bellOnParamToWatch, juce::RangedAudioParameter& bellFreqP, juce::RangedAudioParameter& bellGainP,
                          bool isLowPassIn, std::atomic<float>& viewMinHzParam, std::atomic<float>& viewMaxHzParam,
@@ -61,7 +62,7 @@ public:
         g.setColour (juce::Colour (0xff0a1620));
         g.fillRoundedRectangle (bounds, 3.0f);
 
-        const auto* laf = dynamic_cast<SuppressorLookAndFeel*> (&getLookAndFeel());
+        const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
         const bool powered = (laf == nullptr) || laf->isPowered();
         if (! powered)
         {
@@ -84,21 +85,21 @@ public:
         {
             drawHpCorrectionCurve (g, plot);
             hpNodeCentre = hpNodeScreenPos (plot);
-            drawCrosshairNode (g, plot, hpNodeCentre, SuppressorColours::ledGreen, hpPulse);
+            drawCrosshairNode (g, plot, hpNodeCentre, SixpackColours::ledGreen, hpPulse);
         }
 
         if (bellOn)
         {
             drawBellCorrectionCurve (g, plot, bellFreqParam, bellGainParam);
             bellNodeCentre = bellNodeScreenPos (plot, bellFreqParam, bellGainParam);
-            drawCrosshairNode (g, plot, bellNodeCentre, SuppressorColours::ledAmber, bellPulse);
+            drawCrosshairNode (g, plot, bellNodeCentre, SixpackColours::ledAmber, bellPulse);
         }
 
         if (bell2On)
         {
             drawBellCorrectionCurve (g, plot, *bell2FreqParam, *bell2GainParam);
             bell2NodeCentre = bellNodeScreenPos (plot, *bell2FreqParam, *bell2GainParam);
-            drawCrosshairNode (g, plot, bell2NodeCentre, SuppressorColours::ledBlue, bell2Pulse);
+            drawCrosshairNode (g, plot, bell2NodeCentre, SixpackColours::ledBlue, bell2Pulse);
         }
 
         g.restoreState();
@@ -108,7 +109,7 @@ public:
 
         if (! hpOn && ! bellOn && ! bell2On)
         {
-            g.setColour (SuppressorColours::textBright.withAlpha (0.5f));
+            g.setColour (SixpackColours::chipTextBright.withAlpha (0.5f));
             g.setFont (juce::Font (juce::FontOptions (9.0f)));
             g.drawFittedText (hasBell2() ? "BELL / BELL 2" : (isLowPass ? "LP / BELL" : "HP / BELL"),
                                bounds.toNearestInt(), juce::Justification::centred, 1);
@@ -241,7 +242,7 @@ private:
             else curve.lineTo (x, y);
         }
 
-        g.setColour (SuppressorColours::textBright.withAlpha (0.85f));
+        g.setColour (SixpackColours::chipTextBright.withAlpha (0.85f));
         g.strokePath (curve, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
@@ -269,7 +270,7 @@ private:
         }
 
         const bool isSecondBell = (&freqP == bell2FreqParam);
-        g.setColour ((isSecondBell ? SuppressorColours::ledBlue : SuppressorColours::ledAmber).withAlpha (0.6f));
+        g.setColour ((isSecondBell ? SixpackColours::ledBlue : SixpackColours::ledAmber).withAlpha (0.6f));
         g.strokePath (curve, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 

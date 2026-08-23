@@ -1,11 +1,21 @@
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 
-SuppressorLookAndFeel::SuppressorLookAndFeel()
+SixpackLookAndFeel::SixpackLookAndFeel()
 {
-    setColour (juce::Slider::textBoxTextColourId, SuppressorColours::textBright);
+    refreshFixedColours();
     setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
     setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    setColour (juce::Label::textColourId, SuppressorColours::textDim);
+}
+
+// Repousse les juce::Colour IDs fixes par le constructeur vers les valeurs
+// COURANTES de SixpackColours -- appele une fois a la construction, puis
+// a chaque bascule de theme (voir setLightTheme()) pour que les composants
+// JUCE standard (juce::Label par defaut, etc.) qui lisent findColour() au
+// lieu de peindre directement suivent le theme actif.
+void SixpackLookAndFeel::refreshFixedColours()
+{
+    setColour (juce::Slider::textBoxTextColourId, SixpackColours::textBright);
+    setColour (juce::Label::textColourId, SixpackColours::textDim);
 }
 
 // ---------------------------------------------------------------------
@@ -16,7 +26,7 @@ SuppressorLookAndFeel::SuppressorLookAndFeel()
 // juste au-dessus du knob : le chiffre aligne avec ce repere indique la
 // valeur courante.
 // ---------------------------------------------------------------------
-void SuppressorLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
+void SixpackLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
                                                float sliderPos, float rotaryStartAngle,
                                                float rotaryEndAngle, juce::Slider& slider)
 {
@@ -30,12 +40,32 @@ void SuppressorLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, i
 
     const float R = radius * 0.92f;
 
-    // -- 1. Ombre portee (fixe, ne tourne pas) --
-    for (int i = 8; i > 0; i -= 2)
+    // -- 1. Halo d'assise + ombre portee (fixes, ne tournent pas) -- retour
+    // utilisateur : "j'aime bien le B avec l'ombre portee" (variante B de
+    // la preview Artifact "Reliefs de Knob"). Une 1ere tentative de fix
+    // anti-troncature RETRECISSAIT le halo pour le faire tenir dans la
+    // marge de clip du composant -- rejetee ("je preferais l'ombre
+    // d'avant ... il faut la laisser par-dessus le tout") : la vraie
+    // solution est knob.slider.setPaintingIsUnclipped (true) (voir
+    // setupKnob() dans PluginEditor.cpp), qui laisse ce halo deborder
+    // dans le parent au lieu d'etre coupe -- on peut donc garder la
+    // taille/l'intensite d'origine ici sans contrainte de marge.
     {
-        const float a = 0.06f * (1.0f - i / 8.0f);
+        const float haloW = R * 1.7f, haloH = R * 0.5f;
+        const juce::Point<float> haloCentre (centre.x, centre.y + R);
+        g.saveState();
+        g.addTransform (juce::AffineTransform::scale (1.0f, haloH / haloW, haloCentre.x, haloCentre.y));
+        juce::ColourGradient haloGrad (Colours::black.withAlpha (0.40f), haloCentre.x, haloCentre.y,
+                                        Colours::transparentBlack, haloCentre.x + haloW * 0.5f, haloCentre.y, true);
+        g.setGradientFill (haloGrad);
+        g.fillEllipse (haloCentre.x - haloW * 0.5f, haloCentre.y - haloW * 0.5f, haloW, haloW);
+        g.restoreState();
+    }
+    for (int i = 14; i > 0; i -= 2)
+    {
+        const float a = 0.09f * (1.0f - i / 14.0f);
         g.setColour (Colours::black.withAlpha (a));
-        g.fillEllipse (centre.x - R - i, centre.y - R - i + 4.0f, (R + i) * 2.0f, (R + i) * 2.0f);
+        g.fillEllipse (centre.x - R - i, centre.y - R - i + 6.0f, (R + i) * 2.0f, (R + i) * 2.0f);
     }
 
     // -- 2. TOUT le corps du knob (bague noire + graduations + face creme)
@@ -47,7 +77,7 @@ void SuppressorLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, i
 
     // Bague noire texturee -- teinte tres legere si le slider porte les
     // proprietes "knobAccentAtMin"/"knobAccentAtMax" (voir
-    // SuppressorLookAndFeel::setKnobAccentGradient(), utilise seulement par
+    // SixpackLookAndFeel::setKnobAccentGradient(), utilise seulement par
     // les knobs Xover) : le MELANGE des 2 suit sliderPos (position REELLE
     // du knob dans sa plage), pas un degrade spatial fixe -- sinon
     // comportement d'origine inchange.
@@ -67,6 +97,26 @@ void SuppressorLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, i
     ringGrad.addColour (0.75, ringMid);
     g.setGradientFill (ringGrad);
     g.fillEllipse (centre.x - R, centre.y - R, R * 2.0f, R * 2.0f);
+
+    // Biseau de la bague (variante B, voir commentaire du halo ci-dessus) --
+    // chanfrein clair en haut / sombre en bas, restreint a une fine bande
+    // pres du bord exterieur (anneau outer\R -> 0.86*R), pour simuler un
+    // bord metallique biseaute qui capte la lumiere ambiante. Tourne avec
+    // le reste du bloc (bord physique du knob).
+    {
+        juce::Path ring;
+        ring.addEllipse (centre.x - R, centre.y - R, R * 2.0f, R * 2.0f);
+        ring.addEllipse (centre.x - R * 0.86f, centre.y - R * 0.86f, R * 1.72f, R * 1.72f);
+        ring.setUsingNonZeroWinding (false);
+        g.saveState();
+        g.reduceClipRegion (ring);
+        juce::ColourGradient bevelGrad (Colours::white.withAlpha (0.22f), centre.x, centre.y - R,
+                                         Colours::black.withAlpha (0.55f), centre.x, centre.y + R, false);
+        bevelGrad.addColour (0.5, Colours::transparentBlack);
+        g.setGradientFill (bevelGrad);
+        g.fillRect (juce::Rectangle<float> (centre.x - R, centre.y - R, R * 2.0f, R * 2.0f));
+        g.restoreState();
+    }
 
     // Sous-graduations : 5 par intervalle entre deux graduations majeures
     g.setColour (juce::Colours::white.withAlpha (0.5f));
@@ -104,6 +154,23 @@ void SuppressorLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, i
     g.fillEllipse (centre.x - capR, centre.y - capR, capR * 2.0f, capR * 2.0f);
     g.setColour (juce::Colour (0xff786a44).withAlpha (0.8f));
     g.drawEllipse (centre.x - capR, centre.y - capR, capR * 2.0f, capR * 2.0f, 1.2f);
+
+    // Dome accentue sur le capuchon -- meme technique de biseau que la
+    // bague ci-dessus, pour renforcer l'effet convexe/bombe (variante B).
+    {
+        juce::Path capRing;
+        capRing.addEllipse (centre.x - capR, centre.y - capR, capR * 2.0f, capR * 2.0f);
+        capRing.addEllipse (centre.x - capR * 0.82f, centre.y - capR * 0.82f, capR * 1.64f, capR * 1.64f);
+        capRing.setUsingNonZeroWinding (false);
+        g.saveState();
+        g.reduceClipRegion (capRing);
+        juce::ColourGradient capBevel (Colours::white.withAlpha (0.35f), centre.x, centre.y - capR,
+                                        Colours::black.withAlpha (0.30f), centre.x, centre.y + capR, false);
+        capBevel.addColour (0.5, Colours::transparentBlack);
+        g.setGradientFill (capBevel);
+        g.fillRect (juce::Rectangle<float> (centre.x - capR, centre.y - capR, capR * 2.0f, capR * 2.0f));
+        g.restoreState();
+    }
 
     g.restoreState();
 
@@ -157,13 +224,13 @@ void SuppressorLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, i
             auto numberArea = lcdArea.removeFromTop (lcdArea.getHeight() * 0.5f);
             auto unitArea = lcdArea;
 
-            g.setColour (SuppressorColours::lcdText);
+            g.setColour (SixpackColours::lcdText);
             g.setFont (juce::Font (juce::FontOptions (juce::jmax (9.0f, lcdR * 0.5f), juce::Font::bold)));
             g.drawFittedText (numberText, numberArea.toNearestInt(), juce::Justification::centred, 1);
 
             // Unite (dB/ms) : encore agrandie (2e demande) -- doit se lire
             // aussi facilement que le chiffre.
-            g.setColour (SuppressorColours::lcdText.withAlpha (0.85f));
+            g.setColour (SixpackColours::lcdText.withAlpha (0.85f));
             g.setFont (juce::Font (juce::FontOptions (juce::jmax (12.0f, lcdR * 0.55f), juce::Font::bold)));
             g.drawFittedText (unitText, unitArea.toNearestInt(), juce::Justification::centred, 1);
         }
@@ -173,12 +240,12 @@ void SuppressorLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, i
     // tension -- seul l'ecran LCD (etape 5 ci-dessus) s'eteint.
 }
 
-juce::Font SuppressorLookAndFeel::getLabelFont (juce::Label&)
+juce::Font SixpackLookAndFeel::getLabelFont (juce::Label&)
 {
     return juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.06f);
 }
 
-void SuppressorLookAndFeel::drawLabel (juce::Graphics& g, juce::Label& label)
+void SixpackLookAndFeel::drawLabel (juce::Graphics& g, juce::Label& label)
 {
     if (label.isColourSpecified (juce::Label::backgroundColourId))
     {
@@ -193,20 +260,23 @@ void SuppressorLookAndFeel::drawLabel (juce::Graphics& g, juce::Label& label)
         }
     }
 
-    g.setColour (label.findColour (juce::Label::textColourId));
+    // Effet "grave" (relief 3D) en theme CLAIR uniquement -- retour
+    // utilisateur explicite : "sur le mode clair, les ecritures type
+    // gravure de plaque sont noires... ajouter un effet grave" -- voir
+    // drawEngravedText().
     g.setFont (label.getFont());
-    g.drawFittedText (label.getText().toUpperCase(), label.getLocalBounds(),
-                       label.getJustificationType(), 1);
+    drawEngravedText (g, label.getText().toUpperCase(), label.getLocalBounds(),
+                       label.findColour (juce::Label::textColourId), label.getJustificationType());
 }
 
-void SuppressorLookAndFeel::renderAnthraciteBackground (juce::Graphics& g, juce::Rectangle<float> bounds)
+void SixpackLookAndFeel::renderAnthraciteBackground (juce::Graphics& g, juce::Rectangle<float> bounds)
 {
     juce::ColourGradient grad (juce::Colour (0xff121417), bounds.getX(), bounds.getY(),
                                 juce::Colour (0xff1a1d21), bounds.getX(), bounds.getBottom(), false);
     g.setGradientFill (grad);
     g.fillRect (bounds);
 
-    juce::ColourGradient ambient (SuppressorColours::ledBlue.withAlpha (0.04f),
+    juce::ColourGradient ambient (SixpackColours::ledBlue.withAlpha (0.04f),
                                    bounds.getCentreX(), bounds.getY(),
                                    juce::Colours::transparentBlack,
                                    bounds.getCentreX(), bounds.getY() + bounds.getHeight() * 0.6f, true);
@@ -214,8 +284,31 @@ void SuppressorLookAndFeel::renderAnthraciteBackground (juce::Graphics& g, juce:
     g.fillRect (bounds);
 }
 
-void SuppressorLookAndFeel::renderMetalPanel (juce::Graphics& g, juce::Rectangle<float> bounds)
+void SixpackLookAndFeel::renderMetalPanel (juce::Graphics& g, juce::Rectangle<float> bounds)
 {
+    // Theme CLAIR (retour utilisateur explicite, voir SixpackColours::
+    // applyLightTheme()) : degrade "metal brosse argente" gris moyen au
+    // lieu du noir metal d'origine -- meme relief brosse (traits blancs
+    // fins), juste beaucoup plus clair.
+    if (SixpackLookAndFeel::isLightThemeStatic())
+    {
+        juce::ColourGradient grad (SixpackColours::lightPanelGradTop, bounds.getX(), bounds.getY(),
+                                    SixpackColours::lightPanelGradBottom, bounds.getX(), bounds.getBottom(), false);
+        grad.addColour (0.5, SixpackColours::lightPanelGradMid);
+        g.setGradientFill (grad);
+        g.fillRect (bounds);
+
+        g.saveState();
+        g.reduceClipRegion (bounds.toNearestInt());
+        for (float y = bounds.getY(); y < bounds.getBottom(); y += 20.0f)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.07f));
+            g.drawLine (bounds.getX(), y, bounds.getRight(), y, 0.5f);
+        }
+        g.restoreState();
+        return;
+    }
+
     // Noir metal (facade du vrai Distressor), pas le gris acier clair
     // d'avant -- degrade toujours present pour le relief brosse, juste
     // beaucoup plus sombre.
@@ -235,22 +328,36 @@ void SuppressorLookAndFeel::renderMetalPanel (juce::Graphics& g, juce::Rectangle
     g.restoreState();
 }
 
-void SuppressorLookAndFeel::renderDividerLine (juce::Graphics& g, float x, float top, float bottom)
+void SixpackLookAndFeel::renderDividerLine (juce::Graphics& g, float x, float top, float bottom)
 {
-    g.setColour (juce::Colour (0xffe8e8e6).withAlpha (0.2f));
+    const auto colour = SixpackLookAndFeel::isLightThemeStatic() ? juce::Colour (0xff2a2c2e).withAlpha (0.35f)
+                                                                     : juce::Colour (0xffe8e8e6).withAlpha (0.2f);
+    g.setColour (colour);
     g.drawLine (x, top, x, bottom, 1.0f);
 }
 
-
-void SuppressorLookAndFeel::renderGlassPanel (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius)
+void SixpackLookAndFeel::renderGlowDividerLine (juce::Graphics& g, float x, float top, float bottom)
 {
-    juce::ColourGradient grad (SuppressorColours::panelLight.withAlpha (0.92f), bounds.getX(), bounds.getY(),
-                                SuppressorColours::panel.withAlpha (0.92f), bounds.getX(), bounds.getBottom(), false);
+    const auto colour = SixpackLookAndFeel::isLightThemeStatic() ? juce::Colour (0xff1c1d1e).withAlpha (0.55f)
+                                                                     : juce::Colour (0xffe8e8e6).withAlpha (0.5f);
+    juce::Path line;
+    line.startNewSubPath (x, top);
+    line.lineTo (x, bottom);
+    juce::DropShadow (colour, 8, { 0, 0 }).drawForPath (g, line);
+    g.setColour (colour);
+    g.strokePath (line, juce::PathStrokeType (1.5f));
+}
+
+
+void SixpackLookAndFeel::renderGlassPanel (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius)
+{
+    juce::ColourGradient grad (SixpackColours::panelLight.withAlpha (0.92f), bounds.getX(), bounds.getY(),
+                                SixpackColours::panel.withAlpha (0.92f), bounds.getX(), bounds.getBottom(), false);
     g.setGradientFill (grad);
     g.fillRoundedRectangle (bounds, cornerRadius);
 }
 
-void SuppressorLookAndFeel::renderGlossyWhitePanel (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius)
+void SixpackLookAndFeel::renderGlossyWhitePanel (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius)
 {
     // Base plastique moulee : degrade vertical blanc casse -> gris clair.
     juce::ColourGradient base (juce::Colour (0xfff6f6f4), bounds.getX(), bounds.getY(),
@@ -276,10 +383,10 @@ void SuppressorLookAndFeel::renderGlossyWhitePanel (juce::Graphics& g, juce::Rec
     g.drawRoundedRectangle (bounds.reduced (1.6f), cornerRadius - 1.0f, 1.0f);
 }
 
-void SuppressorLookAndFeel::renderGroupOutline (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius,
+void SixpackLookAndFeel::renderGroupOutline (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius,
                                                  const juce::String& labelText)
 {
-    g.setColour (SuppressorColours::textDim.withAlpha (0.45f));
+    g.setColour (SixpackColours::textDim.withAlpha (0.45f));
     g.drawRoundedRectangle (bounds.reduced (0.5f), cornerRadius, 1.0f);
 
     if (labelText.isNotEmpty())
@@ -293,14 +400,14 @@ void SuppressorLookAndFeel::renderGroupOutline (juce::Graphics& g, juce::Rectang
         const float textW = juce::jmin (bounds.getWidth() - 16.0f, ga.getBoundingBox (0, -1, true).getWidth() + 12.0f);
         auto labelArea = juce::Rectangle<float> (textW, 14.0f).withCentre ({ bounds.getCentreX(), bounds.getY() });
 
-        g.setColour (SuppressorColours::bg);
+        g.setColour (SixpackColours::bg);
         g.fillRect (labelArea);
-        g.setColour (SuppressorColours::textBright);
+        g.setColour (SixpackColours::textBright);
         g.drawFittedText (labelText, labelArea.toNearestInt(), juce::Justification::centred, 1);
     }
 }
 
-void SuppressorLookAndFeel::renderBrushedMetal (juce::Graphics& g, juce::Rectangle<float> bounds)
+void SixpackLookAndFeel::renderBrushedMetal (juce::Graphics& g, juce::Rectangle<float> bounds)
 {
     juce::ColourGradient grad (juce::Colour (0xff4a4d52), bounds.getX(), bounds.getY(),
                                 juce::Colour (0xff2a2c30), bounds.getX(), bounds.getBottom(), false);
@@ -318,7 +425,7 @@ void SuppressorLookAndFeel::renderBrushedMetal (juce::Graphics& g, juce::Rectang
     g.drawRect (bounds, 1.0f);
 }
 
-void SuppressorLookAndFeel::renderGlossySheen (juce::Graphics& g, juce::Rectangle<float> bounds)
+void SixpackLookAndFeel::renderGlossySheen (juce::Graphics& g, juce::Rectangle<float> bounds)
 {
     juce::Path sheen;
     sheen.startNewSubPath (bounds.getX() - bounds.getWidth() * 0.1f, bounds.getY() + bounds.getHeight() * 0.04f);
@@ -339,7 +446,7 @@ void SuppressorLookAndFeel::renderGlossySheen (juce::Graphics& g, juce::Rectangl
                                           bounds.getWidth(), bounds.getHeight() * 0.16f));
 }
 
-void SuppressorLookAndFeel::drawScrew (juce::Graphics& g, juce::Point<float> centre, float radius)
+void SixpackLookAndFeel::drawScrew (juce::Graphics& g, juce::Point<float> centre, float radius)
 {
     const float angle = std::fmod (centre.x * 0.37f + centre.y * 0.61f, juce::MathConstants<float>::pi);
 
@@ -367,7 +474,7 @@ void SuppressorLookAndFeel::drawScrew (juce::Graphics& g, juce::Point<float> cen
     g.restoreState();
 }
 
-void SuppressorLookAndFeel::renderCornerScrews (juce::Graphics& g, juce::Rectangle<float> bounds, float inset, float screwRadius)
+void SixpackLookAndFeel::renderCornerScrews (juce::Graphics& g, juce::Rectangle<float> bounds, float inset, float screwRadius)
 {
     if (bounds.getWidth() < inset * 3.0f || bounds.getHeight() < inset * 3.0f)
         return;
@@ -384,7 +491,7 @@ void SuppressorLookAndFeel::renderCornerScrews (juce::Graphics& g, juce::Rectang
         drawScrew (g, c, screwRadius);
 }
 
-void SuppressorLookAndFeel::renderKnobSocket (juce::Graphics& g, juce::Point<float> centre, float radius)
+void SixpackLookAndFeel::renderKnobSocket (juce::Graphics& g, juce::Point<float> centre, float radius)
 {
     // Discret : juste une fine rainure en creux au ras du knob (pas de
     // disque degrade ni de halo d'ombre etendu -- ca faisait trop lourd).
@@ -394,16 +501,16 @@ void SuppressorLookAndFeel::renderKnobSocket (juce::Graphics& g, juce::Point<flo
     g.drawEllipse (centre.x - radius - 1.2f, centre.y - radius - 1.2f, (radius + 1.2f) * 2.0f, (radius + 1.2f) * 2.0f, 0.8f);
 }
 
-juce::Colour SuppressorLookAndFeel::ledGradientColour (float t)
+juce::Colour SixpackLookAndFeel::ledGradientColour (float t)
 {
     struct Stop { float pos; juce::Colour colour; };
     static const Stop stops[] =
     {
-        { 0.0f,  SuppressorColours::ledGreen  },
-        { 0.35f, SuppressorColours::ledGreen  },
-        { 0.6f,  SuppressorColours::ledYellow },
-        { 0.8f,  SuppressorColours::ledOrange },
-        { 1.0f,  SuppressorColours::ledRed    }
+        { 0.0f,  SixpackColours::ledGreen  },
+        { 0.35f, SixpackColours::ledGreen  },
+        { 0.6f,  SixpackColours::ledYellow },
+        { 0.8f,  SixpackColours::ledOrange },
+        { 1.0f,  SixpackColours::ledRed    }
     };
 
     t = juce::jlimit (0.0f, 1.0f, t);
@@ -418,14 +525,14 @@ juce::Colour SuppressorLookAndFeel::ledGradientColour (float t)
     return stops[4].colour;
 }
 
-juce::Colour SuppressorLookAndFeel::ledGradientColourExpand (float t)
+juce::Colour SixpackLookAndFeel::ledGradientColourExpand (float t)
 {
     struct Stop { float pos; juce::Colour colour; };
     static const Stop stops[] =
     {
-        { 0.0f, SuppressorColours::ledBlue   },
-        { 0.5f, SuppressorColours::ledCyan   },
-        { 1.0f, SuppressorColours::ledPurple }
+        { 0.0f, SixpackColours::ledBlue   },
+        { 0.5f, SixpackColours::ledCyan   },
+        { 1.0f, SixpackColours::ledPurple }
     };
 
     t = juce::jlimit (0.0f, 1.0f, t);
@@ -440,16 +547,16 @@ juce::Colour SuppressorLookAndFeel::ledGradientColourExpand (float t)
     return stops[2].colour;
 }
 
-juce::Colour SuppressorLookAndFeel::ratioLedColour (float t)
+juce::Colour SixpackLookAndFeel::ratioLedColour (float t)
 {
     struct Stop { float pos; juce::Colour colour; };
     static const Stop stops[] =
     {
-        { 0.0f,  SuppressorColours::ledCyan   },
-        { 0.25f, SuppressorColours::ledGreen  },
-        { 0.5f,  SuppressorColours::ledYellow },
-        { 0.75f, SuppressorColours::ledOrange },
-        { 1.0f,  SuppressorColours::ledRed    }
+        { 0.0f,  SixpackColours::ledCyan   },
+        { 0.25f, SixpackColours::ledGreen  },
+        { 0.5f,  SixpackColours::ledYellow },
+        { 0.75f, SixpackColours::ledOrange },
+        { 1.0f,  SixpackColours::ledRed    }
     };
 
     t = juce::jlimit (0.0f, 1.0f, t);
@@ -464,17 +571,17 @@ juce::Colour SuppressorLookAndFeel::ratioLedColour (float t)
     return stops[4].colour;
 }
 
-float SuppressorLookAndFeel::meterDisplayRatio (float db, float minDb, float maxDb)
+float SixpackLookAndFeel::meterDisplayRatio (float db, float minDb, float maxDb)
 {
     db = juce::jlimit (minDb, maxDb, db);
     return (db - minDb) / (maxDb - minDb);
 }
 
-void SuppressorLookAndFeel::drawGlossyDot (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour colour, bool lit)
+void SixpackLookAndFeel::drawGlossyDot (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour colour, bool lit)
 {
     if (! lit)
     {
-        g.setColour (SuppressorColours::ledOff);
+        g.setColour (SixpackColours::ledOff);
         g.fillEllipse (bounds);
         return;
     }

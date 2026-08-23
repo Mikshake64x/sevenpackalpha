@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 #include "PressAnimator.h"
 
 /**
@@ -24,7 +24,7 @@ public:
     // externalEnabledSource : optionnel, meme traitement que le Power global
     // (diode eteinte) mais pilote par un atomic<float> LOCAL -- utilise par
     // ThdValveModule pour ses 4 boutons de mode (idSoftClip).
-    explicit ToggleSwitch (const juce::String& labelText, juce::Colour accentColour = SuppressorColours::ledRed,
+    explicit ToggleSwitch (const juce::String& labelText, juce::Colour accentColour = SixpackColours::ledRed,
                             std::atomic<float>* externalEnabledSource = nullptr)
         : juce::Button (labelText), text (labelText), accent (accentColour), externalEnabled (externalEnabledSource)
     {
@@ -32,13 +32,13 @@ public:
     }
 
     // Change le libelle affiche apres construction (ex: "HP" -> "LP" sur
-    // la bande HIGH, voir SuppressorAudioProcessorEditor::buildBandPanel()).
+    // la bande HIGH, voir SixpackAudioProcessorEditor::buildBandPanel()).
     void setText (const juce::String& newText) { text = newText; repaint(); }
 
     // Change la couleur de la diode apres construction (demande explicite :
     // "il faut une diode de chaque couleur pour comp, expand et both") --
     // utilise par le bouton Above/Below/Both pour recolorer sa diode selon
-    // le mode courant, voir SuppressorEditorContent::buildBandPanel().
+    // le mode courant, voir SixpackEditorContent::buildBandPanel().
     void setAccentColour (juce::Colour newAccent) { accent = newAccent; repaint(); }
 
     void buttonStateChanged() override
@@ -52,7 +52,7 @@ public:
     {
         auto bounds = getLocalBounds().toFloat();
         applyPressTransform (g, bounds);
-        const auto* laf = dynamic_cast<SuppressorLookAndFeel*> (&getLookAndFeel());
+        const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
         const bool powered = ((laf == nullptr) || laf->isPowered())
                               && (externalEnabled == nullptr || externalEnabled->load() > 0.5f);
         // Bouton physique : sa position/son aspect ne changent pas avec le
@@ -87,7 +87,10 @@ public:
         g.setColour (ledLit ? accent : accent.interpolatedWith (juce::Colours::black, 0.85f));
         g.fillEllipse (ledBounds);
 
-        g.setColour (on ? SuppressorColours::textBright : SuppressorColours::textDim);
+        // Fond FIXE fonce quel que soit le theme (voir plus haut) -- texte
+        // FIXE clair aussi (retour utilisateur : "il faut ecrire en blanc
+        // sur les boutons push noire").
+        g.setColour (on ? SixpackColours::chipTextBright : SixpackColours::chipTextDim);
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.1f));
         g.drawFittedText (text.toUpperCase(), bounds.withTrimmedLeft (ledDiameter * 2.8f).toNearestInt(),
                            juce::Justification::centredLeft, 1);

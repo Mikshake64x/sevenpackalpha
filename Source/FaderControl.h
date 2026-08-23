@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 
 /**
     FaderVerticalLookAndFeel
@@ -77,7 +77,7 @@ public:
                 g.fillRoundedRectangle (segRect.expanded (1.5f), 3.0f);
             }
 
-            g.setColour (lit ? litColour : SuppressorColours::gridLine);
+            g.setColour (lit ? litColour : SixpackColours::gridLine);
             g.fillRoundedRectangle (segRect, 2.0f);
 
             if (lit)
@@ -124,8 +124,8 @@ public:
 
 private:
     static constexpr const char* neutralValuePropertyId = "faderNeutralValue";
-    juce::Colour accentColour = SuppressorColours::ledCyan;
-    juce::Colour accentColourBelowNeutral = SuppressorColours::ledCyan;
+    juce::Colour accentColour = SixpackColours::ledCyan;
+    juce::Colour accentColourBelowNeutral = SixpackColours::ledCyan;
     bool twoTone = false;
 };
 

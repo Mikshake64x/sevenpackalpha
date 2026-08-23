@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 
-<JUCERPROJECT id="QlsF9k" name="Tripressor" projectType="audioplug" useAppConfig="0"
+<JUCERPROJECT id="Pc5XqR" name="Sixpack" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" pluginFormats="buildAU,buildStandalone,buildUnity,buildVST3"
-              companyName="Side Key System" version="1.8.0">
-  <MAINGROUP id="ROqGi2" name="Tripressor">
+              companyName="Side Key System" version="1.0.0">
+  <MAINGROUP id="ROqGi2" name="Sixpack">
     <GROUP id="{DE5886B3-4345-FADC-030F-9B92F9E2500D}" name="Source">
       <FILE id="fCLEz3" name="PluginProcessor.cpp" compile="1" resource="0"
             file="Source/PluginProcessor.cpp"/>
@@ -14,10 +14,10 @@
       <FILE id="WYBZ3v" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
       <FILE id="a1b2c3" name="GRMeter.cpp" compile="1" resource="0" file="Source/GRMeter.cpp"/>
       <FILE id="a1b2c4" name="GRMeter.h" compile="0" resource="0" file="Source/GRMeter.h"/>
-      <FILE id="a1b2c5" name="SuppressorLookAndFeel.cpp" compile="1" resource="0"
-            file="Source/SuppressorLookAndFeel.cpp"/>
-      <FILE id="a1b2c6" name="SuppressorLookAndFeel.h" compile="0" resource="0"
-            file="Source/SuppressorLookAndFeel.h"/>
+      <FILE id="a1b2c5" name="SixpackLookAndFeel.cpp" compile="1" resource="0"
+            file="Source/SixpackLookAndFeel.cpp"/>
+      <FILE id="a1b2c6" name="SixpackLookAndFeel.h" compile="0" resource="0"
+            file="Source/SixpackLookAndFeel.h"/>
       <FILE id="a1b2c7" name="AboutOverlay.h" compile="0" resource="0" file="Source/AboutOverlay.h"/>
       <FILE id="o9p1o2" name="OptionsOverlay.h" compile="0" resource="0"
             file="Source/OptionsOverlay.h"/>
@@ -32,6 +32,18 @@
       <FILE id="a1b2f0" name="ABSwitch.h" compile="0" resource="0" file="Source/ABSwitch.h"/>
       <FILE id="a1b2c8" name="AnalogColour.h" compile="0" resource="0" file="Source/AnalogColour.h"/>
       <FILE id="a1b2c9" name="Crossover.h" compile="0" resource="0" file="Source/Crossover.h"/>
+      <FILE id="spec0001" name="SpectrumAnalyzerState.h" compile="0" resource="0"
+            file="Source/SpectrumAnalyzerState.h"/>
+      <FILE id="xspec001" name="CrossoverSpectrumEditor.h" compile="0" resource="0"
+            file="Source/CrossoverSpectrumEditor.h"/>
+      <FILE id="thdhdr01" name="ThdHeaderModule.h" compile="0" resource="0"
+            file="Source/ThdHeaderModule.h"/>
+      <FILE id="bmr00001" name="BandMetersRack.h" compile="0" resource="0"
+            file="Source/BandMetersRack.h"/>
+      <FILE id="cfd00001" name="ConsoleFader.h" compile="0" resource="0"
+            file="Source/ConsoleFader.h"/>
+      <FILE id="rpb00001" name="RackPushButton.h" compile="0" resource="0"
+            file="Source/RackPushButton.h"/>
       <FILE id="a1b2ca" name="DetectorFilterGraph.h" compile="0" resource="0"
             file="Source/DetectorFilterGraph.h"/>
       <FILE id="a1b2cb" name="FeedbackCompressor.h" compile="0" resource="0"
@@ -53,15 +65,13 @@
       <FILE id="a1b2d5" name="SidechainEQ.h" compile="0" resource="0" file="Source/SidechainEQ.h"/>
       <FILE id="a1b2d6" name="SidekeyMonogram.h" compile="0" resource="0"
             file="Source/SidekeyMonogram.h"/>
-      <FILE id="slb0001" name="SuppressorLogoButton.h" compile="0" resource="0"
-            file="Source/SuppressorLogoButton.h"/>
+      <FILE id="slb0001" name="SixpackLogoButton.h" compile="0" resource="0"
+            file="Source/SixpackLogoButton.h"/>
       <FILE id="a1b2d7" name="SoftClipper.h" compile="0" resource="0" file="Source/SoftClipper.h"/>
       <FILE id="a1b2d8" name="SteelRockerToggle.h" compile="0" resource="0"
             file="Source/SteelRockerToggle.h"/>
       <FILE id="a1b2d9" name="ThdEngageSwitch.h" compile="0" resource="0"
             file="Source/ThdEngageSwitch.h"/>
-      <FILE id="a1b2da" name="ThdValveModule.h" compile="0" resource="0"
-            file="Source/ThdValveModule.h"/>
       <FILE id="a1b2db" name="ToggleSwitch.h" compile="0" resource="0" file="Source/ToggleSwitch.h"/>
       <FILE id="a1b2e3" name="SoloSwitch.h" compile="0" resource="0" file="Source/SoloSwitch.h"/>
       <FILE id="a1b2dc" name="XoverModeButton.h" compile="0" resource="0"
@@ -85,16 +95,18 @@
             file="Source/sidekey_monogram.png"/>
       <FILE id="a1b2e2" name="switch_metal.png" compile="0" resource="1"
             file="Source/switch_metal.png"/>
-      <FILE id="l0g0l1" name="LogoLow.png" compile="0" resource="1" file="Source/LogoLow.png"/>
-      <FILE id="l0g0m2" name="LogoMid.png" compile="0" resource="1" file="Source/LogoMid.png"/>
-      <FILE id="l0g0h3" name="LogoHigh.png" compile="0" resource="1" file="Source/LogoHigh.png"/>
-      <FILE id="l0g0t4" name="LogoThd.png" compile="0" resource="1" file="Source/LogoThd.png"/>
-      <FILE id="l0g0s5" name="LogoSuppressor.png" compile="0" resource="1"
-            file="Source/LogoSuppressor.png"/>
-      <FILE id="trp2202" name="TrippressorlogoCropped.png" compile="0" resource="1"
-            file="Source/TrippressorlogoCropped.png"/>
       <FILE id="trpicon1" name="TripressorAppIcon.png" compile="0" resource="1"
             file="Source/TripressorAppIcon.png"/>
+      <FILE id="sp6log1" name="sixpacklogo1.png" compile="0" resource="1"
+            file="Source/sixpacklogo1.png"/>
+      <FILE id="sp6log2" name="sixpacklogo2.png" compile="0" resource="1"
+            file="Source/sixpacklogo2.png"/>
+      <FILE id="sp6log3" name="sixpacklogo3.png" compile="0" resource="1"
+            file="Source/sixpacklogo3.png"/>
+      <FILE id="sigmiksh1" name="signature_mikshake.png" compile="0" resource="1"
+            file="Source/signature_mikshake.png"/>
+      <FILE id="sigmiksh2" name="signature_mikshake_white.png" compile="0" resource="1"
+            file="Source/signature_mikshake_white.png"/>
     </GROUP>
   </MAINGROUP>
   <MODULES>
@@ -119,8 +131,8 @@
   <EXPORTFORMATS>
     <VS2026 targetFolder="Builds/VisualStudio2026" smallIcon="trpicon1" bigIcon="trpicon1">
       <CONFIGURATIONS>
-        <CONFIGURATION isDebug="1" name="Debug" targetName="Tripressor" enablePluginBinaryCopyStep="1"/>
-        <CONFIGURATION isDebug="0" name="Release" targetName="Tripressor" enablePluginBinaryCopyStep="1"/>
+        <CONFIGURATION isDebug="1" name="Debug" targetName="Sixpack" enablePluginBinaryCopyStep="1"/>
+        <CONFIGURATION isDebug="0" name="Release" targetName="Sixpack" enablePluginBinaryCopyStep="1"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
         <MODULEPATH id="juce_audio_basics" path="../../../JUCE/modules"/>
@@ -141,9 +153,9 @@
     </VS2026>
     <XCODE_MAC targetFolder="Builds/MacOSX" smallIcon="trpicon1" bigIcon="trpicon1">
       <CONFIGURATIONS>
-        <CONFIGURATION isDebug="1" name="Debug" targetName="Tripressor" enablePluginBinaryCopyStep="1"
+        <CONFIGURATION isDebug="1" name="Debug" targetName="Sixpack" enablePluginBinaryCopyStep="1"
                        macOSDeploymentTarget="10.13"/>
-        <CONFIGURATION isDebug="0" name="Release" targetName="Tripressor" enablePluginBinaryCopyStep="1"
+        <CONFIGURATION isDebug="0" name="Release" targetName="Sixpack" enablePluginBinaryCopyStep="1"
                        macOSDeploymentTarget="10.13"/>
       </CONFIGURATIONS>
       <MODULEPATHS>

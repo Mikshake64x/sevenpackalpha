@@ -8,27 +8,42 @@
 #include "Crossover.h"
 #include "AiLearnAnalyzer.h"
 #include "LicenseManager.h"
+#include "SpectrumAnalyzerState.h"
 
 /**
-    SuppressorAudioProcessor (multibande)
-    --------------------------------------
-    Le signal est separe en 3 bandes (Low / Mid / High) par un Crossover
-    (voir Crossover.h, porte tel quel depuis Nuke Mext), et CHAQUE bande
-    recoit sa propre chaine FeedbackCompressor complete et independante
-    (moteur Suppressor/Distressor inchange), avec son propre jeu de
-    parametres -- comme un vrai multibande hardware (style M76).
+    SixpackAudioProcessor (multibande 5 bandes)
+    ------------------------------------------------
+    Le signal est separe en 5 bandes (Low / LowMid / Mid / HighMid / High)
+    par un Crossover a 4 points (voir Crossover.h, generalise depuis le
+    crossover 3 bandes/2 points de Tripressor), et CHAQUE bande recoit sa
+    propre chaine FeedbackCompressor complete et independante (moteur
+    Suppressor/Distressor inchange), avec son propre jeu de parametres --
+    comme un vrai multibande hardware (style M76).
+
+    FUSION DE BANDES (voir idCrossoverXEnabled ci-dessous) : on n'est pas
+    oblige d'avoir les 5 bandes actives en permanence -- chacun des 4
+    points de crossover peut etre desactive individuellement, ce qui
+    fusionne les 2 bandes voisines en une seule zone traitee par le
+    compresseur de la bande de plus petit indice du groupe (voir
+    processBlock() : mapping groupOwner[], calcule une fois par bloc a
+    partir des 4 flags enabled). Le Crossover lui-meme continue de
+    splitter TOUJOURS aux 4 frequences configurees -- c'est PluginProcessor
+    qui somme les sous-bandes brutes d'un groupe fusionne et n'appelle le
+    compresseur QUE pour la bande "proprietaire" du groupe (les autres ne
+    traitent rien, silence, pas de double compression).
 
     Convention de nommage des parametres par bande (voir bandParamId()) :
-    la bande MID garde les IDs d'origine du Suppressor mono-bande SANS
-    suffixe (ex: "input"), pour que les presets/sessions Suppressor
-    mono-bande existants se rechargent tels quels sur la bande Mid. Les
-    bandes Low/High recoivent respectivement le suffixe "_low" / "_high".
+    la bande MID (indice 2) garde les IDs d'origine du Suppressor
+    mono-bande SANS suffixe (ex: "input"), pour que les presets/sessions
+    Suppressor mono-bande existants se rechargent tels quels sur la bande
+    Mid. Les autres bandes recoivent un suffixe ("_low" / "_lowmid" /
+    "_highmid" / "_high").
 
     Ce qui reste GLOBAL (pas par bande, decide avec l'utilisateur) :
     - Power (bypass complet du plugin)
     - Soft Clip / THD Valve (UN SEUL etage, applique apres la sommation
-      des 3 bandes, pas par bande)
-    - Crossover Wide/Linear + frequences de crossover
+      des bandes, pas par bande)
+    - Crossover Wide/Linear + les 4 frequences/enabled de crossover
     - VU-metres (In/Out globaux, avant split / apres sommation+clip)
 
     Ce qui reste PAR BANDE :
@@ -37,13 +52,14 @@
     - Le bouton Sidechain externe (chaque bande decide independamment si
       son detecteur ecoute le bus sidechain externe)
 */
-class SuppressorAudioProcessor : public juce::AudioProcessor, private juce::Timer
+class SixpackAudioProcessor : public juce::AudioProcessor, private juce::Timer
 {
 public:
-    enum Band { Low = 0, Mid = 1, High = 2, NumBands = 3 };
+    enum Band { Low = 0, LowMid = 1, Mid = 2, HighMid = 3, Presence = 4, High = 5, NumBands = 6 };
+    static constexpr int NumCrossovers = NumBands - 1; // 5 points de crossover
 
-    SuppressorAudioProcessor();
-    ~SuppressorAudioProcessor() override;
+    SixpackAudioProcessor();
+    ~SixpackAudioProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -80,7 +96,7 @@ public:
 
     juce::AudioProcessorValueTreeState apvts { *this, nullptr, "PARAMETERS", createParameterLayout() };
 
-    LicenseManager licenseManager { "tripressor-pro" };
+    LicenseManager licenseManager { "sixpack-pro" };
 
     // --- Lus par le GUI (thread-safe, pas d'allocation) ---
 
@@ -110,6 +126,14 @@ public:
     // les vraies valeurs par bande restent grMeterDb[] ci-dessus.
     std::atomic<float> grMeterDbL { 0.0f }, grMeterDbR { 0.0f };
 
+    // Niveau de sortie PAR BANDE (max L/R, dBFS, pic bloc avec attaque
+    // instantanee/retombee douce) -- signal WET reellement produit par
+    // cette bande (post compression/expand/mix/output gain, voir wetL/wetR
+    // dans processBlock()), demande explicite : "ajouter le niveau de
+    // sortie de chaque bande dans le rack du bas". Plancher a -100dB (pas
+    // -inf) pour un affichage stable en silence.
+    std::array<std::atomic<float>, (size_t) NumBands> bandOutputLevelDb;
+
     // --- VU a aiguille GLOBAL (plaque du haut, unique) : niveau d'entree
     // AVANT le split crossover, niveau de sortie APRES sommation + etage
     // global THD/Limit. Meme principe que l'ancien Suppressor mono-bande,
@@ -125,11 +149,20 @@ public:
     int needleModeIndex1 = 0, needleModeIndex2 = 0;
 
     // Facteur d'echelle de la fenetre (menu Options, engrenage) -- 1.0 /
-    // 0.75 / 0.5, proportions conservees (voir SuppressorAudioProcessorEditor::
+    // 0.75 / 0.5, proportions conservees (voir SixpackAudioProcessorEditor::
     // applyUiScale()). Vit sur le processeur pour la meme raison que
-    // linkInEnabled/bypassHeld ci-dessous : l'editeur peut etre detruit et
+    // linkInEnabled ci-dessous : l'editeur peut etre detruit et
     // recree par l'hote sans que ce choix ne se perde.
-    std::atomic<float> uiScale { 0.95f };
+    // Retour utilisateur explicite : le plugin doit s'ouvrir a 90% par
+    // defaut (pas 100%, pas 95%).
+    std::atomic<float> uiScale { 0.90f };
+
+    // Theme SOMBRE (0, defaut)/CLAIR (1) -- retour utilisateur explicite :
+    // "je souhaite faire un design plus clair qu'on peut changer dans
+    // l'engrenage". Persiste dans apvts.state (meme mecanisme que
+    // needleModeIndex1/2, voir getStateInformation()/setStateInformation())
+    // -- pas un AudioParameter (preference d'affichage, pas automatable).
+    std::atomic<float> lightTheme { 0.0f };
 
     // --- THD Valve GLOBAL (plaque du bas) : UN SEUL etage de saturation
     // (post-sommation des 3 bandes, un seul Drive/Engage), mais mesure sur
@@ -138,7 +171,7 @@ public:
     // harmoniques generees, Low/Mid/High -- pas 3 saturations separees.
     std::atomic<float> clipMeterAmount { 0.0f };
     std::atomic<float> clipMeterAmountL { 0.0f }, clipMeterAmountR { 0.0f };
-    std::atomic<float> clipMeterAmountLow { 0.0f }, clipMeterAmountMid { 0.0f }, clipMeterAmountHigh { 0.0f };
+    std::array<std::atomic<float>, (size_t) NumBands> clipMeterAmountBand { {} };
 
     // Etat des boutons Link In / Link Out -- PAS des parametres APVTS (pas
     // automatisables, pas sauvegardes dans les presets), mais doivent
@@ -150,24 +183,20 @@ public:
     std::atomic<bool> linkInEnabled  { false };
     std::atomic<bool> linkOutEnabled { false };
 
-    // Bouton BYPASS (barre du haut) : MOMENTANE -- il faut rester appuye
-    // dessus pour bypasser. Contrairement a Power, les diodes/ecrans
-    // restent allumes (les compresseurs continuent de tourner en interne,
-    // seule la sortie finale bascule sur le signal sec, voir processBlock()).
-    // Meme raisonnement que linkInEnabled ci-dessus (vit sur le processeur,
-    // pas l'editeur), meme si son etat "maintenu" ne survit naturellement
-    // pas a une simple pression (pas besoin de le persister en session).
-    std::atomic<bool> bypassHeld { false };
-
     // Bouton AI (barre de controle, au-dessus de Analog/Linear) : capture
     // quelques secondes de programme audio puis propose des valeurs de
     // depart pour Crossover Low/High + Input/Ratio/Attack/Release par
     // bande -- voir AiLearnAnalyzer.h pour le detail de l'analyse et le
     // cycle d'etats. L'editeur poll getState()/getResult() (meme mecanisme
-    // de "polling" que le reste du GUI, voir SuppressorEditorContent::
+    // de "polling" que le reste du GUI, voir SixpackEditorContent::
     // timerCallback()) et applique le resultat via un ramp de knob, comme
     // un chargement de preset.
     AiLearnAnalyzer aiLearnAnalyzer;
+
+    // Fond de spectre du nouvel editeur de crossover (voir
+    // CrossoverSpectrumEditor.h) -- lu par l'UI (thread timer), alimente
+    // par processBlock() (thread audio), voir SpectrumAnalyzerState.h.
+    SpectrumAnalyzerState spectrumAnalyzer;
     void startAiLearn()
     {
         const int targetIndex = aiMasteringTargetParam != nullptr ? (int) std::round (aiMasteringTargetParam->load()) : 0;
@@ -186,7 +215,7 @@ public:
         // ET Expand) pour les 3 bandes a chaque fois (demande explicite :
         // "je veux que AI regle en meme temps le comp et l'expand") -- plus
         // besoin de lire l'etat Comp/Expand manuel actuel des bandes ici,
-        // voir AiLearnAnalyzer::run() et SuppressorEditorContent::
+        // voir AiLearnAnalyzer::run() et SixpackEditorContent::
         // applyAiLearnResult().
         aiLearnAnalyzer.beginCapture (getSampleRate(), targetIndex, compressionModeIndex, attackReleaseCharIndex,
                                        gainReductionIndex,
@@ -216,7 +245,7 @@ public:
     // explicite : "quand on passe sur both on mets les reglage de
     // compression"). Les knobs de la plaque de bande sont RE-attaches a ce
     // jeu de parametres quand on bascule sur Expand (voir
-    // SuppressorEditorContent::rebindBandKnobsForMode()).
+    // SixpackEditorContent::rebindBandKnobsForMode()).
     static constexpr const char* idInputExpand      = "inputExpand";
     static constexpr const char* idRatioIndexExpand = "ratioIndexExpand";
     static constexpr const char* idAttackExpand     = "attackExpand";
@@ -273,8 +302,14 @@ public:
     // possible a la fois -- selectionner "aucun" (reclique sur le mode
     // actif) revient a Classic.
     static constexpr const char* idThdMode              = "thdMode";
-    static constexpr const char* idCrossoverLow  = "crossoverLow";   // Hz, voir Crossover.h
-    static constexpr const char* idCrossoverHigh = "crossoverHigh";  // Hz, voir Crossover.h
+
+    // 5 points de crossover (idCrossoverX = frequence Hz, voir Crossover.h/
+    // Crossover::kSplitMinHz/MaxHz/DefaultHz pour les bornes ; idCrossoverXEnabled
+    // = ce point separe-t-il reellement 2 bandes, ou est-il "eteint" (les 2
+    // bandes voisines fusionnent, voir doc de classe ci-dessus)). Index 0 =
+    // le plus bas (Low/LowMid), index 4 = le plus haut (Presence/High).
+    static constexpr const char* idCrossover[NumCrossovers] = { "crossoverA", "crossoverB", "crossoverC", "crossoverD", "crossoverE" };
+    static constexpr const char* idCrossoverEnabled[NumCrossovers] = { "crossoverAEnabled", "crossoverBEnabled", "crossoverCEnabled", "crossoverDEnabled", "crossoverEEnabled" };
 
     // Cible de mastering LUFS pour le bouton AI (menu Options/engrenage,
     // section "AI") -- reglage PERSISTANT (sauvegarde en session/preset,
@@ -348,18 +383,19 @@ public:
     // AiLearnAnalyzer::Result::applyFidelity.
     static constexpr const char* idAiFidelity = "aiFidelity";
 
-    // Bouton WIDE / LINEAR -- false (WIDE) = pente douce 1er ordre, 0
-    // latence ; true (LINEAR) = FIR a phase lineaire, latence reglable
-    // (voir idLinearLatencyMode). Meme parametre/DSP que Nuke Mext.
+    // Selecteur ANALOG / LINEAR -- false = ANALOG (WIDE, pente 1er ordre,
+    // 0 latence) ; true (LINEAR) = FIR a phase lineaire, latence reglable
+    // (voir idLinearLatencyMode). (ANALOG 2 retiree, voir doc de classe
+    // Crossover.h.)
     static constexpr const char* idDigitalCrossover = "digitalCrossover";
 
-    // Solo par bande -- des qu'une bande est soloee, les 2 autres sont
-    // exclues du mix global (pas juste attenuees). Off sur les 3 = comportement
-    // normal, les 3 bandes jouent. Pilote par le SoloSwitch (levier
-    // switch_metal.png + diode) a gauche de chaque rangee de bande.
-    static constexpr const char* idSoloLow  = "soloLow";
-    static constexpr const char* idSoloMid  = "soloMid";
-    static constexpr const char* idSoloHigh = "soloHigh";
+    // Solo par bande -- des qu'une bande est soloee, les autres sont
+    // exclues du mix global (pas juste attenuees). Off sur les 6 = comportement
+    // normal, toutes les bandes jouent. Pilote par le SoloSwitch (levier
+    // switch_metal.png + diode) a gauche de chaque rangee/plaque de bande.
+    // Une bande fusionnee (voir idCrossoverXEnabled) n'a pas de solo propre
+    // effectif puisqu'elle ne traite rien (voir processBlock()).
+    static constexpr const char* idSolo[NumBands] = { "soloLow", "soloLowMid", "soloMid", "soloHighMid", "soloPresence", "soloHigh" };
 
     // Budget de latence du mode LINEAR : 0=Low(~7ms) / 1=Medium(~25ms) /
     // 2=High(~80ms). Ignore en mode WIDE (toujours 0 latence).
@@ -377,6 +413,15 @@ private:
     void timerCallback() override;
     void updateDspFromParams();
 
+    // Applique la contrainte de monotonie stricte (avec ecart minimum en
+    // echelle log) entre les 4 frequences de crossover -- appele a chaque
+    // bloc AVANT de pousser les valeurs dans les Crossover (voir
+    // processBlock()). Ne modifie PAS les parametres APVTS eux-memes
+    // (l'utilisateur reste libre de faire glisser un curseur "a travers"
+    // son voisin dans l'UI -- seul le DSP est protege), retourne les 4
+    // frequences deja triees/espacees.
+    std::array<float, (size_t) NumCrossovers> sanitizeCrossoverFrequencies() const noexcept;
+
     std::atomic<juce::uint32> lastProcessBlockMs { 0 };
 
     std::map<juce::String, float> abSlotA, abSlotB;
@@ -391,12 +436,24 @@ private:
     // [band][channel] -- chaine de compression independante par bande.
     std::array<std::vector<FeedbackCompressor>, (size_t) NumBands> compressors;
 
-    SoftClipper clipperL, clipperR; // etage GLOBAL, post-sommation des 3 bandes
+    SoftClipper clipperL, clipperR; // etage GLOBAL, post-sommation des bandes
 
-    // Buffers scratch pour le split Low/Mid/High -- 1 par canal, remplis
-    // en une passe par bloc via Crossover::processBlock(). Dimensionnes
-    // dans prepareToPlay(), jamais realloues dans processBlock().
-    juce::AudioBuffer<float> lowBandBuffer, midBandBuffer, highBandBuffer;
+    // Buffers scratch pour le split 5 bandes -- 1 par (bande x canal),
+    // remplis en une passe par bloc via Crossover::processBlock().
+    // Dimensionnes dans prepareToPlay(), jamais realloues dans processBlock().
+    std::array<juce::AudioBuffer<float>, (size_t) NumBands> rawBandBuffers;
+
+    // Enveloppe (lineaire, thread audio uniquement) du niveau de sortie
+    // par bande -- retombee appliquee ECHANTILLON PAR ECHANTILLON (voir
+    // processBlock()), pas une fois par bloc comme avant (retour
+    // utilisateur : "les vu metre output ... sont pas fluides, on dirait
+    // qu'ils sont crantes quand je coupe le son" -- avec un gros buffer
+    // hote, une seule retombee par bloc cree des paliers visibles ; en
+    // suivant chaque echantillon, la retombee reste lisse quelle que soit
+    // la taille de bloc de l'hote). bandOutputLevelDb[] ci-dessus reste
+    // l'atomic lu par l'UI, mis a jour a partir de cette enveloppe.
+    std::array<float, (size_t) NumBands> bandOutputEnvLin {};
+    float bandOutputPerSampleDecay = 1.0f; // recalcule dans prepareToPlay()
 
     // --- Analyse THD par bande (voir ThdValveModule.h) : le residu de
     // distorsion (signal avant clip moins signal apres clip, voir
@@ -406,7 +463,8 @@ private:
     // l'etage de saturation UNIQUE -- ce crossover ne touche jamais au
     // signal audio reellement envoye en sortie. ---
     std::vector<std::unique_ptr<Crossover>> thdAnalysisCrossovers; // 1 par canal
-    juce::AudioBuffer<float> thdResidualBuffer, thdLowBuffer, thdMidBuffer, thdHighBuffer;
+    juce::AudioBuffer<float> thdResidualBuffer;
+    std::array<juce::AudioBuffer<float>, (size_t) NumBands> thdBandBuffers;
 
     std::array<std::atomic<float>*, (size_t) NumBands> inputParam            {};
     std::array<std::atomic<float>*, (size_t) NumBands> ratioIndexParam       {};
@@ -434,7 +492,6 @@ private:
     std::array<std::atomic<float>*, (size_t) NumBands> audioDist3Param      {};
     std::array<std::atomic<float>*, (size_t) NumBands> opticalParam         {};
     std::array<std::atomic<float>*, (size_t) NumBands> britishParam         {};
-    std::array<std::atomic<float>*, (size_t) NumBands> aboveBelowParam      {};
     std::array<std::atomic<float>*, (size_t) NumBands> bandMixParam         {};
     std::array<std::atomic<float>*, (size_t) NumBands> bandWidthParam       {};
 
@@ -453,14 +510,20 @@ private:
     std::atomic<float>* aiExpandAmountParam    = nullptr;
     std::atomic<float>* aiStyleParam    = nullptr;
     std::atomic<float>* aiFidelityParam = nullptr;
-    std::atomic<float>* crossoverLowParam     = nullptr;
-    std::atomic<float>* crossoverHighParam    = nullptr;
+    std::array<std::atomic<float>*, (size_t) NumCrossovers> crossoverFreqParam    {};
+    std::array<std::atomic<float>*, (size_t) NumCrossovers> crossoverEnabledParam {};
     std::atomic<float>* digitalCrossoverParam = nullptr;
     std::atomic<float>* linearLatencyModeParam = nullptr;
     int lastReportedLatencySamples = 0; // pour ne rappeler setLatencySamples() que si la valeur change reellement
-    std::atomic<float>* soloLowParam  = nullptr;
-    std::atomic<float>* soloMidParam  = nullptr;
-    std::atomic<float>* soloHighParam = nullptr;
+    std::array<std::atomic<float>*, (size_t) NumBands> soloParam {};
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SuppressorAudioProcessor)
+    // Calcule, a partir des 4 flags idCrossoverXEnabled, quelle bande
+    // "possede" (traite) chaque groupe de bandes fusionnees -- voir doc de
+    // classe. groupOwner[b] == b si la bande b n'est fusionnee avec aucune
+    // voisine ; sinon groupOwner[b] == indice le plus bas du groupe auquel
+    // b appartient (et cette bande b, si different de son propre indice,
+    // ne traite rien -- voir processBlock()).
+    std::array<int, (size_t) NumBands> computeGroupOwners() const noexcept;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SixpackAudioProcessor)
 };

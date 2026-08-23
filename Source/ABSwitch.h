@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 #include "PressAnimator.h"
 
 /**
@@ -8,7 +8,7 @@
     --------
     Selecteur A/B en pilule encastree (extrusion) : le cote actif se colore
     (A = cyan, B = ambre), l'autre reste sombre/discret. Voir
-    SuppressorAudioProcessor::toggleABCompare()/selectABSlot().
+    SixpackAudioProcessor::toggleABCompare()/selectABSlot().
 */
 class ABSwitch : public juce::Component, private PressAnimator
 {
@@ -58,8 +58,8 @@ public:
         auto aArea = pillArea.removeFromLeft (halfW);
         auto bArea = pillArea;
 
-        drawHalf (g, aArea, "A", ! isB, SuppressorColours::ledCyan);
-        drawHalf (g, bArea, "B", isB, SuppressorColours::ledAmber);
+        drawHalf (g, aArea, "A", ! isB, SixpackColours::ledCyan);
+        drawHalf (g, bArea, "B", isB, SixpackColours::ledAmber);
     }
 
 private:
@@ -75,7 +75,7 @@ private:
         }
         else
         {
-            g.setColour (SuppressorColours::textDim.withAlpha (0.7f));
+            g.setColour (SixpackColours::chipTextDim.withAlpha (0.7f));
         }
 
         g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)));

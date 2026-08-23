@@ -1,7 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
-#include "SuppressorLookAndFeel.h"
+#include "SixpackLookAndFeel.h"
 #include "GRMeter.h"
 #include "RatioSelector.h"
 #include "PowerRocker.h"
@@ -9,8 +9,9 @@
 #include "DetectorFilterGraph.h"
 #include "NeedleVU.h"
 #include "NeedleModeSelector.h"
-#include "ThdValveModule.h"
-#include "SuppressorLogoButton.h"
+#include "ThdHeaderModule.h"
+#include "BandMetersRack.h"
+#include "SixpackLogoButton.h"
 #include "AboutOverlay.h"
 #include "OptionsOverlay.h"
 #include "KnobSlider.h"
@@ -26,6 +27,7 @@
 #include "PresetBrowserOverlay.h"
 #include "ParamRamper.h"
 #include "LicenseOverlay.h"
+#include "CrossoverSpectrumEditor.h"
 
 #if JUCE_WINDOWS
  #include <windows.h>
@@ -43,30 +45,36 @@ struct KnobControl
 /**
     BandPanel
     ---------
-    Une rangee de compression complete pour UNE bande (Low, Mid ou High) --
-    exactement le contenu de l'ancienne plaque principale du Suppressor
-    mono-bande (GR meter/Ratio, Detector, Audio, Input/Attack/Release/
-    Output, Optical/British, Sidechain), MOINS le Power rocker (devenu
-    global, voir barre de controle). Les 3 instances sont TOUJOURS visibles
-    simultanement, empilees Low/Mid/High -- design M76/Mext.
+    Une rangee de compression complete pour UNE bande -- GR meter/Ratio,
+    Compresseur (Input/Attack/Release/Output) ET Expandeur (Range/Attack/
+    Output) cote a cote, Optical/Overkill/Sidechain. Detector/Color/XY
+    (DetectorFilterGraph) restent CABLES (attachements/DSP intacts) mais
+    NE SONT PLUS AFFICHES (voir buildBandPanel() -- addChildComponent au
+    lieu de addAndMakeVisible) -- retour utilisateur explicite : "je
+    souhaite retirer detector, color et le XY. laisse dans le code mais
+    retire du visuel si un jour je veux remettre". Dry/Wet et Spread ont
+    demenage dans BandMetersRack (rack du bas). MOINS le Power rocker
+    (devenu global, voir barre de controle). Les 5 instances existent
+    TOUJOURS (attachements crees une fois, voir buildBandPanel()), mais
+    UNE SEULE est visible a la fois -- celle choisie en cliquant une zone
+    de bande dans CrossoverSpectrumEditor (voir SixpackEditorContent::
+    selectedBand/refreshBandPanelVisibility()).
 */
 struct BandPanel
 {
-    ToggleSwitch opticalButton { "OPTICAL", SuppressorColours::ledAmber };
-    ToggleSwitch britishButton { "OVERKILL", SuppressorColours::ledRed };
+    ToggleSwitch opticalButton { "OPTICAL", SixpackColours::ledAmber };
+    ToggleSwitch britishButton { "OVERKILL", SixpackColours::ledRed };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> opticalAttachment, britishAttachment;
 
-    // Above/Below/Both (demande explicite, "dans le meme esprit que Ableton"
-    // + "il faut que les deux puissent jouer en meme temps ... troisieme
-    // fois avec ecrit both") -- a gauche d'Optical, cycle ABOVE -> BELOW ->
-    // BOTH -> ABOVE... au clic. C'est un choix a 3 valeurs (pas un simple
-    // bool), donc un ParameterAttachment manuel comme ratioSelector -- pas
-    // de ButtonAttachment (reserve aux bool). Voir SuppressorEditorContent::
-    // buildBandPanel().
-    ToggleSwitch aboveBelowButton { "COMP", SuppressorColours::ledBlue };
-    std::unique_ptr<juce::ParameterAttachment> aboveBelowAttachment;
+    // Ancien bouton Comp/Expand -- RETIRE DU VISUEL (addChildComponent,
+    // jamais addAndMakeVisible, voir buildBandPanel()) : Compresseur et
+    // Expandeur ont maintenant chacun leurs propres knobs permanents, plus
+    // besoin de choisir un mode. Le composant reste instancie (idAboveBelow
+    // reste dans l'APVTS pour la compat des presets/automations
+    // existants), mais plus aucun ParameterAttachment ne le pilote.
+    ToggleSwitch aboveBelowButton { "COMP", SixpackColours::ledBlue };
 
-    ToggleSwitch sidechainToggle { "SC", SuppressorColours::ledCyan };
+    ToggleSwitch sidechainToggle { "SC", SixpackColours::ledCyan };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> sidechainAttachment;
 
     // Solo -- a gauche de la rangee, sous le tag LOW/MID/HIGH (voir
@@ -79,19 +87,20 @@ struct BandPanel
     RatioSelector ratioSelector;
     std::unique_ptr<juce::ParameterAttachment> ratioAttachment;
 
-    ToggleSwitch detectorHpToggle   { "HP",   SuppressorColours::ledGreen };
-    ToggleSwitch detectorBellToggle { "BELL", SuppressorColours::ledYellow };
-    // BAND MID UNIQUEMENT (remplace detectorHpToggle, cache pour cette
-    // bande -- deja bornee par le crossover, un HP y est redondant) : 2e
-    // point Bell independant sur le detecteur, voir DetectorFilterGraph.
-    ToggleSwitch detectorBell2Toggle { "BELL 2", SuppressorColours::ledBlue };
-    ToggleSwitch detectorLinkToggle { "LINK", SuppressorColours::ledRed };
-    ToggleSwitch audioHpToggle      { "HP",     SuppressorColours::ledBlue };
+    ToggleSwitch detectorHpToggle   { "HP",   SixpackColours::ledGreen };
+    ToggleSwitch detectorBellToggle { "BELL", SixpackColours::ledYellow };
+    // BANDES INTERMEDIAIRES (LowMid/Mid/HighMid, remplace detectorHpToggle,
+    // cache pour ces bandes -- deja bornees par les crossovers voisins, un
+    // HP y est redondant) : 2e point Bell independant sur le detecteur,
+    // voir DetectorFilterGraph.
+    ToggleSwitch detectorBell2Toggle { "BELL 2", SixpackColours::ledBlue };
+    ToggleSwitch detectorLinkToggle { "LINK", SixpackColours::ledRed };
+    ToggleSwitch audioHpToggle      { "HP",     SixpackColours::ledBlue };
     // Libelles "TUBE"/"FUZZ" (demande explicite) -- idAudioDist2/idAudioDist3
     // et les noms de membre restent inchanges (IDs de parametre APVTS, ne
     // pas casser les sessions/presets existants), seul le texte affiche change.
-    ToggleSwitch audioDist2Toggle   { "TUBE", SuppressorColours::ledAmber };
-    ToggleSwitch audioDist3Toggle   { "FUZZ", SuppressorColours::ledAmber };
+    ToggleSwitch audioDist2Toggle   { "TUBE", SixpackColours::ledAmber };
+    ToggleSwitch audioDist3Toggle   { "FUZZ", SixpackColours::ledAmber };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>
         detectorHpAttachment, detectorBellAttachment, detectorBell2Attachment, detectorLinkAttachment,
         audioHpAttachment, audioDist2Attachment, audioDist3Attachment;
@@ -100,23 +109,30 @@ struct BandPanel
 
     KnobControl inputKnob, attackKnob, releaseKnob, outputKnob;
 
-    // Faders Mix (Dry/Wet) et Width, a droite du dernier knob (Output),
-    // au-dela de la ligne blanche -- voir PluginProcessor.h (idBandMix /
-    // idBandWidth) et FaderControl.h.
-    FaderControl mixFader, widthFader;
+    // Expandeur, a droite du compresseur au-dela de la ligne de separation
+    // (retour utilisateur explicite : "dans les bandes avec le gain de
+    // place qu'on vient de faire, on va faire apparaitre les expandeurs.
+    // pas besoin du reglage release sur les expandeurs. on garde le cote
+    // violet des expandeurs") -- RANGE = idInputExpand (c'est LE MEME
+    // parametre que la ligne RANGE de CrossoverSpectrumEditor, juste une
+    // 2e poignee sur la meme valeur), pas de knob Release expose (le
+    // parametre idReleaseExpand reste cable cote DSP avec sa valeur par
+    // defaut). Teinte violette via SixpackLookAndFeel::
+    // setKnobAccentGradient (voir buildBandPanel()).
+    KnobControl expandRangeKnob, expandAttackKnob, expandOutputKnob;
 
     // Tag "LOW"/"MID"/"HIGH" desormais un LOGO image (LogoLow/Mid/High_png,
-    // voir SuppressorEditorContent::paint()) -- plus de Label texte.
+    // voir SixpackEditorContent::paint()) -- plus de Label texte.
     juce::Colour accentColour;
 };
 
 /**
-    SuppressorEditorContent
+    SixpackEditorContent
     ------------------------
     TOUT le contenu visuel du plugin (barre de controle, plaque VU/THD, 3
     bandes), a TAILLE LOGIQUE FIXE (1400x750, jamais modifiee). C'est un
     juce::Component ORDINAIRE (pas un AudioProcessorEditor) -- voir
-    SuppressorAudioProcessorEditor plus bas, qui l'heberge comme UNIQUE
+    SixpackAudioProcessorEditor plus bas, qui l'heberge comme UNIQUE
     enfant avec une transformation d'echelle (setTransform). Cette
     separation est necessaire car un AudioProcessorEditor qui possede son
     propre "peer" (fenetre native de l'hote) ignore/ne propage pas
@@ -127,32 +143,52 @@ struct BandPanel
 
     POWER : plus d'overlay rectangulaire -- chaque composant (knobs,
     ToggleSwitch, RatioSelector, DetectorFilterGraph, NeedleVU,
-    ThdValveModule) interroge lookAndFeel.isPowered() dans son propre
-    paint() et se rend lui-meme "eteint", comme une machine debranchee.
-    Voir timerCallback().
+    CrossoverSpectrumEditor) interroge lookAndFeel.isPowered() dans son
+    propre paint() et se rend lui-meme "eteint", comme une machine
+    debranchee. Voir timerCallback().
 */
-class SuppressorEditorContent : public juce::Component, private juce::Timer
+class SixpackEditorContent : public juce::Component, private juce::Timer
 {
 public:
-    explicit SuppressorEditorContent (SuppressorAudioProcessor&);
-    ~SuppressorEditorContent() override;
+    explicit SixpackEditorContent (SixpackAudioProcessor&);
+    ~SixpackEditorContent() override;
 
     void paint (juce::Graphics&) override;
     void resized() override;
 
-    // +40 par rapport a l'original (750) pour loger la barre de presets
-    // (34px) en bas de fenetre, voir resized(). Version PRO -- pas de
-    // bande "support" defilante (voir SupportTickerBar.h dans la copie
-    // Free), donc pas d'espace supplementaire reserve.
-    static constexpr int baseWidth = 1400, baseHeight = 790;
+    // baseHeight REDUIT par rapport a l'ancien Tripressor 3 bandes (etait
+    // 790) : l'editeur de crossover (CrossoverSpectrumEditor, 140px) +
+    // UN SEUL panneau de detail de bande (144px, voir BandPanel/
+    // selectedBand) prend moins de place que d'empiler plusieurs rangees
+    // completes, meme avec 5 bandes au lieu de 3. Le module THD lui-meme
+    // est desormais compact dans la barre de controle (voir
+    // ThdHeaderModule.h), mais la plaque rack du bas (vuPlateBounds) reste
+    // en place VOLONTAIREMENT VIDE pour l'instant (retour utilisateur :
+    // "il faut garder le rack vide en bas pour le moment") -- reservee
+    // pour un usage futur, pas encore retiree. Voir resized()
+    // (crossoverEditorBounds/bandPanelBounds/vuPlateBounds/presetBarTop).
+    // baseHeight elargi de 144 (etait 644) -- rack du bas passe en 2U (test
+    // demande explicitement : "on peut tester un rack 2U ... c'est juste
+    // les faders simplement sur un rack 1U"), voir vuPlateBounds dans
+    // resized().
+    // +40 (etait 788) -- rangee SOLO/SEL ajoutee au rack du bas, voir
+    // BandMetersRack::buttonRowH et vuPlateBounds dans resized().
+    // Tentative +56 (884) pour agrandir bandPanelBounds -- REVERTEE (retour
+    // utilisateur explicite : "c'est pas ce que j'ai demande. tu a agrandi
+    // la fenetre du plugin la") : la fenetre ne doit PAS grandir, seul
+    // l'alignement (X, voir layoutBandRow()) etait demande.
+    // -20 (808, etait 828) -- 2 ecarts de 10px supprimes (retour
+    // utilisateur : "il reste une bande grise en haut et en bas du
+    // compresseur"), voir resized().
+    static constexpr int baseWidth = 1400, baseHeight = 808;
 
     // Appele quand l'utilisateur choisit une taille dans OptionsOverlay --
-    // branche par SuppressorAudioProcessorEditor (le vrai proprietaire du
+    // branche par SixpackAudioProcessorEditor (le vrai proprietaire du
     // redimensionnement hote, voir plus bas).
     std::function<void (float)> onScaleRequested;
 
     // Called when the user clicks "License" on the About screen — branched
-    // by SuppressorAudioProcessorEditor to show its LicenseOverlay (which
+    // by SixpackAudioProcessorEditor to show its LicenseOverlay (which
     // lives outside this scaled content, see PluginEditor's constructor).
     std::function<void()> onOpenLicenseRequested;
 
@@ -166,7 +202,9 @@ public:
     struct PresetData
     {
         juce::String name;
-        float crossoverLow = 121.5f, crossoverHigh = 2521.0f;
+        std::array<float, (size_t) SixpackAudioProcessor::NumCrossovers> crossoverHz
+            { { Crossover::kSplitDefaultHz[0], Crossover::kSplitDefaultHz[1], Crossover::kSplitDefaultHz[2], Crossover::kSplitDefaultHz[3], Crossover::kSplitDefaultHz[4] } };
+        std::array<bool, (size_t) SixpackAudioProcessor::NumCrossovers> crossoverEnabled { { true, true, true, true, true } };
         bool linearMode = false; // WIDE (false) / LINEAR (true)
         bool softClipOn = true;  // THD Valve (global, engage par defaut)
         int thdMode = 0;         // 0=Soft 1=Tape 2=Iron 3=Air (voir SoftClipper::SatMode)
@@ -175,8 +213,8 @@ public:
         {
             float input = 0.0f;
             int ratioIndex = 3;
-            float attack = SuppressorAudioProcessor::defaultAttackMs;
-            float release = SuppressorAudioProcessor::defaultReleaseMs;
+            float attack = SixpackAudioProcessor::defaultAttackMs;
+            float release = SixpackAudioProcessor::defaultReleaseMs;
             float output = 0.0f;
 
             // Above/Below/Both + jeu de reglages Expand DEDIE (demande
@@ -188,8 +226,8 @@ public:
             int aboveBelow = 0; // 0=Comp (voir FeedbackCompressor::AboveBelowMode)
             float rangeExpand = 0.0f; // Range (dB), PAS un "Input" -- voir idInputExpand
             int ratioIndexExpand = 0; // 2:1
-            float attackExpand = SuppressorAudioProcessor::defaultAttackMs;
-            float releaseExpand = SuppressorAudioProcessor::defaultReleaseMs;
+            float attackExpand = SixpackAudioProcessor::defaultAttackMs;
+            float releaseExpand = SixpackAudioProcessor::defaultReleaseMs;
             float outputExpand = 0.0f;
 
             bool detectorHp = false;
@@ -211,7 +249,7 @@ public:
             float bandMix = 100.0f;
             float bandWidth = 100.0f;
         };
-        Band bands[3];
+        Band bands[(size_t) SixpackAudioProcessor::NumBands];
 
         juce::String author;
         bool isFactory = false; // les presets usine ne peuvent pas etre supprimes
@@ -220,26 +258,20 @@ public:
 private:
     void setupKnob (KnobControl& knob, const juce::String& paramID, const juce::String& labelText,
                     const juce::String& unitSuffix, int decimalPlaces);
-    // accentBelowNeutral optionnel (demande explicite : "le fader spread
-    // est completement orange ... pas hyper visible si on est cote mono et
-    // cote stereo") -- laisser par defaut (transparent) = fader a 1 seule
-    // couleur, comme avant (utilise par Mix). Le passer explicitement
-    // donne un fader a 2 tons, cote mono / cote spread (utilise par Width).
-    void setupFader (FaderControl& fader, const juce::String& paramID, double neutralValue,
-                      const juce::String& topText, const juce::String& bottomText, juce::Colour accent,
-                      juce::Colour accentBelowNeutral = juce::Colour());
     void rebuildBackgroundCache();
+    void refreshThemeReactiveColours();
     void timerCallback() override;
 
     void buildBandPanel (int band, juce::Colour accent, const juce::String& tag);
     void layoutBandRow (BandPanel& bp, juce::Rectangle<int> area);
 
-    // Comp et Expand partagent la meme bande mais des reglages Input/
-    // Ratio/Attack/Release/Output INDEPENDANTS (demande explicite) --
-    // reattache les 4 knobs + le RatioSelector de cette bande au jeu de
-    // parametres correspondant. mode : 0=Comp, 1=Expand, 2=Both (Both
-    // reste sur les parametres COMPRESSION, demande explicite).
-    void rebindBandKnobsForMode (int band, int mode);
+    // N'affiche que bandPanels[selectedBand] (masque les 4 autres) --
+    // appele au changement de selection (callback CrossoverSpectrumEditor::
+    // onBandSelected) et depuis resized(). isMid/audioHp/detectorLink
+    // suivent les memes regles de visibilite PAR BANDE que buildBandPanel()
+    // leur a donnees a la construction (pas de re-derivation ad-hoc).
+    void setBandPanelVisible (int band, bool visible);
+    void refreshBandPanelVisibility();
 
     void wireInputLink();  // lien relatif entre les 3 knobs Input (voir linkInSwitch)
     void wireOutputLink(); // lien relatif entre les 3 knobs Output (voir linkOutSwitch)
@@ -274,63 +306,77 @@ private:
     // des que processorRef.aiLearnAnalyzer.getState() == Done.
     void applyAiLearnResult (const AiLearnAnalyzer::Result& result);
 
-    SuppressorAudioProcessor& processorRef;
-    SuppressorLookAndFeel lookAndFeel;
+    SixpackAudioProcessor& processorRef;
+    SixpackLookAndFeel lookAndFeel;
 
-    std::array<BandPanel, (size_t) SuppressorAudioProcessor::NumBands> bandPanels;
+    std::array<BandPanel, (size_t) SixpackAudioProcessor::NumBands> bandPanels;
+
+    // Bande actuellement affichee dans le panneau de detail unique (voir
+    // BandPanel/setBandPanelVisible()) -- etat purement visuel, PAS un
+    // parametre APVTS (pas automatisable, pas sauvegarde en preset/session
+    // -- redemarre sur MID a chaque ouverture, comme les onglets d'un menu).
+    int selectedBand = (int) SixpackAudioProcessor::Mid;
 
     // --- Barre de controle globale (haut) ---
     PowerRocker powerButton;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> powerAttachment;
 
-    // BYPASS -- meme design que les boutons Detector (ToggleSwitch), sous
-    // le logo/wordmark. MOMENTANE : pas de ButtonAttachment (ce n'est pas
-    // un parametre APVTS persistant) -- pilote directement
-    // processorRef.bypassHeld via onStateChange (voir constructeur), reste
-    // actif tant que le bouton est maintenu enfonce.
-    ToggleSwitch bypassButton { "BYPASS", SuppressorColours::ledRed };
-
     // A/B -- pilule encastree, cote actif colore (voir ABSwitch.h et
-    // SuppressorAudioProcessor::toggleABCompare()/selectABSlot()).
+    // SixpackAudioProcessor::toggleABCompare()/selectABSlot()).
     ABSwitch abButton;
 
-    KnobControl crossoverLowKnob, crossoverHighKnob;
+    // Remplace les anciens knobs XLO/XHI (Tripressor) -- spectre + 4
+    // lignes de crossover draggables/activables + selection de bande, voir
+    // CrossoverSpectrumEditor.h et selectedBand ci-dessous.
+    CrossoverSpectrumEditor crossoverSpectrum { processorRef };
+
     // processorRef est declare (donc initialise) AVANT ce membre -- l'ordre
     // d'initialisation suit l'ordre de DECLARATION dans la classe, pas
     // l'ordre du constructeur, cette reference est donc valide ici (meme
-    // pattern que needleVu1/2 et thdValve plus bas).
-    XoverModeButton xoverModeButton { *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idDigitalCrossover) };
+    // pattern que needleVu1/2 et thdHeader plus bas).
+    XoverModeButton xoverModeButton { *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idDigitalCrossover) };
     LatencyModeButton latencyModeButton;
 
     // Bouton AI, juste au-dessus de xoverModeButton (demande explicite) --
     // meme raisonnement d'ordre d'initialisation que ci-dessus.
     AiLearnButton aiLearnButton { processorRef };
 
-    ToggleSwitch linkInSwitch  { "LINK IN",  SuppressorColours::ledGreen };
-    ToggleSwitch linkOutSwitch { "LINK OUT", SuppressorColours::ledRed };
+    ToggleSwitch linkInSwitch  { "LINK IN",  SixpackColours::ledGreen };
+    ToggleSwitch linkOutSwitch { "LINK OUT", SixpackColours::ledRed };
     bool linkInGuard = false, linkOutGuard = false;
-    std::array<double, (size_t) SuppressorAudioProcessor::NumBands> lastInputValue {};
-    std::array<double, (size_t) SuppressorAudioProcessor::NumBands> lastOutputValue {};
+    std::array<double, (size_t) SixpackAudioProcessor::NumBands> lastInputValue {};
+    std::array<double, (size_t) SixpackAudioProcessor::NumBands> lastOutputValue {};
 
-    SuppressorLogoButton suppressorLogoButton;
+    SixpackLogoButton suppressorLogoButton;
     AboutOverlay aboutOverlay;
     OptionsOverlay optionsOverlay;
 
-    // --- Plaque VU/THD globale (inchangee dans son contenu, juste
-    // deplacee plus bas dans resized()) ---
+    // --- Plaque VU globale (inchangee dans son contenu, juste deplacee
+    // plus bas dans resized()) ---
     NeedleVU needleVu1 { processorRef, NeedleVU::modeForIndex (processorRef.needleModeIndex1), NeedleVU::Channel::Left };
     NeedleVU needleVu2 { processorRef, NeedleVU::modeForIndex (processorRef.needleModeIndex2), NeedleVU::Channel::Right };
     NeedleModeSelector needleVu1Modes { "L", processorRef.needleModeIndex1 };
     NeedleModeSelector needleVu2Modes { "R", processorRef.needleModeIndex2 };
 
-    ThdValveModule thdValve { processorRef, processorRef.clipMeterAmountLow, processorRef.clipMeterAmountMid, processorRef.clipMeterAmountHigh,
-                              *processorRef.apvts.getRawParameterValue (SuppressorAudioProcessor::idSoftClip) };
+    // THD compact, dans la barre de controle (remplace l'ancien rack
+    // pleine largeur ThdValveModule -- retour utilisateur : "on va
+    // liberer le rack du bas", voir ThdHeaderModule.h).
+    ThdHeaderModule thdHeader { *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idSoftClip),
+                                 processorRef.clipMeterAmount };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> softClipAttachment;
-    std::unique_ptr<juce::ParameterAttachment> thdModeAttachment; // voir ThdValveModule (TAPE/IRON/AIR/CLIP)
+    std::unique_ptr<juce::ParameterAttachment> thdModeAttachment; // voir ThdHeaderModule (TAPE/IRON/AIR/CLIP)
+
+    // Rack du bas -- occupe desormais par un mini vu-metre GR/Expand par
+    // bande (retour utilisateur, voir BandMetersRack.h) ; la plaque restait
+    // vide depuis le deplacement du module THD dans la barre de controle.
+    BandMetersRack bandMetersRack { processorRef };
 
     juce::Rectangle<float> controlBarBounds; // barre globale (haut)
-    juce::Rectangle<float> vuPlateBounds;    // plaque VU/THD globale
-    std::array<juce::Rectangle<float>, (size_t) SuppressorAudioProcessor::NumBands> bandPanelBounds;
+    juce::Rectangle<float> vuPlateBounds;
+    // UNE SEULE zone de detail (plus un tableau par bande) -- voir doc de
+    // classe BandPanel/selectedBand ci-dessus.
+    juce::Rectangle<float> bandPanelBounds;
+    juce::Rectangle<float> crossoverEditorBounds;
     juce::Image backgroundCache;
 
     // --- Presets rapides : barre dediee en bas de fenetre (Preset / < >
@@ -344,21 +390,21 @@ private:
     RackButton nextPresetButton { ">" };
     PresetNameButton presetNameButton; // ecran LCD cliquable -- ouvre le navigateur plein ecran (PresetBrowserOverlay)
     juce::Label presetAuthorLabel;     // "Side Key" / nom de l'utilisateur, juste apres le nom
-    RackButton copyButton { "COPY", SuppressorColours::ledBlue };
-    RackButton pasteButton { "PASTE", SuppressorColours::ledBlue };
-    RackButton saveButton { "SAVE", SuppressorColours::ledGreen };
+    RackButton copyButton { "COPY", SixpackColours::ledBlue };
+    RackButton pasteButton { "PASTE", SixpackColours::ledBlue };
+    RackButton saveButton { "SAVE", SixpackColours::ledGreen };
     TrashButton deletePresetButton; // supprime le preset utilisateur courant -- desactivee pour les presets Side Key
 
     PresetBrowserOverlay presetBrowser;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SuppressorEditorContent)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SixpackEditorContent)
 };
 
 /**
-    SuppressorAudioProcessorEditor
+    SixpackAudioProcessorEditor
     -------------------------------
     Coquille MINCE -- le VRAI AudioProcessorEditor enregistre aupres de
-    l'hote. Possede un unique enfant, SuppressorEditorContent (taille
+    l'hote. Possede un unique enfant, SixpackEditorContent (taille
     logique FIXE, jamais modifiee), auquel elle applique une
     transformation d'echelle (voir applyUiScale()). C'est CETTE classe --
     et non le contenu -- qui appelle setSize() avec la taille MISE A
@@ -366,10 +412,10 @@ private:
     de facon fiable pour redimensionner reellement la fenetre du plugin
     (75/85/100%, voir OptionsOverlay).
 */
-class SuppressorAudioProcessorEditor : public juce::AudioProcessorEditor
+class SixpackAudioProcessorEditor : public juce::AudioProcessorEditor
 {
 public:
-    explicit SuppressorAudioProcessorEditor (SuppressorAudioProcessor& p)
+    explicit SixpackAudioProcessorEditor (SixpackAudioProcessor& p)
         : juce::AudioProcessorEditor (&p), processorRef (p), content (p), licenseOverlay (p.licenseManager)
     {
         // Opaque (retour utilisateur : "quand je change la taille du VST
@@ -382,7 +428,7 @@ public:
         // cette etape d'effacement intermediaire.
         setOpaque (true);
         addAndMakeVisible (content);
-        content.setBounds (0, 0, SuppressorEditorContent::baseWidth, SuppressorEditorContent::baseHeight);
+        content.setBounds (0, 0, SixpackEditorContent::baseWidth, SixpackEditorContent::baseHeight);
         content.onScaleRequested = [this] (float scale) { applyUiScale (scale); };
         content.onOpenLicenseRequested = [this] { licenseOverlay.showManually(); };
 
@@ -408,29 +454,32 @@ public:
         // meme avec ce flag a false, car c'est le PLUGIN qui demande sa
         // taille, pas un drag utilisateur (chemin different cote hote).
         setResizable (false, false);
-        setResizeLimits ((int) (SuppressorEditorContent::baseWidth  * 0.75f), (int) (SuppressorEditorContent::baseHeight * 0.75f),
-                          SuppressorEditorContent::baseWidth,                 SuppressorEditorContent::baseHeight);
+        setResizeLimits ((int) (SixpackEditorContent::baseWidth  * 0.75f), (int) (SixpackEditorContent::baseHeight * 0.75f),
+                          SixpackEditorContent::baseWidth,                 SixpackEditorContent::baseHeight);
 
         applyUiScale (processorRef.uiScale.load());
     }
 
-   #if JUCE_WINDOWS
-    ~SuppressorAudioProcessorEditor() override { unhookTitleBarDoubleClick(); }
-   #endif
+    ~SixpackAudioProcessorEditor() override
+    {
+       #if JUCE_WINDOWS
+        unhookTitleBarDoubleClick();
+       #endif
+    }
 
     void applyUiScale (float scale)
     {
         processorRef.uiScale.store (scale);
         content.setTransform (juce::AffineTransform::scale (scale));
-        setSize (juce::roundToInt (SuppressorEditorContent::baseWidth  * scale),
-                 juce::roundToInt (SuppressorEditorContent::baseHeight * scale));
+        setSize (juce::roundToInt (SixpackEditorContent::baseWidth  * scale),
+                 juce::roundToInt (SixpackEditorContent::baseHeight * scale));
     }
 
     // Remplit tout le fond (voir setOpaque(true) au constructeur) -- sinon
     // le rectangle expose par un changement d'echelle resterait blanc
     // jusqu'a ce que `content` (plus petit ou plus grand selon le sens du
     // resize) le recouvre a son tour.
-    void paint (juce::Graphics& g) override { g.fillAll (SuppressorColours::bg); }
+    void paint (juce::Graphics& g) override { g.fillAll (SixpackColours::bg); }
 
     void resized() override
     {
@@ -468,7 +517,7 @@ public:
 
         // Notre PROPRE HWND (retour utilisateur : "clignotement blanc ...
         // quand je change la taille" -- persistant meme apres setOpaque()
-        // + paint() de fond, voir SuppressorAudioProcessorEditor::paint()
+        // + paint() de fond, voir SixpackAudioProcessorEditor::paint()
         // ci-dessus) : Windows envoie WM_ERASEBKGND avant WM_PAINT a chaque
         // resize, qui efface la zone avec le pinceau de fond PAR DEFAUT de
         // la classe de fenetre (blanc) -- un frame visible avant que notre
@@ -619,14 +668,32 @@ public:
    #endif
 
 private:
-    SuppressorAudioProcessor& processorRef;
-    SuppressorEditorContent content;
+    SixpackAudioProcessor& processorRef;
+
+    // Sentinelle : applique le theme sauvegarde aux globales
+    // SixpackColours AVANT que `content` (juste apres) ne commence a se
+    // construire -- voir SixpackLookAndFeel::applyGlobalTheme() pour le
+    // detail du probleme d'ordre d'initialisation que ce membre corrige.
+    // L'ordre d'initialisation suit l'ordre de DECLARATION (pas l'ordre
+    // dans la liste d'init du constructeur), d'ou ce placement precis juste
+    // avant `content`.
+    bool themeAppliedBeforeContent = (SixpackLookAndFeel::applyGlobalTheme (processorRef.lightTheme.load() > 0.5f), true);
+
+    SixpackEditorContent content;
     LicenseOverlay licenseOverlay;
+
+    // Rendu OpenGL TENTE puis RETIRE (retour utilisateur : "oula le plug in
+    // rame enormement" -- pire qu'avant plutot que mieux, cas connu de
+    // certains hotes/pilotes qui gerent mal un contexte OpenGL attache a
+    // une fenetre de plugin flottante). Revenir au rasterizer logiciel par
+    // defaut de JUCE si une optimisation de performance est souhaitee a
+    // l'avenir, chercher plutot du cote de la frequence des Timer (voir
+    // GRMeter/NeedleVU/BandMetersRack) ou de repaint() cible plus fin.
 
    #if JUCE_WINDOWS
     HWND titleBarHwnd = nullptr;
     HWND ownHwndHooked = nullptr;
    #endif
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SuppressorAudioProcessorEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SixpackAudioProcessorEditor)
 };
