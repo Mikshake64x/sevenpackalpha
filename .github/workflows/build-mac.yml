@@ -13,10 +13,17 @@ jobs:
       - name: Récupérer le code
         uses: actions/checkout@v4
 
-      - name: Récupérer JUCE (un niveau au-dessus du repo, comme en local)
+      # Version figee a 8.0.10 (pas "latest") : JUCE 9.0.1 introduit une
+      # regression confirmee sur Windows (fenetre d'editeur VST3 detruite
+      # et jamais reconstruite au passage sur un ecran a DPI different sous
+      # Ableton -- diagnostique via repro utilisateur, cf. historique du
+      # projet). Pas verifie comme affectant macOS specifiquement, mais on
+      # garde la meme version partout plutot que de decouvrir une seconde
+      # regression plus tard sur cette plateforme aussi.
+      - name: Récupérer JUCE 8.0.10 (un niveau au-dessus du repo, comme en local)
         run: |
           cd ..
-          git clone --depth 1 https://github.com/juce-framework/JUCE.git
+          git clone --depth 1 --branch 8.0.10 https://github.com/juce-framework/JUCE.git
 
       - name: Compiler Projucer
         run: |
