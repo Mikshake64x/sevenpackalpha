@@ -49,8 +49,11 @@ struct BandMixWidthFaders
 // clic, jamais de ButtonAttachment/etat persistant, voir RackPushButton).
 struct BandButtons
 {
+    // Bordeaux dedie (retour utilisateur : "le rouge est pas assez bordeau
+    // dans le solo") plutot que SixpackColours::ledRed -- ce dernier reste
+    // INCHANGE (utilise ailleurs, ex. GRMeter, comme vraie diode fixe).
     explicit BandButtons (juce::Colour selAccent)
-        : solo ("SOLO", SixpackColours::ledRed), sel ("SEL", selAccent)
+        : solo ("SOLO", juce::Colour (0xff8c1c2b), true), sel ("SEL", selAccent)
     {
     }
 
@@ -64,7 +67,11 @@ public:
     // Appele quand l'utilisateur clique SEL sur une bande -- le parent
     // (PluginEditor) branche ceci sur le meme mecanisme que le clic sur
     // une zone du spectre crossover (selectedBand + refreshBandPanelVisibility()).
-    std::function<void (int)> onBandSelectRequested;
+    // Le 2e parametre indique si Ctrl (Cmd sur Mac) etait enfonce -- retour
+    // utilisateur : "en appuyant sur control (cmd mac) on peut selectionner
+    // plusieurs bandes avec Sel" (edition liee du knob Output, voir
+    // SixpackEditorContent::wireOutputLink()).
+    std::function<void (int, bool)> onBandSelectRequested;
 
     // Les libelles WET/DRY/SPREAD/MONO "bakent" leur couleur a la
     // construction (setupEndLabel, voir ci-dessous) -- a rappeler par le
@@ -104,11 +111,56 @@ public:
             fader->slider.setAccentColour (bandAccent (band));
             fader->slider.setTickSteps (10.0f, 2.0f);
             fader->slider.setShowTicks (false); // echelle GR/Expand deja presente a cote, pas de place pour une 2e
-            fader->slider.setEdgePadding (edgePadding, edgePadding); // voir resized() -- bounds agrandis d'autant
+            // Marge haute reduite (retour utilisateur : "la bande du fader
+            // coupe bizarement et horizontalement les push" -- voir
+            // ConsoleFader::setEdgePadding()) -- marge basse inchangee.
+            fader->slider.setEdgePadding (edgePadding, edgePaddingTop, edgePadding); // voir resized() -- bounds agrandis d'autant
             addAndMakeVisible (fader->slider);
             fader->attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
                 processorRef.apvts, SixpackAudioProcessor::bandParamId (SixpackAudioProcessor::idOutput, band), fader->slider);
             faders[(size_t) band] = std::move (fader);
+            lastFaderOutputValue[(size_t) band] = faders[(size_t) band]->slider.getValue();
+
+            // "Pairage console" (retour utilisateur : "quand je selectionne
+            // deux bandes j'ai qu'un fader qui bouge. je veux le meme
+            // systeme que le pairage d'une console. ça bouge les fader
+            // (output) des pistes qui sont selectionnees") -- SYMETRIQUE :
+            // bouger le fader de N'IMPORTE QUELLE bande du groupe actuel
+            // (selectedBand OU une bande liee via Ctrl/Cmd+clic SEL, voir
+            // setSelectedBand()) applique le meme delta a TOUTES les
+            // autres bandes du groupe, pas seulement depuis une bande
+            // "primaire" designee -- exactement comme des faders physiques
+            // groupes sur une vraie console.
+            faders[(size_t) band]->slider.onValueChange = [this, band]
+            {
+                auto& thisSlider = faders[(size_t) band]->slider;
+                const double newValue = thisSlider.getValue();
+                const double delta = newValue - lastFaderOutputValue[(size_t) band];
+
+                if (! outputSelectionLinkGuard && std::abs (delta) > 1.0e-9 && isInSelectionGroup (band))
+                {
+                    int groupSize = 0;
+                    for (int b = 0; b < SixpackAudioProcessor::NumBands; ++b)
+                        if (isInSelectionGroup (b))
+                            ++groupSize;
+
+                    if (groupSize > 1)
+                    {
+                        outputSelectionLinkGuard = true;
+                        for (int b = 0; b < SixpackAudioProcessor::NumBands; ++b)
+                        {
+                            if (b == band || ! isInSelectionGroup (b))
+                                continue;
+                            auto& other = faders[(size_t) b]->slider;
+                            const double target = juce::jlimit (other.getMinimum(), other.getMaximum(), other.getValue() + delta);
+                            other.setValue (target, juce::sendNotificationSync);
+                        }
+                        outputSelectionLinkGuard = false;
+                    }
+                }
+
+                lastFaderOutputValue[(size_t) band] = thisSlider.getValue();
+            };
 
             // Dry/Wet (idBandMix) + Spread (idBandWidth) -- demenages ici
             // depuis BandPanel (voir doc de classe), meme setup qu'avant
@@ -159,7 +211,7 @@ public:
             btns->sel.onClick = [this, band]
             {
                 if (onBandSelectRequested != nullptr)
-                    onBandSelectRequested (band);
+                    onBandSelectRequested (band, juce::ModifierKeys::getCurrentModifiers().isCommandDown());
             };
             bandButtons[(size_t) band] = std::move (btns);
         }
@@ -167,20 +219,50 @@ public:
 
     ~BandMetersRack() override { stopTimer(); }
 
+    // Diode SEL persistante (retour utilisateur : "pour savoir quelle
+    // bande est selectionnee") -- appelee par l'editeur a chaque fois que
+    // selectedBand change (voir refreshBandPanelVisibility()), meme
+    // idiome que CrossoverSpectrumEditor::setSelectedBand(). linkedBands
+    // (optionnel) allume AUSSI les bandes liees en edition (Ctrl/Cmd+clic
+    // SEL) et alimente le "pairage console" des faders Output (voir
+    // isInSelectionGroup()/wiring dans le constructeur).
+    void setSelectedBand (int band, const std::array<bool, (size_t) SixpackAudioProcessor::NumBands>* linkedBands = nullptr) noexcept
+    {
+        selectionPrimaryBand = band;
+        linkedBandsState = linkedBands != nullptr ? *linkedBands : std::array<bool, (size_t) SixpackAudioProcessor::NumBands> {};
+
+        for (int b = 0; b < SixpackAudioProcessor::NumBands; ++b)
+            bandButtons[(size_t) b]->sel.setSelected (isInSelectionGroup (b));
+    }
+
     void resized() override
     {
         auto bounds = getLocalBounds().toFloat();
         for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
         {
             const auto layout = computeLayout (bounds, band);
-            // expanded(edgePadding) : agrandit les bounds du COMPOSANT sans
-            // deplacer le rail (ConsoleFader::paint() retranche la meme
-            // marge avant de calculer sa mise en page) -- laisse la place a
-            // l'ombre portee du cap sans jamais la faire tronquer, retour
-            // utilisateur explicite : "il doit juste pas se couper".
-            faders[(size_t) band]->slider.setBounds (layout.faderArea.expanded (edgePadding).toNearestInt());
-            bandButtons[(size_t) band]->solo.setBounds (layout.soloArea.toNearestInt());
-            bandButtons[(size_t) band]->sel.setBounds (layout.selArea.toNearestInt());
+            // Agrandit les bounds du COMPOSANT sans deplacer le rail
+            // (ConsoleFader::paint() retranche la meme marge avant de
+            // calculer sa mise en page) -- laisse la place a l'ombre
+            // portee du cap sans jamais la faire tronquer, retour
+            // utilisateur explicite : "il doit juste pas se couper". Marge
+            // haute plus petite que les 3 autres cotes (voir
+            // edgePaddingTop) pour ne jamais empieter sur la rangee
+            // SOLO/SEL juste au-dessus.
+            const auto& fa = layout.faderArea;
+            faders[(size_t) band]->slider.setBounds (juce::Rectangle<float> (
+                fa.getX() - edgePadding, fa.getY() - edgePaddingTop,
+                fa.getWidth() + edgePadding * 2.0f, fa.getHeight() + edgePaddingTop + edgePadding).toNearestInt());
+            // Marge de halo REDUITE (4px, pas le defaut 6px) specifiquement
+            // ici : la rangee SOLO/SEL n'a que ~4.6px de jeu vertical avant
+            // les vis de coin (voir buttonScrewClearance/le .reduced(10,3)
+            // plus haut) -- un halo plus large recreerait la collision avec
+            // les vis deja corrigee par le passe (retour utilisateur :
+            // "collision avec les vis sur la console en bas").
+            bandButtons[(size_t) band]->solo.setHaloMargin (4.0f);
+            bandButtons[(size_t) band]->sel.setHaloMargin (4.0f);
+            bandButtons[(size_t) band]->solo.setBounds (layout.soloArea.expanded (4.0f).toNearestInt());
+            bandButtons[(size_t) band]->sel.setBounds (layout.selArea.expanded (4.0f).toNearestInt());
 
             auto layoutMixWidthFader = [] (FaderControl& fc, juce::Rectangle<float> slot)
             {
@@ -226,6 +308,24 @@ public:
             drawMasterMeter (g, layout.meterArea, band, powered);
 
             drawBandDynamic (g, layout.leftSection, band, powered);
+        }
+
+        // Retour utilisateur : "clignotte comme un neon a l'extinction
+        // seulement" -- passe superposee, TOUTES les diodes/meters a pleine
+        // charge, opacite = powerFlickerMix (voir SixpackLookAndFeel::
+        // getPowerTransitionMix() -- 1.0 juste apres la coupure, tremblement
+        // bref, puis fondu vers 0). Rien ne se dessine une fois la
+        // transition terminee (mix==0) ou tant que powered==true.
+        if (! powered && powerFlickerMix > 0.001f)
+        {
+            g.beginTransparencyLayer (powerFlickerMix);
+            for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
+            {
+                const auto layout = computeLayout (bounds, band);
+                drawMasterMeter (g, layout.meterArea, band, true, true);
+                drawBandDynamic (g, layout.leftSection, band, true, true);
+            }
+            g.endTransparencyLayer();
         }
     }
 
@@ -341,6 +441,36 @@ private:
         const bool poweredChanged = (powered != lastPowered);
         lastPowered = powered;
 
+        // Diodes WET/DRY et SPREAD/MONO (retour utilisateur : "le bouton
+        // on off etaint aussi les diodes des dry wet et mono spread") --
+        // ces 2 faders par bande ont leur PROPRE LookAndFeel
+        // (FaderVerticalLookAndFeel), non partagee avec le reste du plugin,
+        // donc jamais informee de l'etat POWER jusqu'ici.
+        if (poweredChanged)
+        {
+            for (auto& mw : mixWidthFaders)
+            {
+                mw->mix.lookAndFeel.setPowered (powered);
+                mw->width.lookAndFeel.setPowered (powered);
+                mw->mix.slider.repaint();
+                mw->width.slider.repaint();
+            }
+        }
+
+        // Retour utilisateur : "clignotte comme un neon a l'extinction
+        // seulement" -- voir SixpackLookAndFeel::getPowerTransitionMix() et
+        // la passe superposee dans paint(). Repeint TOUT le rack (pas
+        // seulement la/les colonnes changees ci-dessous) tant que la
+        // transition est en cours, puisque la passe de flicker couvre les
+        // 6 bandes en une seule fois.
+        const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
+        powerFlickerMix = laf != nullptr ? laf->getPowerTransitionMix() : 1.0f;
+        if (std::abs (powerFlickerMix - lastPaintedFlickerMix) > 0.01f)
+        {
+            lastPaintedFlickerMix = powerFlickerMix;
+            repaint();
+        }
+
         auto bounds = getLocalBounds().toFloat();
         for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
         {
@@ -364,6 +494,10 @@ private:
     }
 
     bool lastPowered = true;
+    // Retour utilisateur : "clignotte comme un neon a l'extinction
+    // seulement" -- voir timerCallback()/paint().
+    float powerFlickerMix = 1.0f;
+    float lastPaintedFlickerMix = 1.0f;
     std::array<float, (size_t) SixpackAudioProcessor::NumBands> lastGrDb {}, lastExDb {}, lastOutDb {};
 
     // Cache d'arriere-plan des 6 plaques (voir doc de paint() /
@@ -412,14 +546,23 @@ private:
     // barre de controle du haut restent inchangees.
     static constexpr float compactBandW = 224.0f;  // 150 + zone WET/DRY+SPREAD
     static constexpr float edgePadding = 8.0f;     // voir ConsoleFader::setEdgePadding()
+    // Marge haute DELIBEREMENT plus petite que edgePadding (retour
+    // utilisateur : "j'ai la bande du fader qui coupe bizarement et
+    // horizontalement les push" -- voir ConsoleFader::setEdgePadding()) --
+    // avec une marge symetrique de 8, le clip du fader ne laissait qu'~1px
+    // de jeu avec le bas de la rangee SOLO/SEL.
+    static constexpr float edgePaddingTop = 3.0f;
     // SOLO/SEL EN HAUT de la plaque (retour utilisateur explicite : "je
     // pense que les boutons solo et sel doivent etre au dessus du fader et
-    // pas en dessous pour eviter les grands deplacements de souris") --
-    // buttonRowH inclut une marge haute dediee (screwClearance) pour
-    // degager largement les 2 vis de coin superieures (voir paint()),
-    // avant meme la reduction visuelle des boutons eux-memes.
-    static constexpr float buttonRowH = 52.0f;
-    static constexpr float buttonScrewClearance = 20.0f;
+    // pas en dessous pour eviter les grands deplacements de souris").
+    // buttonScrewClearance degage les 2 vis de coin SUPERIEURES de chaque
+    // plaque de bande (voir paint(), screwInset=9 + screwRadius=3.4 =
+    // ~12.4px de vrai encombrement) -- 14 laisse ~1.6px de marge, le
+    // minimum raisonnable (retour utilisateur repete : "tu peux encore
+    // monter les boutons"). Boutons legerement reduits en hauteur (retour
+    // utilisateur : "reduire un peu la hauteur des boutons").
+    static constexpr float buttonRowH = 58.0f;
+    static constexpr float buttonScrewClearance = 14.0f;
     static constexpr float buttonGap = 6.0f;
 
     struct Layout
@@ -434,8 +577,17 @@ private:
         auto plate = colOuter.reduced (3.0f);
         auto buttonRow = plate.removeFromTop (buttonRowH);
         buttonRow.removeFromTop (buttonScrewClearance);
-        buttonRow = buttonRow.reduced (10.0f, 4.0f);
-        auto content = plate.reduced (10.0f, 15.0f);
+        buttonRow = buttonRow.reduced (10.0f, 3.0f);
+        // Marge verticale ASYMETRIQUE -- retour utilisateur : "resserre
+        // l'espace entre les boutons et la zone des faders" (haut reduit
+        // 15->6) ET "le bas du fader est trop proche du bas de la plaque,
+        // collision avec les vis" (bas remonte de 1 -> 15, pour degager les
+        // 2 vis de coin INFERIEURES, meme encombrement ~12.4px que celles
+        // du haut). Cout net compense par la rangee de boutons remontee/
+        // reduite ci-dessus : la course du fader ne perd quasiment rien.
+        auto content = plate.reduced (10.0f, 0.0f);
+        content.removeFromTop (6.0f);
+        content.removeFromBottom (15.0f);
 
         Layout lay;
         lay.leftSection = content.removeFromLeft (leftSectionW);
@@ -490,7 +642,12 @@ private:
     // cote) -- barre LISSE (pas de diodes), degrade vert -> jaune -> rouge
     // SANS cyan (pour ne pas se confondre avec le bleu/cyan d'EXPAND),
     // etiree sur toute la hauteur de la plaque comme le reste.
-    void drawMasterMeter (juce::Graphics& g, juce::Rectangle<float> track, int band, bool powered)
+    // forceFullyLit (retour utilisateur : "clignotte comme un neon a
+    // l'extinction seulement") : ignore powered/la valeur reelle et dessine
+    // comme a pleine charge -- utilise UNIQUEMENT pour la passe de flicker
+    // superposee dans paint() (voir SixpackLookAndFeel::
+    // getPowerTransitionMix()), jamais en usage normal.
+    void drawMasterMeter (juce::Graphics& g, juce::Rectangle<float> track, int band, bool powered, bool forceFullyLit = false)
     {
         g.setColour (juce::Colours::black.withAlpha (0.5f));
         g.fillRoundedRectangle (track, 2.0f);
@@ -502,7 +659,7 @@ private:
 
         constexpr float minDb = -48.0f, maxDb = 3.0f;
         const float outDb = powered ? processorRef.bandOutputLevelDb[(size_t) band].load() : minDb;
-        const float frac = juce::jlimit (0.0f, 1.0f, (outDb - minDb) / (maxDb - minDb));
+        const float frac = forceFullyLit ? 1.0f : juce::jlimit (0.0f, 1.0f, (outDb - minDb) / (maxDb - minDb));
         const float litY = track.getBottom() - frac * track.getHeight();
 
         if (litY < track.getBottom())
@@ -551,7 +708,9 @@ private:
     // Diodes GR + EXPAND -- DYNAMIQUES (dependent des valeurs audio en
     // temps reel) : seule partie encore redessinee a chaque frame, voir
     // doc de paint()/rebuildBackgroundCacheIfNeeded().
-    void drawBandDynamic (juce::Graphics& g, juce::Rectangle<float> col, int band, bool powered)
+    // forceFullyLit : voir doc de drawMasterMeter() ci-dessus, meme usage
+    // exclusif pour la passe de flicker "neon a l'extinction".
+    void drawBandDynamic (juce::Graphics& g, juce::Rectangle<float> col, int band, bool powered, bool forceFullyLit = false)
     {
         // Retour utilisateur : "je souhaite que les mesures prennent toute
         // la hauteur dans le rack du bas" -- nombre de diodes FIXE, mais
@@ -566,8 +725,8 @@ private:
 
         const float grDb    = juce::jlimit (0.0f, scaleMarksDb[numScaleMarks - 1], processorRef.grMeterDb[(size_t) band].load());
         const float exDbRaw = juce::jlimit (0.0f, kExpandLedDb * (float) numLeds, processorRef.grMeterExpandDb[(size_t) band].load());
-        const int litCount  = powered ? (int) std::round (dbToFraction (grDb) * (float) numLeds) : 0;
-        const int litExpand = powered ? (int) std::round (exDbRaw / kExpandLedDb) : 0;
+        const int litCount  = forceFullyLit ? numLeds : (powered ? (int) std::round (dbToFraction (grDb) * (float) numLeds) : 0);
+        const int litExpand = forceFullyLit ? numLeds : (powered ? (int) std::round (exDbRaw / kExpandLedDb) : 0);
 
         const float bottom = col.getBottom();
 
@@ -611,6 +770,20 @@ private:
             g.fillRoundedRectangle (dot, 1.0f);
         }
     }
+
+    // "Pairage console" des faders Output (voir setSelectedBand() et le
+    // wiring de faders[band]->slider.onValueChange dans le constructeur) --
+    // b fait partie du groupe actif si c'est la bande primaire (selectedBand
+    // cote editeur) OU une bande liee (Ctrl/Cmd+clic SEL).
+    bool isInSelectionGroup (int b) const noexcept
+    {
+        return b == selectionPrimaryBand || linkedBandsState[(size_t) b];
+    }
+
+    int selectionPrimaryBand = -1;
+    std::array<bool, (size_t) SixpackAudioProcessor::NumBands> linkedBandsState {};
+    bool outputSelectionLinkGuard = false;
+    std::array<double, (size_t) SixpackAudioProcessor::NumBands> lastFaderOutputValue {};
 
     SixpackAudioProcessor& processorRef;
     std::atomic<float>& powerParam;

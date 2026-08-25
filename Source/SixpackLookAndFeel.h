@@ -106,8 +106,58 @@ public:
     // RatioSelector, DetectorFilterGraph...) l'interroge dans son paint()
     // et se rend lui-meme "eteint" (comme debranche), au lieu d'un grand
     // rectangle noir plaque par-dessus tout. Mis a jour par l'editeur.
-    void setPowered (bool p) noexcept { powered = p; }
+    void setPowered (bool p) noexcept
+    {
+        // Retour utilisateur : "quand on appuie sur off du header que les
+        // parametre qui s'eteignet clignotte comme un neon a l'extinction
+        // seulement" -- le flicker ne se declenche QUE sur la transition
+        // ON->OFF (jamais au rallumage, voir getPowerTransitionMix() qui
+        // renvoie 1.0 direct des que powered redevient true).
+        if (powered && ! p)
+            powerOffFlickerStartMs = juce::Time::getMillisecondCounter();
+        powered = p;
+    }
     bool isPowered() const noexcept { return powered; }
+
+    // Melange 1.0 (pleine luminosite) -> 0.0 (etat eteint au repos) pendant
+    // la bascule ON->OFF -- 1.0 tant que powered==true (aucun effet au
+    // rallumage), puis un bref tremblement irregulier ("vieux neon", voir
+    // doc de setPowered()) suivi d'un fondu doux vers 0.0 une fois
+    // powered==false. Chaque appelant combine ceci avec SA PROPRE valeur
+    // de repos "eteint" : finalBrightness = restValue + (1-restValue) *
+    // getPowerTransitionMix() -- restValue = 0.0 pour un meter qui
+    // s'eteint completement, 0.12 pour l'aiguille NeedleVU qui reste
+    // visible en sourdine, etc.
+    //
+    // Deterministe (cosinus amorti, PAS de generateur aleatoire) : tous les
+    // composants qui lisent cette fonction au meme instant voient
+    // exactement la meme valeur, donc restent synchronises entre eux malgre
+    // leurs Timer independants. jitterAt(0) == 1.0 : raccord visuel continu
+    // avec la pleine luminosite juste avant la coupure (pas de saut brusque
+    // a mi-luminosite des l'instant du clic).
+    float getPowerTransitionMix() const noexcept
+    {
+        if (powered)
+            return 1.0f;
+
+        constexpr double jitterMs = 200.0, fadeMs = 220.0;
+        const double elapsed = (double) (juce::Time::getMillisecondCounter() - powerOffFlickerStartMs);
+        if (elapsed >= jitterMs + fadeMs)
+            return 0.0f;
+
+        const auto jitterAt = [jitterMs] (double t)
+        {
+            const double envelope = juce::jlimit (0.0, 1.0, 1.0 - (t / jitterMs) * 0.5);
+            return juce::jlimit (0.0, 1.0, 0.5 + 0.5 * std::cos (t * 0.085) * envelope);
+        };
+
+        if (elapsed < jitterMs)
+            return (float) jitterAt (elapsed);
+
+        // Fondu : part de la derniere valeur de tremblement vers 0, lineaire.
+        const double fadeProgress = (elapsed - jitterMs) / fadeMs;
+        return (float) (jitterAt (jitterMs) * (1.0 - fadeProgress));
+    }
 
     // Theme SOMBRE (par defaut)/CLAIR -- retour utilisateur explicite : "je
     // souhaite faire un design plus clair qu'on peut changer dans
@@ -155,6 +205,18 @@ public:
 
     static bool isLightThemeStatic() noexcept { return lightThemeActive; }
     bool isLightTheme() const noexcept { return lightThemeActive; }
+
+    // Bleu de TEXTE (titres de section, liens -- AboutOverlay/OptionsOverlay)
+    // -- contrairement aux LEDs/diodes fixes de SixpackColours (jamais
+    // rethemees, un afficheur reste sombre quel que soit le chassis), un
+    // libelle ecrit DIRECTEMENT sur le panneau doit rester lisible une fois
+    // ce panneau devenu gris clair (retour utilisateur : "le bleu cyan sur
+    // gris c'est pas visible" en theme clair) -- variante nettement plus
+    // foncee dans ce cas, identique a SixpackColours::ledBlue en sombre.
+    static juce::Colour textAccentBlue() noexcept
+    {
+        return isLightThemeStatic() ? juce::Colour (0xff0d6a9e) : SixpackColours::ledBlue;
+    }
 
     // Knob "anneau metal" : chiffres 0-10 imprimes sur l'anneau brosse
     // qui tourne AVEC le knob (espacement regulier + subdivisions par
@@ -277,10 +339,57 @@ public:
     static float meterDisplayRatio (float db, float minDb, float maxDb);
     static void drawGlossyDot (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour colour, bool lit);
 
+    // Bouton "neumorphic dark mono" -- retour utilisateur (RackPushButton :
+    // SOLO/SEL) : "j'aime bien dark mono", puis reutilise tel quel pour
+    // AiLearnButton ("il faut le meme type de bouton que solo et sel").
+    // Meme teinte que la plaque environnante, aucune bordure : souleve
+    // (halo clair haut-gauche/sombre bas-droite) au repos, creuse (2
+    // degrades radiaux opposes simulant une ombre interne) quand lit ou
+    // pendant un appui (isDown). Factorise ici plutot que duplique dans
+    // les 2 boutons -- meme rendu, seule la source de "lit" differe
+    // (toggle/selection pour SOLO/SEL, clignotement pendant l'analyse pour
+    // Learn).
+    //
+    // Base TOUJOURS neutre, jamais teintee par bande (retour utilisateur,
+    // avec captures comparant plusieurs bandes cote a cote : "je veux que
+    // sur chaque bande, chaque bouton dans le header soit identique a
+    // l'enfoncement") -- plusieurs tentatives passees de teinter la base
+    // avec la couleur DE LA BANDE (voir historique git) donnaient un
+    // rendu different d'une bande a l'autre selon la teinte de l'accent
+    // -- retire au profit d'un rendu strictement identique partout.
+    //
+    // haloMargin : retour utilisateur avec reference visuelle (capture
+    // CSS "C -- extreme") -- le halo doit deborder LARGEMENT hors du
+    // bouton (pas un simple degrade interne). Ca ne peut exister que si
+    // le relief a un vrai espace REEL pour deborder -- haloMargin (voir
+    // les appelants : `bounds` doit deja inclure cette marge en plus de
+    // la taille visuelle voulue, via une expansion faite au niveau de la
+    // mise en page, PAS ici) delimite jusqu'ou le halo peut deborder
+    // SANS jamais sortir des bounds du composant -- donc plus besoin de
+    // setPaintingIsUnclipped() (source du bug de coherence rencontre
+    // avec l'ancienne technique, qui laissait deborder hors du
+    // composant lui-meme).
+    static void paintNeumorphicButton (juce::Graphics& g, juce::Rectangle<float> bounds, bool lit, bool isDown,
+                                        juce::Colour accent, const juce::String& text, float textAlphaMultiplier = 1.0f,
+                                        float haloMargin = 2.0f);
+
+    // Reconstruit la signature "Mikshake" (encre `ink`) a partir du PNG
+    // maitre haute-resolution embarque (BinaryData::signature_mikshake_master_png,
+    // 1536x1024, deja anti-aliase nativement), recadree sur la bbox utile de
+    // l'encre puis reduite via un pipeline de qualite (alpha = couverture
+    // d'encre reelle + resampler JUCE area-averaging par paliers x2) jusqu'a
+    // une largeur d'affichage `targetW` (hauteur deduite du ratio). Usage
+    // partage entre le chrome principal (PluginEditor.cpp) et l'ecran About
+    // (AboutOverlay.h) -- retour utilisateur : l'ancien pipeline maison
+    // "min-pooling + seuil binaire" produisait une "soupe de pixels"
+    // illisible a ces tailles ; voir commentaire d'appel pour le detail.
+    static juce::Image buildSignatureImage (juce::Colour ink, int targetW);
+
 private:
     void refreshFixedColours();
 
     bool powered = true;
+    juce::uint32 powerOffFlickerStartMs = 0;
     // static : le theme est un choix GLOBAL du plugin (voir OptionsOverlay),
     // pas par instance -- une seule instance de SixpackLookAndFeel existe
     // de toute facon (SixpackAudioProcessorEditor::lookAndFeel), mais

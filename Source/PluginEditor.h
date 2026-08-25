@@ -6,6 +6,7 @@
 #include "RatioSelector.h"
 #include "PowerRocker.h"
 #include "ToggleSwitch.h"
+#include "RackPushButton.h"
 #include "DetectorFilterGraph.h"
 #include "NeedleVU.h"
 #include "NeedleModeSelector.h"
@@ -317,6 +318,18 @@ private:
     // -- redemarre sur MID a chaque ouverture, comme les onglets d'un menu).
     int selectedBand = (int) SixpackAudioProcessor::Mid;
 
+    // Bandes "liees" en edition (Ctrl/Cmd+clic sur SEL, retour utilisateur :
+    // "en appuyant sur control (cmd mac) on peut selectionner plusieurs
+    // bandes avec Sel ... je veux le meme systeme que le pairage d'une
+    // console") -- transmis a BandMetersRack (setSelectedBand()) qui gere
+    // le "pairage" reel des faders Output visibles (voir
+    // BandMetersRack::wireOutputSelectionLink()) : bouger le fader de
+    // N'IMPORTE QUELLE bande du groupe (selectedBand OU une bande liee)
+    // deplace toutes les autres du meme delta, symetrique comme sur une
+    // vraie console. Un clic SIMPLE (sans Ctrl) sur SEL vide cette
+    // selection et change juste selectedBand.
+    std::array<bool, (size_t) SixpackAudioProcessor::NumBands> linkedBands {};
+
     // --- Barre de controle globale (haut) ---
     PowerRocker powerButton;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> powerAttachment;
@@ -341,8 +354,11 @@ private:
     // meme raisonnement d'ordre d'initialisation que ci-dessus.
     AiLearnButton aiLearnButton { processorRef };
 
-    ToggleSwitch linkInSwitch  { "LINK IN",  SixpackColours::ledGreen };
-    ToggleSwitch linkOutSwitch { "LINK OUT", SixpackColours::ledRed };
+    // Style neumorphic "dark mono" unifie avec SOLO/SEL/LEARN/THD (retour
+    // utilisateur : "on va mettre les memes boutons pour link in link out"),
+    // remplace l'ancien ToggleSwitch (sprite).
+    RackPushButton linkInSwitch  { "LINK IN",  SixpackColours::ledGreen };
+    RackPushButton linkOutSwitch { "LINK OUT", SixpackColours::ledRed };
     bool linkInGuard = false, linkOutGuard = false;
     std::array<double, (size_t) SixpackAudioProcessor::NumBands> lastInputValue {};
     std::array<double, (size_t) SixpackAudioProcessor::NumBands> lastOutputValue {};
@@ -457,6 +473,13 @@ public:
         setResizeLimits ((int) (SixpackEditorContent::baseWidth  * 0.75f), (int) (SixpackEditorContent::baseHeight * 0.75f),
                           SixpackEditorContent::baseWidth,                 SixpackEditorContent::baseHeight);
 
+        // Re-applique une seconde fois des que la fenetre a un vrai peer
+        // natif -- voir parentHierarchyChanged() ci-dessous (retour
+        // utilisateur : "je suis oblige de changer la taille du plugin
+        // pour avoir le bon design d'enfoncement" -- CET appel-ci, dans le
+        // constructeur, a lieu AVANT que la fenetre ait un peer, et
+        // suffit pour la mise en page/taille mais pas pour que le rendu
+        // neumorphic (setPaintingIsUnclipped) parte sur de bonnes bases).
         applyUiScale (processorRef.uiScale.load());
     }
 
@@ -503,6 +526,23 @@ public:
     {
         juce::AudioProcessorEditor::parentHierarchyChanged();
         hookTitleBarDoubleClick();
+
+        // 7 tentatives basees sur "il faut redeclencher un repaint au bon
+        // moment/a la bonne echelle" ont toutes echoue (retour
+        // utilisateur repete). Analyse revisee : ce n'est PROBABLEMENT PAS
+        // un bug de timing/repaint du tout -- voir SixpackLookAndFeel.cpp,
+        // paintNeumorphicButton() : l'etat SOULEVE (bouton eteint, au
+        // repos) utilise un relief EXTERIEUR discret (double DropShadow),
+        // volontairement adouci lors d'un tour precedent pour eliminer un
+        // "carre" visible autour du bouton -- ce reglage l'a sans doute
+        // rendu trop subtil/plat. L'etat CREUX (allume/selectionne)
+        // utilise un contraste INTERNE bien plus marque (degrades noir/
+        // blanc clippes dans la forme). Cliquer un bouton (SOLO) le fait
+        // passer en creux -- PERMANENT tant qu'il reste actif -- d'ou
+        // l'impression d'un "avant/apres" qui n'est en realite qu'un
+        // changement d'ETAT LOGIQUE (eteint/allume), pas un correctif de
+        // rendu. Fix reel applique directement dans paintNeumorphicButton()
+        // (contraste du relief souleve remonte).
     }
 
     void hookTitleBarDoubleClick()

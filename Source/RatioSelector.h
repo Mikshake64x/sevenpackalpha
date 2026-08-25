@@ -1,7 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
 #include "SixpackLookAndFeel.h"
-#include "PressAnimator.h"
 
 /**
     RatioSelector
@@ -10,11 +9,15 @@
     directement cliquable -- pas de defilement. Un seul actif a la fois
     (radio group JUCE natif). (1:1 retire -- ratio neutre inutile.)
 
-    Style bouton "plastique carre en relief" : au repos, le bouton est
-    SURELEVE (bevel clair en haut, ombre en bas). Actif : le bouton
-    s'ENFONCE (bevel inverse -- sombre en haut/gauche, clair en bas/droite)
-    -- la couleur du bouton NE change PAS, seule la diode au-dessus
-    s'allume. Le libelle du ratio est imprime au-dessus de la diode.
+    Style neumorphic "dark mono" unifie avec le reste du plugin (retour
+    utilisateur, avec capture d'ecran : "il y a des cadres qui apparaissent
+    maintenant sur les bandes derriere les knob et bouton. je veux pas ca"
+    -- l'ancien style "plastique carre en relief" (fond mat + bordure
+    TOUJOURS visible, voir git blame) tranchait avec SOLO/SEL/LEARN/etc,
+    deja convertis) : coque neumorphic (SixpackLookAndFeel::
+    paintNeumorphicButton(), texte vide -- le libelle est dessine
+    separement ci-dessous, sous la diode) + diode de couleur (degrade
+    cyan->rouge, ratios doux->durs) au-dessus, INCHANGEE.
 
     Un seul actif a la fois (radio group JUCE natif). 10:1 est desormais
     un ratio comme les autres -- le comportement "Opto" (release plus
@@ -26,7 +29,7 @@ class RatioSelector : public juce::Component
 public:
     static constexpr int numRatios = 7;
 
-    struct RatioButton : public juce::Button, private PressAnimator
+    struct RatioButton : public juce::Button
     {
         RatioButton (const juce::String& labelText, juce::Colour ledColourIn)
             : juce::Button (labelText), text (labelText), ledColour (ledColourIn)
@@ -34,49 +37,44 @@ public:
             setClickingTogglesState (true);
         }
 
-        void buttonStateChanged() override
+        // Voir RackPushButton::setHaloMargin() -- meme idiome. Ces
+        // boutons sont petits (7 dans une rangee etroite) donc une marge
+        // plus modeste que les gros boutons (SOLO/SEL/LEARN).
+        void setHaloMargin (float margin) noexcept { haloMargin = margin; repaint(); }
+
+        bool hitTest (int x, int y) override
         {
-            if (getState() == juce::Button::buttonDown) notePressed(); else noteReleased();
+            return getLocalBounds().toFloat().reduced (haloMargin).contains ((float) x, (float) y);
         }
 
-        void onPressAnimated() override { repaint(); }
-
-        // Meme style EXACT que ToggleSwitch (Detector/Audio) : rectangle
-        // mat, diode a gauche, bordure toujours neutre -- coherence
-        // visuelle demandee entre toutes les rangees de boutons.
-        void paintButton (juce::Graphics& g, bool /*isHighlighted*/, bool /*isDown*/) override
+        void paintButton (juce::Graphics& g, bool /*isHighlighted*/, bool isDown) override
         {
-            auto bounds = getLocalBounds().toFloat();
-            applyPressTransform (g, bounds);
             const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
             const bool powered = (laf == nullptr) || laf->isPowered();
-            // Bouton physique : l'aspect (enfonce/sureleve, texte) suit
-            // l'etat mecanique, pas le courant. Seule la diode s'eteint.
+            // Bouton physique : l'aspect (enfonce/sureleve) suit l'etat
+            // mecanique, pas le courant. Seule la diode s'eteint.
             const bool on = getToggleState();
             const bool ledLit = powered && on;
-            const juce::Colour accent = ledColour;
-            const float corner = juce::jmin (7.0f, bounds.getHeight() * 0.16f);
 
-            juce::Path shape;
-            shape.addRoundedRectangle (bounds, corner);
-            juce::DropShadow shadow (juce::Colours::black.withAlpha (0.4f), 3, { 0, 2 });
-            shadow.drawForPath (g, shape);
+            SixpackLookAndFeel::paintNeumorphicButton (g, getLocalBounds().toFloat(), on, isDown, ledColour, juce::String(),
+                                                         1.0f, haloMargin);
 
-            juce::ColourGradient fillGrad (on ? juce::Colour (0xff2f333a) : juce::Colour (0xff2b2e33), bounds.getX(), bounds.getY(),
-                                            on ? juce::Colour (0xff191c22) : juce::Colour (0xff17191c), bounds.getX(), bounds.getBottom(), false);
-            g.setGradientFill (fillGrad);
-            g.fillRoundedRectangle (bounds, corner);
-
-            g.setColour (juce::Colours::black.withAlpha (0.55f));
-            g.drawRoundedRectangle (bounds.reduced (0.5f), corner, 1.0f);
-
+            auto bounds = getLocalBounds().toFloat().reduced (haloMargin);
             const float ledDiameter = juce::jmin (7.0f, bounds.getWidth() * 0.22f);
             auto ledBounds = juce::Rectangle<float> (ledDiameter, ledDiameter)
                                   .withCentre ({ bounds.getCentreX(), bounds.getY() + bounds.getHeight() * 0.28f });
-            g.setColour (ledLit ? accent : accent.interpolatedWith (juce::Colours::black, 0.85f));
+            g.setColour (ledLit ? ledColour : ledColour.interpolatedWith (juce::Colours::black, 0.85f));
             g.fillEllipse (ledBounds);
 
-            g.setColour (on ? SixpackColours::chipTextBright : SixpackColours::chipTextDim);
+            // Retour utilisateur : "quand on clique sur les bouton de
+            // ratios, les 2/1, 4/1 et tout reste en noir ou blanc" -- le
+            // chiffre du ratio SELECTIONNE doit prendre la couleur
+            // d'accent (degrade cyan->rouge), pas juste la diode au-dessus.
+            // ledColour.darker(0.2f) en theme clair rendait ca trop pres du
+            // noir sur certains ratios pour se distinguer clairement.
+            const bool lightTheme = SixpackLookAndFeel::isLightThemeStatic();
+            g.setColour (on ? ledColour
+                            : (lightTheme ? juce::Colour (0xff1a1a1a) : juce::Colours::white).withAlpha (0.88f));
             g.setFont (juce::Font (juce::FontOptions (juce::jmin (12.5f, bounds.getWidth() * 0.34f), juce::Font::bold)));
             g.drawFittedText (text, bounds.withTrimmedTop (bounds.getHeight() * 0.5f).toNearestInt(),
                                juce::Justification::centred, 1);
@@ -84,6 +82,7 @@ public:
 
         juce::String text;
         juce::Colour ledColour;
+        float haloMargin = 4.0f;
     };
 
     RatioSelector()
@@ -128,13 +127,26 @@ public:
 
     int getSelectedIndex() const noexcept { return selected; }
 
+    // Marge de halo partagee (meme idiome que XoverModeButton::
+    // segmentMargin/ConsoleFader::edgePadding) -- l'appelant EXTERIEUR
+    // (PluginEditor.cpp) doit agrandir les bounds de CE composant d'autant.
+    static constexpr float buttonMargin = 4.0f;
+
     void resized() override
     {
-        auto bounds = getLocalBounds();
-        const int gap = 4;
-        const int w = (bounds.getWidth() - gap * (numRatios - 1)) / numRatios;
+        auto bounds = getLocalBounds().toFloat().reduced (buttonMargin);
+        // Gap agrandi (4 -> 9, retour utilisateur : reference visuelle
+        // "C -- extreme") : reserve un peu d'air entre les 7 boutons pour
+        // que le halo (voir RatioButton::haloMargin) reste lisible comme
+        // un vrai relief individuel plutot que de fusionner visuellement
+        // avec le voisin.
+        constexpr float gap = 9.0f;
+        const float w = (bounds.getWidth() - gap * (float) (numRatios - 1)) / (float) numRatios;
         for (int i = 0; i < numRatios; ++i)
-            buttons[i]->setBounds (bounds.getX() + i * (w + gap), bounds.getY(), w, bounds.getHeight());
+        {
+            juce::Rectangle<float> nominal (bounds.getX() + (float) i * (w + gap), bounds.getY(), w, bounds.getHeight());
+            buttons[i]->setBounds (nominal.expanded (buttonMargin).toNearestInt());
+        }
     }
 
     void paint (juce::Graphics&) override {}

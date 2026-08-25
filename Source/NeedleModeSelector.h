@@ -1,7 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "SixpackLookAndFeel.h"
-#include "PressAnimator.h"
+#include "RackPushButton.h"
 
 /**
     NeedleModeSelector
@@ -12,55 +12,22 @@
     NeedleVU (un selecteur independant par cadran, voir PluginEditor) pour
     choisir directement le mode affiche, plutot que de faire defiler au
     clic sur le cadran.
+
+    Style neumorphic "dark mono" unifie avec SOLO/SEL/LEARN/THD/LINK
+    (retour utilisateur : "on va mettre les memes boutons ... aussi sur les
+    selecteurs des vu metres") -- reutilise directement RackPushButton
+    plutot qu'une classe de bouton dediee (l'ancien ModeButton + gradient
+    plat propre a ce composant).
 */
 class NeedleModeSelector : public juce::Component
 {
 public:
     static constexpr int numModes = 3;
 
-    struct ModeButton : public juce::Button, private PressAnimator
-    {
-        explicit ModeButton (const juce::String& labelText) : juce::Button (labelText), text (labelText)
-        {
-            setClickingTogglesState (true);
-        }
-
-        void buttonStateChanged() override
-        {
-            if (getState() == juce::Button::buttonDown) notePressed(); else noteReleased();
-        }
-
-        void onPressAnimated() override { repaint(); }
-
-        void paintButton (juce::Graphics& g, bool /*isHighlighted*/, bool /*isDown*/) override
-        {
-            auto bounds = getLocalBounds().toFloat();
-            applyPressTransform (g, bounds);
-            const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
-            const bool powered = (laf == nullptr) || laf->isPowered();
-            const bool on = getToggleState();
-            const float corner = juce::jmin (5.0f, bounds.getHeight() * 0.22f);
-
-            juce::Path shape;
-            shape.addRoundedRectangle (bounds, corner);
-            juce::DropShadow shadow (juce::Colours::black.withAlpha (0.35f), 2, { 0, 1 });
-            shadow.drawForPath (g, shape);
-
-            juce::ColourGradient fillGrad (on ? juce::Colour (0xff2f333a) : juce::Colour (0xff2b2e33), bounds.getX(), bounds.getY(),
-                                            on ? juce::Colour (0xff191c22) : juce::Colour (0xff17191c), bounds.getX(), bounds.getBottom(), false);
-            g.setGradientFill (fillGrad);
-            g.fillRoundedRectangle (bounds, corner);
-
-            g.setColour (juce::Colours::black.withAlpha (0.55f));
-            g.drawRoundedRectangle (bounds.reduced (0.5f), corner, 1.0f);
-
-            g.setColour (on ? (powered ? SixpackColours::ledAmber : SixpackColours::chipTextBright) : SixpackColours::chipTextDim);
-            g.setFont (juce::Font (juce::FontOptions (11.5f, juce::Font::bold)).withExtraKerningFactor (0.02f));
-            g.drawFittedText (text, bounds.reduced (1.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1);
-        }
-
-        juce::String text;
-    };
+    // Marge de halo partagee (meme idiome que XoverModeButton::
+    // segmentMargin/ConsoleFader::edgePadding) -- l'appelant EXTERIEUR
+    // (PluginEditor.cpp) doit agrandir les bounds de CE composant d'autant.
+    static constexpr float buttonMargin = 5.0f;
 
     // channelSuffix : "L" ou "R" -- construit les libelles IN/OUT specifiques
     // au canal de ce cadran (THD reste commun).
@@ -70,8 +37,14 @@ public:
 
         for (int i = 0; i < numModes; ++i)
         {
-            buttons[i] = std::make_unique<ModeButton> (names[i]);
+            buttons[i] = std::make_unique<RackPushButton> (names[i], SixpackColours::ledAmber);
+            // RackPushButton ne configure pas ceci par defaut (SEL en
+            // depend pour rester momentane, voir RackPushButton.h) -- ici
+            // un vrai radio group exclusif a besoin du toggle au clic,
+            // meme raison que SOLO/LINK IN/LINK OUT.
+            buttons[i]->setClickingTogglesState (true);
             buttons[i]->setRadioGroupId (3001, juce::dontSendNotification);
+            buttons[i]->setHaloMargin (buttonMargin);
             addAndMakeVisible (*buttons[i]);
 
             buttons[i]->onClick = [this, i]
@@ -93,18 +66,21 @@ public:
 
     void resized() override
     {
-        auto bounds = getLocalBounds();
-        const int gap = 3;
-        const int h = (bounds.getHeight() - gap * (numModes - 1)) / numModes;
+        auto bounds = getLocalBounds().toFloat().reduced (buttonMargin);
+        constexpr float gap = 3.0f;
+        const float h = (bounds.getHeight() - gap * (numModes - 1)) / (float) numModes;
         for (int i = 0; i < numModes; ++i)
-            buttons[i]->setBounds (bounds.getX(), bounds.getY() + i * (h + gap), bounds.getWidth(), h);
+        {
+            juce::Rectangle<float> nominal (bounds.getX(), bounds.getY() + (float) i * (h + gap), bounds.getWidth(), h);
+            buttons[i]->setBounds (nominal.expanded (buttonMargin).toNearestInt());
+        }
     }
 
     void paint (juce::Graphics&) override {}
 
 private:
     int selected = 0;
-    std::unique_ptr<ModeButton> buttons[numModes];
+    std::unique_ptr<RackPushButton> buttons[numModes];
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (NeedleModeSelector)
 };

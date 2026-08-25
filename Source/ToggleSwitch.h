@@ -1,24 +1,26 @@
 #pragma once
 #include <JuceHeader.h>
 #include "SixpackLookAndFeel.h"
-#include "PressAnimator.h"
 
 /**
     ToggleSwitch
     ------------
-    Bouton rectangulaire "plastique mou mat" avec diode a gauche --
-    utilise pour DETECTOR/AUDIO (HP, BELL, LINK, TUBE, FUZZ) et
-    SOFTCLIP. Design valide en session : coins moyennement arrondis (PAS
-    une pilule), degrade diffus mat (aucune bande brillante/glossy), ombre
-    portee douce pour un leger relief 3D, BORDURE TOUJOURS NEUTRE (jamais
-    teintee par la couleur d'accent). La DIODE est le seul indicateur
-    d'etat -- pas de halo/glow autour du bouton ni du contour.
+    Bouton avec diode a gauche -- utilise pour OPTICAL/OVERKILL/SC (les
+    seuls encore visibles, voir SixpackEditorContent::buildBandPanel() --
+    DETECTOR/AUDIO HP/BELL/TUBE/FUZZ restent caches, voir addChildComponent
+    plutot qu'addAndMakeVisible la-bas).
 
-    Anime en plus un petit "squash" au clic (voir PressAnimator) -- ne
-    reste JAMAIS visuellement enfonce, meme si l'etat logique (toggle)
-    reste actif.
+    Style neumorphic "dark mono" unifie avec le reste du plugin (retour
+    utilisateur, avec capture d'ecran : "il y a des cadres qui apparaissent
+    maintenant sur les bandes derriere les knob et bouton. je veux pas ca"
+    -- l'ancien style "plastique mou mat" avec bordure TOUJOURS visible
+    tranchait avec SOLO/SEL/LEARN/etc, deja convertis) : coque neumorphic
+    (SixpackLookAndFeel::paintNeumorphicButton(), texte vide -- le libelle
+    est dessine separement ci-dessous, a droite de la diode) + diode
+    INCHANGEE (seul indicateur d'etat electrique -- s'eteint hors tension
+    meme si l'interrupteur est mecaniquement enclenche).
 */
-class ToggleSwitch : public juce::Button, private PressAnimator
+class ToggleSwitch : public juce::Button
 {
 public:
     // externalEnabledSource : optionnel, meme traitement que le Power global
@@ -41,17 +43,16 @@ public:
     // le mode courant, voir SixpackEditorContent::buildBandPanel().
     void setAccentColour (juce::Colour newAccent) { accent = newAccent; repaint(); }
 
-    void buttonStateChanged() override
+    // Voir RackPushButton::setHaloMargin() -- meme idiome.
+    void setHaloMargin (float margin) noexcept { haloMargin = margin; repaint(); }
+
+    bool hitTest (int x, int y) override
     {
-        if (getState() == juce::Button::buttonDown) notePressed(); else noteReleased();
+        return getLocalBounds().toFloat().reduced (haloMargin).contains ((float) x, (float) y);
     }
 
-    void onPressAnimated() override { repaint(); }
-
-    void paintButton (juce::Graphics& g, bool /*isHighlighted*/, bool /*isDown*/) override
+    void paintButton (juce::Graphics& g, bool /*isHighlighted*/, bool isDown) override
     {
-        auto bounds = getLocalBounds().toFloat();
-        applyPressTransform (g, bounds);
         const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
         const bool powered = ((laf == nullptr) || laf->isPowered())
                               && (externalEnabled == nullptr || externalEnabled->load() > 0.5f);
@@ -60,26 +61,13 @@ public:
         // tension, meme si l'interrupteur est mecaniquement enclenche.
         const bool on = getToggleState();
         const bool ledLit = powered && on;
-        const float corner = juce::jmin (7.0f, bounds.getHeight() * 0.2f);
 
-        // --- Ombre portee douce (relief 3D leger, mat) ---
-        juce::Path shape;
-        shape.addRoundedRectangle (bounds, corner);
-        juce::DropShadow shadow (juce::Colours::black.withAlpha (0.4f), 3, { 0, 2 });
-        shadow.drawForPath (g, shape);
+        SixpackLookAndFeel::paintNeumorphicButton (g, getLocalBounds().toFloat(), on, isDown, accent, juce::String(),
+                                                     1.0f, haloMargin);
 
-        // --- Fond mat : degrade diffus tres discret, quasi identique
-        // off/on -- pas de bande glossy, pas de teinte de couleur qui
-        // envahit le bouton. ---
-        juce::ColourGradient fillGrad (on ? juce::Colour (0xff2f333a) : juce::Colour (0xff2b2e33), bounds.getX(), bounds.getY(),
-                                        on ? juce::Colour (0xff191c22) : juce::Colour (0xff17191c), bounds.getX(), bounds.getBottom(), false);
-        g.setGradientFill (fillGrad);
-        g.fillRoundedRectangle (bounds, corner);
-
-        // --- Bordure TOUJOURS neutre (jamais teintee par l'accent) ---
-        g.setColour (juce::Colours::black.withAlpha (0.55f));
-        g.drawRoundedRectangle (bounds.reduced (0.5f), corner, 1.0f);
-
+        // LED/texte positionnes DANS la pilule visuelle (haloMargin
+        // exclu), pas dans les bounds elargis du composant.
+        auto bounds = getLocalBounds().toFloat().reduced (haloMargin);
         // --- Diode : seul indicateur d'etat, pas de halo autour ---
         const float ledDiameter = juce::jmin (8.0f, bounds.getHeight() * 0.34f);
         auto ledBounds = juce::Rectangle<float> (ledDiameter, ledDiameter)
@@ -87,10 +75,9 @@ public:
         g.setColour (ledLit ? accent : accent.interpolatedWith (juce::Colours::black, 0.85f));
         g.fillEllipse (ledBounds);
 
-        // Fond FIXE fonce quel que soit le theme (voir plus haut) -- texte
-        // FIXE clair aussi (retour utilisateur : "il faut ecrire en blanc
-        // sur les boutons push noire").
-        g.setColour (on ? SixpackColours::chipTextBright : SixpackColours::chipTextDim);
+        const bool lightTheme = SixpackLookAndFeel::isLightThemeStatic();
+        g.setColour (on ? (lightTheme ? accent.darker (0.2f) : accent)
+                        : (lightTheme ? juce::Colour (0xff1a1a1a) : juce::Colours::white).withAlpha (0.88f));
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.1f));
         g.drawFittedText (text.toUpperCase(), bounds.withTrimmedLeft (ledDiameter * 2.8f).toNearestInt(),
                            juce::Justification::centredLeft, 1);
@@ -100,6 +87,7 @@ private:
     juce::String text;
     juce::Colour accent;
     std::atomic<float>* externalEnabled = nullptr;
+    float haloMargin = 5.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ToggleSwitch)
 };

@@ -36,7 +36,7 @@ public:
         // Ecran de recherche style LCD (meme fond que les knobs/ecran de
         // preset) au lieu du TextEditor blanc par defaut.
         searchBox.setTextToShowWhenEmpty ("Search presets...", SixpackColours::textDim);
-        searchBox.setFont (juce::Font (juce::FontOptions (13.0f)));
+        searchBox.setFont (juce::Font (juce::FontOptions (16.0f)));
         searchBox.setColour (juce::TextEditor::backgroundColourId, SixpackColours::lcdBg);
         searchBox.setColour (juce::TextEditor::textColourId, SixpackColours::ledCyan);
         searchBox.setColour (juce::TextEditor::outlineColourId, juce::Colours::black.withAlpha (0.7f));
@@ -59,7 +59,7 @@ public:
 
         addAndMakeVisible (listBox);
         listBox.setModel (this);
-        listBox.setRowHeight (30);
+        listBox.setRowHeight (40);
         listBox.setColour (juce::ListBox::backgroundColourId, juce::Colours::transparentBlack);
 
         closeButton.setButtonText (juce::CharPointer_UTF8 ("\xc3\x97"));
@@ -103,13 +103,13 @@ public:
         g.drawRoundedRectangle (panelBounds.reduced (0.5f), 10.0f, 1.0f);
 
         g.setColour (SixpackColours::ledAmber);
-        g.setFont (juce::Font (juce::FontOptions (16.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
+        g.setFont (juce::Font (juce::FontOptions (20.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
         g.drawFittedText ("PRESETS", titleArea.toNearestInt(), juce::Justification::centredLeft, 1);
 
         if (filteredIndices.isEmpty())
         {
             g.setColour (SixpackColours::textDim);
-            g.setFont (juce::Font (juce::FontOptions (12.5f)));
+            g.setFont (juce::Font (juce::FontOptions (15.0f)));
             g.drawFittedText ("No presets match your search.",
                                listBox.getBounds(), juce::Justification::centred, 1);
         }
@@ -118,28 +118,32 @@ public:
     void resized() override
     {
         auto bounds = getLocalBounds();
-        const int panelW = juce::jmin (520, bounds.getWidth() - 40);
-        const int panelH = juce::jmin (560, bounds.getHeight() - 40);
+        // Meme taille que la fenetre Options (engrenage, voir OptionsOverlay::
+        // resized()) -- retour utilisateur explicite : "il faut quelle soit
+        // de la taille de la fenetre option", boutons/police agrandis d'autant
+        // (etait 520x560, calque sur l'ancien Nuke Mext, trop petit ici).
+        const int panelW = juce::jmin (620, bounds.getWidth() - 40);
+        const int panelH = juce::jmin (720, bounds.getHeight() - 40);
         auto panel = bounds.withSizeKeepingCentre (panelW, panelH);
         panelBounds = panel.toFloat();
 
-        auto content = panel.reduced (18);
+        auto content = panel.reduced (26, 20);
 
-        auto header = content.removeFromTop (26);
-        titleArea = header.removeFromLeft (140);
-        closeButton.setBounds (header.removeFromRight (24));
+        auto header = content.removeFromTop (36);
+        titleArea = header.removeFromLeft (180);
+        closeButton.setBounds (header.removeFromRight (32));
 
+        content.removeFromTop (14);
+        searchBox.setBounds (content.removeFromTop (38));
         content.removeFromTop (10);
-        searchBox.setBounds (content.removeFromTop (30));
-        content.removeFromTop (8);
 
-        auto catRow = content.removeFromTop (24);
+        auto catRow = content.removeFromTop (34);
         const int catW = catRow.getWidth() / 3;
-        categoryButtons[0].setBounds (catRow.removeFromLeft (catW).reduced (2, 0));
-        categoryButtons[1].setBounds (catRow.removeFromLeft (catW).reduced (2, 0));
-        categoryButtons[2].setBounds (catRow.reduced (2, 0));
+        categoryButtons[0].setBounds (catRow.removeFromLeft (catW).reduced (3, 0));
+        categoryButtons[1].setBounds (catRow.removeFromLeft (catW).reduced (3, 0));
+        categoryButtons[2].setBounds (catRow.reduced (3, 0));
 
-        content.removeFromTop (10);
+        content.removeFromTop (14);
         listBox.setBounds (content);
     }
 
@@ -175,19 +179,19 @@ public:
                 g.fillRoundedRectangle (bounds, 4.0f);
             }
 
-            auto textBounds = bounds.reduced (10.0f, 0.0f);
-            auto chevronArea = textBounds.removeFromLeft (16.0f);
+            auto textBounds = bounds.reduced (12.0f, 0.0f);
+            auto chevronArea = textBounds.removeFromLeft (20.0f);
 
             juce::Path chevron;
             const auto c = chevronArea.getCentre();
             if (masteringExpanded)
-                chevron.addTriangle (c.x - 4.0f, c.y - 3.0f, c.x + 4.0f, c.y - 3.0f, c.x, c.y + 4.0f);
+                chevron.addTriangle (c.x - 5.0f, c.y - 4.0f, c.x + 5.0f, c.y - 4.0f, c.x, c.y + 5.0f);
             else
-                chevron.addTriangle (c.x - 3.0f, c.y - 4.0f, c.x - 3.0f, c.y + 4.0f, c.x + 4.0f, c.y);
+                chevron.addTriangle (c.x - 4.0f, c.y - 5.0f, c.x - 4.0f, c.y + 5.0f, c.x + 5.0f, c.y);
             g.setColour (SixpackColours::ledAmber);
             g.fillPath (chevron);
 
-            g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)).withExtraKerningFactor (0.04f));
+            g.setFont (juce::Font (juce::FontOptions (15.5f, juce::Font::bold)).withExtraKerningFactor (0.04f));
             g.drawFittedText ("MASTERING", textBounds.toNearestInt(), juce::Justification::centredLeft, 1);
             return;
         }
@@ -207,17 +211,17 @@ public:
             g.fillRoundedRectangle (bounds, 4.0f);
         }
 
-        auto textBounds = bounds.reduced (10.0f, 0.0f);
+        auto textBounds = bounds.reduced (12.0f, 0.0f);
         if (isNested)
-            textBounds.removeFromLeft (18.0f);
-        auto authorArea = textBounds.removeFromRight (100.0f);
+            textBounds.removeFromLeft (22.0f);
+        auto authorArea = textBounds.removeFromRight (120.0f);
 
         g.setColour (isCurrent ? SixpackColours::ledAmber : SixpackColours::textBright);
-        g.setFont (juce::Font (juce::FontOptions (13.0f, isCurrent ? juce::Font::bold : juce::Font::plain)));
+        g.setFont (juce::Font (juce::FontOptions (16.0f, isCurrent ? juce::Font::bold : juce::Font::plain)));
         g.drawFittedText (e.name, textBounds.toNearestInt(), juce::Justification::centredLeft, 1);
 
         g.setColour (e.isFactory ? SixpackColours::ledBlue.withAlpha (0.8f) : SixpackColours::textDim);
-        g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::plain)).withExtraKerningFactor (0.04f));
+        g.setFont (juce::Font (juce::FontOptions (12.5f, juce::Font::plain)).withExtraKerningFactor (0.04f));
         g.drawFittedText (e.author, authorArea.toNearestInt(), juce::Justification::centredRight, 1);
     }
 

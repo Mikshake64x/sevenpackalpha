@@ -20,14 +20,24 @@ void GRMeter::timerCallback()
     displayedExpandGrDb = juce::jlimit (0.0f, kExpandLedDb * (float) kNumExpandLeds, expandGrValueDb.load());
     isExpandMode = juce::roundToInt (aboveBelowParam.load()) == 1; // 1 = Expand pur
 
+    // Retour utilisateur : "quand on appuie sur off ... les parametre qui
+    // s'eteignet clignotte comme un neon a l'extinction seulement" -- voir
+    // SixpackLookAndFeel::getPowerTransitionMix(). Suivi ici pour continuer
+    // a repeindre PENDANT toute la fenetre de transition (~400ms), pas
+    // seulement au tick ou powered bascule.
+    const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
+    powerFlickerMix = laf != nullptr ? laf->getPowerTransitionMix() : 1.0f;
+
     if (std::abs (displayedGrDb - lastPaintedGrDb) > 0.02f
         || std::abs (displayedExpandGrDb - lastPaintedExpandGrDb) > 0.02f
-        || powered != lastPaintedPowered || isExpandMode != lastPaintedIsExpand)
+        || powered != lastPaintedPowered || isExpandMode != lastPaintedIsExpand
+        || std::abs (powerFlickerMix - lastPaintedMix) > 0.01f)
     {
         lastPaintedGrDb = displayedGrDb;
         lastPaintedExpandGrDb = displayedExpandGrDb;
         lastPaintedPowered = powered;
         lastPaintedIsExpand = isExpandMode;
+        lastPaintedMix = powerFlickerMix;
         repaint();
     }
 }
@@ -188,5 +198,42 @@ void GRMeter::paint (juce::Graphics& g)
         SixpackLookAndFeel::drawEngravedText (g, text,
             juce::Rectangle<float> (xPos - labelW * 0.5f, scaleArea.getY(), labelW, scaleArea.getHeight()).toNearestInt(),
             SixpackColours::textBright.withAlpha (0.78f));
+    }
+
+    // Retour utilisateur : "clignotte comme un neon a l'extinction seulement"
+    // -- pendant la fenetre de transition ON->OFF, superpose une passe ou
+    // TOUTES les diodes (des 2 rangees) s'allument a pleine intensite, avec
+    // une opacite globale = powerFlickerMix (1.0 juste apres la coupure,
+    // tremblement bref, puis fondu vers 0) -- au repos (mix==0 ou encore
+    // powered), ce bloc ne dessine rien, comportement inchange.
+    if (! powered && powerFlickerMix > 0.001f)
+    {
+        g.beginTransparencyLayer (powerFlickerMix);
+
+        {
+            constexpr int numExpandLeds = kNumExpandLeds;
+            const float egap = 1.5f;
+            const float eDiameter = juce::jmin (8.0f, (expandRowArea.getWidth() - egap * (numExpandLeds - 1)) / (float) numExpandLeds);
+            const float eStartX = expandRowArea.getX() + (expandRowArea.getWidth() - (numExpandLeds * eDiameter + (numExpandLeds - 1) * egap)) * 0.5f;
+            for (int i = 0; i < numExpandLeds; ++i)
+            {
+                auto dot = juce::Rectangle<float> (eDiameter, eDiameter)
+                               .withY (expandRowArea.getCentreY() - eDiameter * 0.5f)
+                               .withX (eStartX + i * (eDiameter + egap));
+                g.setColour (SixpackLookAndFeel::ledGradientColourExpand ((float) i / (float) (numExpandLeds - 1)));
+                g.fillEllipse (dot);
+            }
+        }
+
+        for (int i = 0; i < numLeds; ++i)
+        {
+            const float t = 1.0f - (float) i / (float) (numLeds - 1);
+            auto ledBounds = juce::Rectangle<float> (ledDiameter, ledDiameter)
+                                  .withY (ledArea.getCentreY() - ledDiameter * 0.5f)
+                                  .withX (startX + i * (ledDiameter + gap));
+            SixpackLookAndFeel::drawGlossyDot (g, ledBounds, SixpackLookAndFeel::ledGradientColour (t), true);
+        }
+
+        g.endTransparencyLayer();
     }
 }

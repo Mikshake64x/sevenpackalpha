@@ -58,49 +58,52 @@ public:
     void setAnalogTooltip (const juce::String& text) { analogSegment.setTooltip (text); }
     void setLinearTooltip (const juce::String& text) { linearSegment.setTooltip (text); }
 
+    // Marge de halo partagee (retour utilisateur : reference visuelle
+    // "C -- extreme") -- meme idiome que ConsoleFader::edgePadding :
+    // l'appelant EXTERIEUR (PluginEditor.cpp) doit agrandir les bounds
+    // de CE composant (XoverModeButton) de ce meme montant, sinon les
+    // segments internes n'ont nulle part ou deborder sans se faire
+    // clipper par CE conteneur -- resized() ci-dessous retranche cette
+    // meme marge avant de calculer sa mise en page interne, pour que la
+    // position/taille NOMINALE des 2 pilules reste inchangee.
+    static constexpr float segmentMargin = 5.0f;
+
     void resized() override
     {
-        auto bounds = getLocalBounds();
-        constexpr int gapPx = 3;
-        const int segH = (bounds.getHeight() - gapPx) / 2;
+        auto bounds = getLocalBounds().toFloat().reduced (segmentMargin);
+        constexpr float gapPx = 8.0f;
+        const float segH = (bounds.getHeight() - gapPx) / 2.0f;
 
-        analogSegment.setBounds (bounds.removeFromTop (segH));
+        analogSegment.setBounds (bounds.removeFromTop (segH).expanded (segmentMargin).toNearestInt());
         bounds.removeFromTop (gapPx);
-        linearSegment.setBounds (bounds);
+        linearSegment.setBounds (bounds.expanded (segmentMargin).toNearestInt());
     }
 
 private:
+    // Style neumorphic "dark mono" unifie avec le reste du header
+    // (retour utilisateur : "harmonisation des ecritures, taille" --
+    // l'ancienne pilule pleine/bordee, en 8.5pt, tranchait nettement avec
+    // le style/police (14-15pt bold, meme formule que paintNeumorphicButton)
+    // deja partage par LEARN/LINK IN-OUT/SOFT-TAPE-IRON-AIR/SEL-SOLO)
+    // -- meme rendu que RackPushButton, reutilise ici directement plutot
+    // que de dupliquer la logique.
     struct Segment : public juce::Button
     {
         Segment() : juce::Button ("XoverSegment") {}
 
-        void paintButton (juce::Graphics& g, bool /*isHighlighted*/, bool /*isDown*/) override
+        bool hitTest (int x, int y) override
         {
-            auto area = getLocalBounds().toFloat();
-            const float radius = area.getHeight() * 0.32f;
-            const bool active = getToggleState();
+            return getLocalBounds().toFloat().reduced (haloMargin).contains ((float) x, (float) y);
+        }
 
-            if (active)
-            {
-                g.setColour (accent.withAlpha (0.24f));
-                g.fillRoundedRectangle (area, radius);
-                g.setColour (accent.withAlpha (0.75f));
-                g.drawRoundedRectangle (area.reduced (0.5f), radius, 1.2f);
-            }
-            else
-            {
-                g.setColour (SixpackColours::bg.withAlpha (0.7f));
-                g.fillRoundedRectangle (area, radius);
-                g.setColour (SixpackColours::gridLine);
-                g.drawRoundedRectangle (area.reduced (0.5f), radius, 1.0f);
-            }
-
-            g.setColour (active ? SixpackColours::textBright : SixpackColours::textDim);
-            g.setFont (juce::Font (juce::FontOptions (8.5f, juce::Font::bold)).withExtraKerningFactor (0.04f));
-            g.drawFittedText (getButtonText(), getLocalBounds(), juce::Justification::centred, 1);
+        void paintButton (juce::Graphics& g, bool /*isHighlighted*/, bool isDown) override
+        {
+            SixpackLookAndFeel::paintNeumorphicButton (g, getLocalBounds().toFloat(), getToggleState(), isDown,
+                                                         accent, getButtonText().toUpperCase(), 1.0f, haloMargin);
         }
 
         juce::Colour accent;
+        float haloMargin = segmentMargin;
     };
 
     Mode readMode() const noexcept

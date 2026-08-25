@@ -2,7 +2,7 @@
 
 <JUCERPROJECT id="Pc5XqR" name="Sixpack" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" pluginFormats="buildAU,buildStandalone,buildUnity,buildVST3"
-              companyName="Side Key System" version="1.0.0">
+              companyName="Side Key System" version="1.16.1">
   <MAINGROUP id="ROqGi2" name="Sixpack">
     <GROUP id="{DE5886B3-4345-FADC-030F-9B92F9E2500D}" name="Source">
       <FILE id="fCLEz3" name="PluginProcessor.cpp" compile="1" resource="0"
@@ -90,6 +90,8 @@
             file="Source/Power_switch_01.png"/>
       <FILE id="a1b2df" name="mikshake_about.png" compile="0" resource="1"
             file="Source/mikshake_about.png"/>
+      <FILE id="mikssplash" name="Mikshakesplash.png" compile="0" resource="1"
+            file="Source/Mikshakesplash.png"/>
       <FILE id="a1b2e0" name="plaques.png" compile="0" resource="1" file="Source/plaques.png"/>
       <FILE id="a1b2e1" name="sidekey_monogram.png" compile="0" resource="1"
             file="Source/sidekey_monogram.png"/>
@@ -103,10 +105,8 @@
             file="Source/sixpacklogo2.png"/>
       <FILE id="sp6log3" name="sixpacklogo3.png" compile="0" resource="1"
             file="Source/sixpacklogo3.png"/>
-      <FILE id="sigmiksh1" name="signature_mikshake.png" compile="0" resource="1"
-            file="Source/signature_mikshake.png"/>
-      <FILE id="sigmiksh2" name="signature_mikshake_white.png" compile="0" resource="1"
-            file="Source/signature_mikshake_white.png"/>
+      <FILE id="sigmiksh3" name="signature_mikshake_master.png" compile="0" resource="1"
+            file="Source/signature_mikshake_master.png"/>
     </GROUP>
   </MAINGROUP>
   <MODULES>

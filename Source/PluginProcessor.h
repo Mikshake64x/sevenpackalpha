@@ -157,12 +157,12 @@ public:
     // defaut (pas 100%, pas 95%).
     std::atomic<float> uiScale { 0.90f };
 
-    // Theme SOMBRE (0, defaut)/CLAIR (1) -- retour utilisateur explicite :
-    // "je souhaite faire un design plus clair qu'on peut changer dans
-    // l'engrenage". Persiste dans apvts.state (meme mecanisme que
-    // needleModeIndex1/2, voir getStateInformation()/setStateInformation())
-    // -- pas un AudioParameter (preference d'affichage, pas automatable).
-    std::atomic<float> lightTheme { 0.0f };
+    // Theme SOMBRE (0)/CLAIR (1, DEFAUT -- retour utilisateur explicite :
+    // "je veux que le plugin s'ouvre de base avec le light theme").
+    // Persiste dans apvts.state (meme mecanisme que needleModeIndex1/2,
+    // voir getStateInformation()/setStateInformation()) -- pas un
+    // AudioParameter (preference d'affichage, pas automatable).
+    std::atomic<float> lightTheme { 1.0f };
 
     // --- THD Valve GLOBAL (plaque du bas) : UN SEUL etage de saturation
     // (post-sommation des 3 bandes, un seul Drive/Engage), mais mesure sur

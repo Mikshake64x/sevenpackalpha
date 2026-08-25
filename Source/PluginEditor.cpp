@@ -202,6 +202,7 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
     crossoverSpectrum.onBandSelected = [this] (int band)
     {
         selectedBand = band;
+        linkedBands.fill (false); // selection "fraiche", meme convention qu'un clic simple sur SEL
         refreshBandPanelVisibility();
     };
 
@@ -250,6 +251,11 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
     aiLearnButton.setTooltip ("Ecoute quelques secondes du programme audio et propose Crossover + Input/Ratio/Attack/Release par bande.");
     aiLearnButton.onClick = [this] { processorRef.startAiLearn(); };
 
+    // RackPushButton ne configure PAS setClickingTogglesState() par defaut
+    // (SEL en depend pour rester momentane, voir RackPushButton.h) -- ici
+    // LINK IN/OUT sont de vrais toggles persistants, meme raison que SOLO
+    // (voir BandMetersRack.h).
+    linkInSwitch.setClickingTogglesState (true);
     addAndMakeVisible (linkInSwitch);
     linkInSwitch.setToggleState (processorRef.linkInEnabled.load(), juce::dontSendNotification);
     linkInSwitch.onClick = [this]
@@ -258,6 +264,7 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
         updateInputLinkVisuals();
     };
 
+    linkOutSwitch.setClickingTogglesState (true);
     addAndMakeVisible (linkOutSwitch);
     linkOutSwitch.setToggleState (processorRef.linkOutEnabled.load(), juce::dontSendNotification);
     linkOutSwitch.onClick = [this]
@@ -298,9 +305,25 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
 
     addAndMakeVisible (thdHeader);
     addAndMakeVisible (bandMetersRack);
-    bandMetersRack.onBandSelectRequested = [this] (int band)
+    bandMetersRack.onBandSelectRequested = [this] (int band, bool isMultiSelectModifier)
     {
-        selectedBand = band;
+        // Ctrl/Cmd+clic : ajoute/retire cette bande du groupe "lie" en
+        // edition (Output uniquement, delta relatif -- voir
+        // wireOutputLink()), SANS changer quelle bande est affichee dans
+        // le panneau de detail. Un clic simple change la bande affichee ET
+        // vide la selection liee (nouvelle selection "fraiche"), meme
+        // convention qu'un multi-select fichier standard (Ctrl+clic
+        // ajoute, clic simple reinitialise).
+        if (isMultiSelectModifier)
+        {
+            if (band != selectedBand)
+                linkedBands[(size_t) band] = ! linkedBands[(size_t) band];
+        }
+        else
+        {
+            selectedBand = band;
+            linkedBands.fill (false);
+        }
         refreshBandPanelVisibility();
     };
     softClipAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
@@ -325,7 +348,7 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
             },
             nullptr);
 
-        auto wireThdModeButton = [this] (ToggleSwitch& btn, int modeIndex)
+        auto wireThdModeButton = [this] (juce::Button& btn, int modeIndex)
         {
             btn.onClick = [this, modeIndex] { thdModeAttachment->setValueAsCompleteGesture ((float) modeIndex); };
         };
@@ -430,13 +453,16 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
     };
     optionsOverlay.onAiScopeChanged = [this] (int scopeIndex, bool enabled)
     {
-        static constexpr const char* scopeIds[3] =
+        // "Detectors" retire du visuel (retour utilisateur : "tu peux
+        // supprimer detector car ils n'y sont plus") -- idAiScopeDetectors
+        // reste declare dans l'APVTS (compat presets), juste plus reglable
+        // depuis cette liste.
+        static constexpr const char* scopeIds[2] =
         {
             SixpackAudioProcessor::idAiScopeCrossover,
-            SixpackAudioProcessor::idAiScopeDetectors,
             SixpackAudioProcessor::idAiScopeCompression,
         };
-        if (scopeIndex >= 0 && scopeIndex < 3)
+        if (scopeIndex >= 0 && scopeIndex < 2)
             setParamValue (scopeIds[scopeIndex], enabled ? 1.0f : 0.0f);
     };
     optionsOverlay.onAiStyleSelected = [this] (int index)
@@ -667,7 +693,13 @@ void SixpackEditorContent::setupKnob (KnobControl& knob, const juce::String& par
         processorRef.apvts, paramID, knob.slider);
 
     knob.label.setText (labelText, juce::dontSendNotification);
-    knob.label.setJustificationType (juce::Justification::centredLeft);
+    // Centre (au lieu de centredLeft) -- retour utilisateur : "le IN a cote
+    // du knob des bandes est un peu loin" -- avec un texte aligne a GAUCHE
+    // dans une boite de largeur fixe (44px, dimensionnee pour le mot le
+    // plus long, "RANGE"), un mot court comme "IN" ne remplit qu'une
+    // fraction de la boite et semble donc decale par rapport au knob. Centre
+    // rend la position visuelle independante de la longueur du mot.
+    knob.label.setJustificationType (juce::Justification::centred);
     knob.label.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
     knob.label.setColour (juce::Label::textColourId, SixpackColours::textBright.withAlpha (0.78f));
     addAndMakeVisible (knob.label);
@@ -802,7 +834,7 @@ void SixpackEditorContent::buildBandPanel (int band, juce::Colour accent, const 
     // (meme parametre que la ligne RANGE de CrossoverSpectrumEditor). Pas de
     // knob Release ("pas besoin du reglage release sur les expandeurs") ni
     // Output (partage avec le compresseur, voir doc de classe).
-    setupKnob (bp.expandRangeKnob,  pid (SixpackAudioProcessor::idInputExpand),  "RANGE", " dB", 2);
+    setupKnob (bp.expandRangeKnob,  pid (SixpackAudioProcessor::idInputExpand),  "Exp", " dB", 2);
     setupKnob (bp.expandAttackKnob, pid (SixpackAudioProcessor::idAttackExpand), "ATT",   " ms", 2);
     // Libelle RANGE/ATT desormais IDENTIQUE aux autres knobs (retour
     // utilisateur explicite : "meme chose pour les noms sous l'expand.
@@ -862,7 +894,20 @@ void SixpackEditorContent::refreshBandPanelVisibility()
     for (int band = 0; band < kNumBands; ++band)
         setBandPanelVisible (band, band == selectedBand);
     crossoverSpectrum.setSelectedBand (selectedBand);
-    repaint();
+    bandMetersRack.setSelectedBand (selectedBand, &linkedBands);
+    // repaint() SCOPE (retour utilisateur : "ça ne change plus la couleur
+    // des plaques du compresseur quand je selectionne les bandes") --
+    // SixpackEditorContent::paint() redessine l'en-tete teinte du panneau
+    // de detail (couleur de bande) EN LISANT selectedBand a CHAQUE paint(),
+    // voir son commentaire ("Un seul en-tete a dessiner ... puisqu'il doit
+    // changer avec la selection") -- ce paint() ne se redeclenche QUE si
+    // quelque chose invalide au moins CETTE zone. Un repaint() global (SANS
+    // rectangle) le faisait, mais invalidait AUSSI tout le reste de la
+    // fenetre (header compris) -- cause du bug precedent ("n'importe quel
+    // bouton neuromorphic ... change de rendu" au clic sur SEL). Se limiter
+    // a bandPanelBounds evite ce debordement tout en rafraichissant bien la
+    // teinte de bande a chaque selection.
+    repaint (bandPanelBounds.toNearestInt());
 }
 
 // Lien RELATIF (delta), pas absolu : si Low=10dB et Mid=5dB et qu'on bouge
@@ -935,28 +980,32 @@ void SixpackEditorContent::wireOutputLink()
 
             auto& thisSlider = bandPanels[(size_t) band].outputKnob.slider;
             const double newValue = thisSlider.getValue();
+            const double delta = newValue - lastOutputValue[(size_t) band];
 
-            if (linkOutSwitch.getToggleState() && ! linkOutGuard)
+            if (linkOutSwitch.getToggleState() && ! linkOutGuard && std::abs (delta) > 1.0e-9)
             {
-                const double delta = newValue - lastOutputValue[(size_t) band];
-
-                if (std::abs (delta) > 1.0e-9)
+                // Output est desormais un knob PARTAGE (jamais rebinde,
+                // voir doc de classe BandPanel) -- plus besoin de garde
+                // "meme mode" ici non plus (voir wireInputLink()).
+                linkOutGuard = true;
+                for (int b = 0; b < kNumBands; ++b)
                 {
-                    // Output est desormais un knob PARTAGE (jamais rebinde,
-                    // voir doc de classe BandPanel) -- plus besoin de garde
-                    // "meme mode" ici non plus (voir wireInputLink()).
-                    linkOutGuard = true;
-                    for (int b = 0; b < kNumBands; ++b)
-                    {
-                        if (b == band)
-                            continue;
-                        auto& other = bandPanels[(size_t) b].outputKnob.slider;
-                        const double target = juce::jlimit (other.getMinimum(), other.getMaximum(), other.getValue() + delta);
-                        other.setValue (target, juce::sendNotificationSync);
-                    }
-                    linkOutGuard = false;
+                    if (b == band)
+                        continue;
+                    auto& other = bandPanels[(size_t) b].outputKnob.slider;
+                    const double target = juce::jlimit (other.getMinimum(), other.getMaximum(), other.getValue() + delta);
+                    other.setValue (target, juce::sendNotificationSync);
                 }
+                linkOutGuard = false;
             }
+
+            // NOTE : l'edition liee via selection multiple SEL (Ctrl/Cmd+
+            // clic) est geree directement dans BandMetersRack (voir
+            // wireOutputSelectionLink()), sur le VRAI fader console visible
+            // pour toutes les bandes -- ce knob-ci (panneau de detail,
+            // visible pour une seule bande a la fois) n'a pas besoin de sa
+            // propre logique de liaison, il reste synchronise passivement
+            // via l'attachment APVTS partage sur idOutput.
 
             lastOutputValue[(size_t) band] = thisSlider.getValue();
         };
@@ -1042,7 +1091,6 @@ void SixpackEditorContent::showOptionsOverlay()
         *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiGainReductionMode)));
     optionsOverlay.setAiScopeStates (
         *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiScopeCrossover) > 0.5f,
-        *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiScopeDetectors) > 0.5f,
         *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiScopeCompression) > 0.5f);
     optionsOverlay.setCurrentAiStyle ((int) std::round (
         *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiStyle)));
@@ -1147,39 +1195,93 @@ void SixpackEditorContent::resized()
     // sans avoir besoin des lignes de separation (retirees, voir
     // rebuildBackgroundCache()). Meme span total qu'avant (29 a 1393).
 
-    // POWER (recule de +8px en Y pour laisser la place au label "POWER"
-    // repositionne juste au-dessus, voir paint()) + A/B, puis module AI.
-    powerButton.setBounds (29, barTop + 18, 70, 92);
-    abButton.setBounds    (29, barTop + 110, 150, 26);
+    // Centrage vertical HARMONISE (retour utilisateur : "centrage
+    // verticale" -- avant ce passage, chaque element avait ete recale
+    // independamment au fil des retours precedents et leurs centres
+    // verticaux respectifs s'etalaient sur ~62..79.5px, un desalignement
+    // perceptible sur toute la largeur du header). commonCenterY est le
+    // milieu exact de controlBarBounds (hauteur 144, voir son
+    // initialisation) -- CHAQUE element ci-dessous garde exactement sa
+    // largeur/hauteur d'origine (aucun risque de nouvelle collision avec
+    // les vis/le plafond deja valides), seul son Y est recalcule pour que
+    // SON PROPRE centre vertical tombe pile sur cette meme ligne.
+    constexpr int commonCenterY = 72; // barTop + 144/2
 
-    aiLearnButton.setBounds (188, barTop + 7, 70, 19);
-    xoverModeButton.setBounds (188, barTop + 30, 70, 84);
-    latencyModeButton.setBounds (260, barTop + 30, 20, 20);
+    // POWER + A/B, puis module AI. Paire POWER/A-B remontee de 6px de plus
+    // (retour utilisateur : "tu peux monter un peu le bouton ON off et
+    // learn dans le header" -- meme decalage applique aux deux pour
+    // garder l'espacement relatif deja corrige entre elles, voir fix
+    // precedent "collision A/B en bas").
+    constexpr int powerGroupYOffset = -6;
+    // abButton redescendu de 4px par rapport a powerButton (retour
+    // utilisateur : "tu peux descendre un peu juste le A/B") -- powerButton
+    // ne bouge pas, seul l'offset de A/B change.
+    constexpr int abExtraYOffset = 4;
+    powerButton.setBounds (29, barTop + commonCenterY - 45 + powerGroupYOffset, 70, 90);
+    abButton.setBounds    (29, barTop + commonCenterY - 45 + 90 - 6 + powerGroupYOffset + abExtraYOffset, 150, 26);
+
+    // LEARN -- centre sur commonCenterY, remontee de 6px (meme retour
+    // utilisateur). latencyModeButton (engrenage) garde son offset relatif
+    // d'origine par rapport au coin haut-gauche de LEARN (-5px en Y).
+    constexpr int learnYOffset = -6;
+    aiLearnButton.setBounds (juce::Rectangle<int> (108, barTop + commonCenterY - 30 + learnYOffset, 64, 60).expanded (8));
+    latencyModeButton.setBounds (178, barTop + commonCenterY - 30 - 5 + learnYOffset, 20, 20);
+    xoverModeButton.setBounds (juce::Rectangle<int> (204, barTop + commonCenterY - 42, 70, 84)
+                                    .expanded ((int) XoverModeButton::segmentMargin));
 
     // VU gauche : module de mode (exterieur, cote module AI), puis
     // aiguille (interieure, pres du logo).
-    needleVu1Modes.setBounds (287, barTop + 15, 54, 122);
-    needleVu1.setBounds      (345, barTop + 15, 266, 122);
+    needleVu1Modes.setBounds (juce::Rectangle<int> (287, barTop + commonCenterY - 61, 54, 122)
+                                    .expanded ((int) NeedleModeSelector::buttonMargin));
+    needleVu1.setBounds      (345, barTop + commonCenterY - 61, 266, 122);
 
     // Logo -- proche du centre (x=617, centre ~702, marge de 2px negligeable
     // vs le centrage pixel-parfait d'avant pour absorber le nouvel
-    // espacement), remonte de 13px (retour utilisateur : "monter un peu le
-    // logo Sixpack vers le haut") pour degager la place necessaire a
-    // l'agrandissement de la signature mikshake juste en dessous (voir
-    // paint()).
-    suppressorLogoButton.setBounds (617, barTop + 20, 170, 84);
+    // espacement). Remonte de 12px par rapport a commonCenterY (retour
+    // utilisateur : "il faut remonter le logo sixpack et la signature")
+    // -- volontairement PAS aligne sur la meme ligne que POWER/LEARN/VU
+    // (le logo/signature forment leur propre bloc vertical, centre
+    // visuel different du reste du header) ; voir aussi la signature
+    // juste en dessous, dans paint(), repositionnee en consequence.
+    suppressorLogoButton.setBounds (617, barTop + commonCenterY - 42 - 12, 170, 84);
 
     // VU droite : MIROIR de la gauche.
-    needleVu2.setBounds      (793, barTop + 15, 272, 122);
-    needleVu2Modes.setBounds (1069, barTop + 15, 54, 122);
+    needleVu2.setBounds      (793, barTop + commonCenterY - 61, 272, 122);
+    needleVu2Modes.setBounds (juce::Rectangle<int> (1069, barTop + commonCenterY - 61, 54, 122)
+                                    .expanded ((int) NeedleModeSelector::buttonMargin));
 
-    linkInSwitch.setBounds  (1131, barTop + 30, 90, 30);
-    linkOutSwitch.setBounds (1131, barTop + 68, 90, 30);
+    // LINK IN/OUT -- le bloc des 2 (empiles, meme espacement de 8px
+    // qu'avant) est desormais centre sur commonCenterY plutot que sur son
+    // ancien axe, plus haut que le reste du header.
+    // .expanded(6) : voir RackPushButton::setHaloMargin() (6.0f est deja
+    // sa valeur par defaut) -- reserve la place pour que le halo neumorphic
+    // deborde reellement (retour utilisateur, reference visuelle "C").
+    linkInSwitch.setBounds  (juce::Rectangle<int> (1131, barTop + commonCenterY - 34, 90, 30).expanded (6));
+    linkOutSwitch.setBounds (juce::Rectangle<int> (1131, barTop + commonCenterY - 34 + 38, 90, 30).expanded (6));
 
-    // Largeur reduite 228 -> 168 (voir commentaire ci-dessus) -- seul
-    // module dont la TAILLE change dans ce header, a la demande explicite
-    // de l'utilisateur.
-    thdHeader.setBounds (1225, barTop + 28, 168, 88);
+    // Largeur reduite 228 -> 150 (retour utilisateur : "les boutons du THD
+    // sont un peu larges") et hauteur augmentee 88 -> 104 (retour
+    // utilisateur : "l'interrupteur doit etre au milieu et plus gros",
+    // voir ThdHeaderModule::resized() -- libelle + interrupteur agrandi
+    // ont besoin d'un peu plus de place verticale).
+    // Hauteur portee 110->115 (retour utilisateur repete : "c'est trop
+    // petit" -- interrupteur/rangees agrandis, LEDs rehaussees, voir
+    // ThdHeaderModule::resized()) -- PLAFONNEE par controlBarBounds
+    // (barTop+144=147, ici barTop+28+115=146) : la version precedente a
+    // 130 aurait deborde de 14px sous la barre de controle, provoquant
+    // exactement la collision rapportee ("il y a des collisions avec le
+    // vu metre").
+    // Bloc entier decale vers le haut (retour utilisateur : "on peut
+    // decaler le bloc vers le haut et laisser un peu d'espace entre les
+    // boutons et le vu metre"), puis recale sur commonCenterY (retour
+    // utilisateur : "centrage verticale") -- centre = commonCenterY+0.5
+    // (hauteur impaire/2), arrondi a commonCenterY-63 : bord bas =
+    // barTop+9+127=barTop+136, encore sous le plafond de controlBarBounds
+    // (barTop+144) avec 8px de marge (la version precedente n'en avait
+    // qu'1) : les 12px recuperes plus tot financent la marge haute de
+    // l'interrupteur (voir ThdHeaderModule::resized(), fix du "coupe sur
+    // le dessus") et l'espace supplementaire avant le VU metre.
+    thdHeader.setBounds (1225, barTop + commonCenterY - 63, 150, 127);
 
     // Panneau de detail de la bande selectionnee -- deja repositionne plus
     // haut (voir crossoverEditorBounds/bandPanelBounds ci-dessus), rien de
@@ -1201,23 +1303,42 @@ void SixpackEditorContent::resized()
     // garder le bord droit aligne avec le reste.
     auto presetBar = juce::Rectangle<int> (32, presetBarTop, 1354, 26);
 
+    // Marge de halo REDUITE (3px) pour ces petits boutons (rangee de
+    // 26px de haut seulement) -- voir RackButton::setHaloMargin().
+    constexpr float presetBtnMargin = 3.0f;
+    prevPresetButton.setHaloMargin (presetBtnMargin);
+    nextPresetButton.setHaloMargin (presetBtnMargin);
+    copyButton.setHaloMargin (presetBtnMargin);
+    pasteButton.setHaloMargin (presetBtnMargin);
+    saveButton.setHaloMargin (presetBtnMargin);
+
     presetSectionLabel.setBounds (presetBar.removeFromLeft (46));
     presetBar.removeFromLeft (6);
-    prevPresetButton.setBounds (presetBar.removeFromLeft (22));
+    prevPresetButton.setBounds (presetBar.removeFromLeft (22).expanded ((int) presetBtnMargin));
     presetBar.removeFromLeft (4);
     presetNameButton.setBounds (presetBar.removeFromLeft (160));
     presetBar.removeFromLeft (4);
-    nextPresetButton.setBounds (presetBar.removeFromLeft (22));
+    nextPresetButton.setBounds (presetBar.removeFromLeft (22).expanded ((int) presetBtnMargin));
     presetBar.removeFromLeft (8);
-    presetAuthorLabel.setBounds (presetBar.removeFromLeft (100));
+    // Largeur reduite 100->45 (retour utilisateur : "il faut que tu
+    // decalle encore ça doit etre plus proche" -- le texte auteur est
+    // court, "Side Key" etc., 45px suffit et rapproche d'autant COPY/
+    // PASTE/SAVE juste apres).
+    presetAuthorLabel.setBounds (presetBar.removeFromLeft (45));
+    presetBar.removeFromLeft (4);
 
-    deletePresetButton.setBounds (presetBar.removeFromRight (26));
-    presetBar.removeFromRight (8);
-    saveButton.setBounds (presetBar.removeFromRight (60));
-    presetBar.removeFromRight (8);
-    pasteButton.setBounds (presetBar.removeFromRight (64));
-    presetBar.removeFromRight (6);
-    copyButton.setBounds (presetBar.removeFromRight (64));
+    // COPY/PASTE/SAVE/corbeille juste A COTE de la selection de preset
+    // (retour utilisateur explicite : "il faut que ce soit à coté de la
+    // selection des preset", puis "il faut que tu decalle encore ça doit
+    // etre plus proche") -- removeFromLeft (au lieu de removeFromRight)
+    // colle ce groupe directement apres presetAuthorLabel, gap minimal.
+    copyButton.setBounds (presetBar.removeFromLeft (64).expanded ((int) presetBtnMargin));
+    presetBar.removeFromLeft (6);
+    pasteButton.setBounds (presetBar.removeFromLeft (64).expanded ((int) presetBtnMargin));
+    presetBar.removeFromLeft (8);
+    saveButton.setBounds (presetBar.removeFromLeft (60).expanded ((int) presetBtnMargin));
+    presetBar.removeFromLeft (8);
+    deletePresetButton.setBounds (presetBar.removeFromLeft (26));
 
     aboutOverlay.setBounds (getLocalBounds());
     optionsOverlay.setBounds (getLocalBounds());
@@ -1243,11 +1364,18 @@ void SixpackEditorContent::layoutBandRow (BandPanel& bp, juce::Rectangle<int> ar
 
     bp.grMeter->setBounds (area.getX() + 115, top + 17, 280, 45);
 
-    bp.opticalButton.setBounds  (area.getX() + 115, top + 64, 76, 24);
-    bp.britishButton.setBounds  (area.getX() + 197, top + 64, 76, 24);
-    bp.sidechainToggle.setBounds (area.getX() + 279, top + 64, 44, 24);
+    // Marge de halo REDUITE (3px, rangee de 24px de haut) -- voir
+    // ToggleSwitch::setHaloMargin().
+    constexpr float toggleMargin = 3.0f;
+    bp.opticalButton.setHaloMargin (toggleMargin);
+    bp.britishButton.setHaloMargin (toggleMargin);
+    bp.sidechainToggle.setHaloMargin (toggleMargin);
+    bp.opticalButton.setBounds  (juce::Rectangle<int> (area.getX() + 115, top + 64, 76, 24).expanded ((int) toggleMargin));
+    bp.britishButton.setBounds  (juce::Rectangle<int> (area.getX() + 197, top + 64, 76, 24).expanded ((int) toggleMargin));
+    bp.sidechainToggle.setBounds (juce::Rectangle<int> (area.getX() + 279, top + 64, 44, 24).expanded ((int) toggleMargin));
 
-    bp.ratioSelector.setBounds (area.getX() + 115, top + 93, 280, 44);
+    bp.ratioSelector.setBounds (juce::Rectangle<int> (area.getX() + 115, top + 93, 280, 44)
+                                     .expanded ((int) RatioSelector::buttonMargin));
 
     // DETECTOR/COLOR/XY retires de la mise en page (caches en permanence,
     // voir buildBandPanel()/setBandPanelVisible()) -- plus de bounds a leur
@@ -1343,38 +1471,44 @@ void SixpackEditorContent::rebuildBackgroundCache()
 
         // Signature, fond transparent, sous le logo SIXPACK (retour
         // utilisateur explicite : "je souhaite que tu la mettes en fond
-        // transparent sous le logo sixpack", puis plusieurs retours -- "pas
-        // assez noire", "degage cette opacite", "ou de la transparence" --
-        // jusqu'a "elle doit etre completement noire. pas de transparence,
-        // pas d'opacite"). Cause racine : g.drawImage(...,destW,destH,...)
-        // demande TOUJOURS un resample a JUCE des que destW/destH different
-        // de la taille source -- meme avec une source deja a alpha binaire
-        // et lowResamplingQuality, un ratio d'echelle non trivial (ex.
-        // 180x120 -> 39x26) reintroduit des pixels de bord semi-opaques.
-        // Fix definitif : le PNG est desormais genere DIRECTEMENT a sa
-        // taille d'AFFICHAGE finale (39x26, min-pooling + seuil binaire,
-        // voir script de conversion) et dessine ici en 1:1 EXACT via
-        // drawImageAt (pas de destW/destH => aucun resample possible).
-        // Statique -> cache de fond, comme le reste de ce chrome. Le logo
-        // (suppressorLogoButton, SixpackLogoButton) est affiche ~170x84
-        // dans sa boite (617, barTop+20, 170x84), centre horizontal x=700
-        // -- meme centre ici, juste sous le bas de sa boite (barTop+104).
-        // Signature agrandie 39x26 -> 85x39 (retour utilisateur : "trop
-        // petite", puis "minimise la zone morte du png") -- le master
-        // "Signature Mikshake.png" (1536x1024) a une signature qui n'occupe
-        // que 1447x644 en son centre (bbox mesuree), le reste n'est que de
-        // la marge transparente/blanche mise a l'echelle pour rien. Recadre
-        // sur cette bbox (+15px de marge de securite) AVANT le pipeline
-        // min-pooling + seuil binaire habituel (aucun pixel semi-opaque),
-        // ce qui double la densite d'encre utile dans le PNG final au lieu
-        // d'agrandir une image majoritairement vide.
+        // transparent sous le logo sixpack"). Le logo (suppressorLogoButton,
+        // SixpackLogoButton) est affiche ~170x84 dans sa boite (617,
+        // barTop+18, 170x84), centre horizontal x=700 -- meme centre ici,
+        // juste sous le bas de sa boite (barTop+102).
+        //
+        // Historique (retour utilisateur : "ca fait une soupe de pixels") :
+        // la version precedente pre-redimensionnait le PNG maitre HORS-LIGNE
+        // avec un pipeline maison "min-pooling + seuil binaire alpha" (pour
+        // eviter tout pixel de bord semi-opaque, suite a un retour "elle doit
+        // etre completement noire, pas de transparence, pas d'opacite"), puis
+        // ne faisait qu'un flou 1px sur ce resultat deja casse. A un ratio
+        // d'echelle ~17:1 (1536px maitre -> 85px affiche), ce seuillage
+        // binaire AVANT reduction detruit les traits fins de la signature
+        // cursive (ils ne "survivent" que par a-coups suivant leur position
+        // dans la grille de reduction) : illisible, en "soupe de pixels".
+        // Fix : on NE seuille plus jamais en binaire. Le PNG maitre (encre
+        // noire sur fond blanc, deja lisse a 1536px) est converti UNE FOIS en
+        // ARGB avec alpha = couverture d'encre REELLE (alpha = 1-luminance,
+        // preserve l'anti-aliasing natif du maitre), recadre sur la bbox
+        // utile de l'encre (+marge), puis reduit via le resampler JUCE
+        // haute-qualite (area-averaging, pas un seuillage) jusqu'a la taille
+        // d'affichage. Les quelques pixels de bord semi-opaques que ca
+        // produit ne sont PAS un "halo gris" (ca, c'etait un flou large et
+        // mal cadre) -- c'est le meme anti-aliasing fin que n'importe quel
+        // texte/logo affiche en petit, indispensable pour que les traits
+        // fins restent visibles au lieu de disparaitre ou de baver.
         {
-            static const juce::Image sigImage = juce::ImageCache::getFromMemory (
-                BinaryData::signature_mikshake_png, BinaryData::signature_mikshake_pngSize);
+            constexpr int sigDisplayW = 100;
+            static const juce::Image sigImageBlack = SixpackLookAndFeel::buildSignatureImage (juce::Colours::black, sigDisplayW);
+            // Variante BLANCHE pour le theme sombre (retour utilisateur :
+            // "sur le dark theme la signature doit etre blanche").
+            static const juce::Image sigImageWhite = SixpackLookAndFeel::buildSignatureImage (juce::Colours::white, sigDisplayW);
+
+            const auto& sigImage = SixpackLookAndFeel::isLightThemeStatic() ? sigImageBlack : sigImageWhite;
             if (! sigImage.isNull())
             {
                 const float sigX = 700.0f - (float) sigImage.getWidth() * 0.5f;
-                const float sigY = barTop + 104.0f;
+                const float sigY = barTop + 102.0f;
                 g.drawImageAt (sigImage, (int) sigX, (int) sigY);
             }
         }
@@ -1433,8 +1567,11 @@ void SixpackEditorContent::paint (juce::Graphics& g)
     // haut a droite, orpheline (retour utilisateur : capture montrant
     // "POWER" flottant au-dessus de SOFT/TAPE/IRON/AIR sans plus aucun
     // interrupteur a proximite).
+    // Descendu encore (etait barTop+5, retour utilisateur repete : "power
+    // est encore trop haute") -- powerButton recule d'autant en resized()
+    // pour degager la place sans rogner sur son propre espace.
     g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)).withExtraKerningFactor (0.1f));
-    SixpackLookAndFeel::drawEngravedText (g, "POWER", { 29, barTop + 2, 70, 14 }, SixpackColours::textDim);
+    SixpackLookAndFeel::drawEngravedText (g, "POWER", { 29, barTop + 8, 70, 11 }, SixpackColours::textDim);
 
     static const juce::Colour bandTintColours[kNumBands] =
         { SixpackColours::ledCyan, SixpackColours::ledGreen, SixpackColours::ledAmber, SixpackColours::ledOrange, SixpackColours::ledPurple, SixpackColours::ledRed };

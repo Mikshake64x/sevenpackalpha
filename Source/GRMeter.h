@@ -55,6 +55,10 @@ private:
     std::atomic<float>& powerParam;
     std::atomic<float>& aboveBelowParam;
     bool powered = true;
+    // Retour utilisateur : "clignotte comme un neon a l'extinction" -- voir
+    // SixpackLookAndFeel::getPowerTransitionMix(), GRMeter.cpp::paint().
+    float powerFlickerMix = 1.0f;
+    float lastPaintedMix = 1.0f;
     bool isExpandMode = false; // true seulement en Expand PUR (1) -- Comp(0)/Both(2) gardent l'affichage normal
     float displayedGrDb = 0.0f;
     float displayedExpandGrDb = 0.0f;

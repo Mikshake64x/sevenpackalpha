@@ -61,6 +61,49 @@ public:
         juce::Slider::mouseDoubleClick (e);
     }
 
+    // Drag "maison" (remplace entierement le drag absolu par defaut de
+    // juce::Slider) -- retour utilisateur : "je souhaite que quand on
+    // appuie sur control on ait un controle plus precis". Le mode
+    // "velocity" integre a JUCE (declenche par Ctrl par defaut) teleportait
+    // le curseur au relachement de la touche, d'ou les "gros a-coups"
+    // rapportes -- au lieu de patcher ce mecanisme prive, on calcule la
+    // valeur nous-memes a partir du deplacement vertical de la souris,
+    // avec une sensibilite reduite (donc plus precis) pendant que Ctrl est
+    // enfonce. Le REANCRAGE (dragStartY/dragStartProportion remis a la
+    // valeur/position courantes) au moment exact ou Ctrl est presse OU
+    // relache est ce qui garantit l'absence de saut : le delta repart de
+    // zero avec la nouvelle sensibilite plutot que d'etre recalcule sur
+    // toute la distance parcourue depuis le debut du drag.
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        dragStartProportion = valueToProportionOfLength (getValue());
+        dragStartY = e.position.y;
+        ctrlWasDown = e.mods.isCtrlDown();
+        juce::Slider::mouseDown (e);
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        const bool ctrlDown = e.mods.isCtrlDown();
+        if (ctrlDown != ctrlWasDown)
+        {
+            dragStartProportion = valueToProportionOfLength (getValue());
+            dragStartY = e.position.y;
+            ctrlWasDown = ctrlDown;
+        }
+
+        // 250px pour la course complete = meme sensibilite que le defaut
+        // JUCE (pixelsForFullDragExtent) en mode normal -- 4x plus large
+        // (donc 4x plus precis) quand Ctrl est enfonce.
+        constexpr float normalDragPixels = 250.0f;
+        constexpr float fineDragPixels = 1000.0f;
+        const float pixelsForFullRange = ctrlDown ? fineDragPixels : normalDragPixels;
+
+        const double deltaProportion = (double) (dragStartY - e.position.y) / (double) pixelsForFullRange;
+        const double newProportion = juce::jlimit (0.0, 1.0, dragStartProportion + deltaProportion);
+        setValue (proportionOfLengthToValue (newProportion), juce::sendNotificationSync);
+    }
+
 private:
     void commitEditor()
     {
@@ -76,6 +119,10 @@ private:
     juce::TextEditor editor;
     juce::Point<float> lcdCentre;
     float lcdRadius = 0.0f;
+
+    double dragStartProportion = 0.0;
+    float dragStartY = 0.0f;
+    bool ctrlWasDown = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (KnobSlider)
 };

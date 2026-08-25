@@ -765,9 +765,24 @@ private:
             const int i3 = juce::jmin (kCurveSamples - 1, i + 1), i4 = juce::jmin (kCurveSamples - 1, i + 2);
             const float mag = (raw[(size_t) i0] + 2.0f * raw[(size_t) i1] + 3.0f * raw[(size_t) i] + 2.0f * raw[(size_t) i3] + raw[(size_t) i4]) / 9.0f;
 
+            // Echelle dB (retour utilisateur : "j'ai uniquement les basses
+            // et j'ai plus rien dans les mediums aigues, on doit voir le
+            // signal partout") -- mag est une AMPLITUDE lineaire normalisee
+            // par le pic global (SpectrumAnalyzerState::autoGainRef), or la
+            // plupart des programmes ont une pente spectrale marquee
+            // (graves >> aigus en amplitude lineaire) : un mapping lineaire
+            // ecrasait tout ce qui n'est pas le grave pres de zero, invisible
+            // a l'oeil. Plancher -54dB choisi empiriquement (assez large
+            // pour rendre visible un programme normalement incline, sans
+            // remonter le bruit de fond en permanence) mappe sur toute la
+            // hauteur du plot -- meme mag (donc meme courbe/poignees) que
+            // ci-dessus, seule la conversion en hauteur d'affichage change.
+            const float db = juce::Decibels::gainToDecibels (juce::jmax (0.0001f, mag), -54.0f);
+            const float heightFrac = juce::jlimit (0.0f, 1.0f, (db + 54.0f) / 54.0f);
+
             const float xt = (float) i / (float) (kCurveSamples - 1);
             const float x = plot.getX() + xt * plot.getWidth();
-            const float y = plot.getBottom() - mag * plot.getHeight() * 0.85f;
+            const float y = plot.getBottom() - heightFrac * plot.getHeight() * 0.85f;
             ys[(size_t) i] = y;
             fill.lineTo (x, y);
         }

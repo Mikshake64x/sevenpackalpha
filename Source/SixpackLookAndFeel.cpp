@@ -604,3 +604,144 @@ void SixpackLookAndFeel::drawGlossyDot (juce::Graphics& g, juce::Rectangle<float
     g.fillEllipse (juce::Rectangle<float> (r * 0.55f, r * 0.34f)
                        .withCentre ({ centre.x - r * 0.32f, centre.y - r * 0.36f }));
 }
+
+void SixpackLookAndFeel::paintNeumorphicButton (juce::Graphics& g, juce::Rectangle<float> bounds, bool lit, bool isDown,
+                                                  juce::Colour accent, const juce::String& text, float textAlphaMultiplier,
+                                                  float haloMargin)
+{
+    // haloMargin reserve un vrai espace REEL autour du bouton visuel (voir
+    // les appelants -- la mise en page expanse deja les bounds du
+    // composant d'autant) : b est la pilule visuellement voulue, bounds
+    // (plus grand) est tout ce que ce composant peut peindre SANS jamais
+    // avoir besoin de deborder de ses propres limites.
+    auto b = bounds.reduced (haloMargin);
+    const bool recessed = lit || isDown;
+    // Rayon agrandi (8 -> jusqu'a 10) : sur les petits boutons du header
+    // (26-30px de haut), un rayon de 8 face a un flou de DropShadow de
+    // meme ordre de grandeur laissait les bords lateraux quasi droits --
+    // la silhouette floutee restait alors visiblement RECTANGULAIRE
+    // (retour utilisateur : "suppression des effets carres autour des
+    // push quand ils sont desactives"). Un rayon plus genereux rapproche
+    // la forme d'une pilule, moins sujette a cet effet.
+    const float corner = juce::jmin (11.0f, b.getHeight() * 0.42f);
+
+    const bool lightTheme = isLightThemeStatic();
+    // Base neutre UNIQUE, jamais teintee par bande (retour utilisateur,
+    // avec captures d'ecran comparant plusieurs bandes cote a cote :
+    // "je veux que sur chaque bande, chaque bouton dans le header soit
+    // identique a l'enfoncement ... je veux le meme style que le sel de
+    // la bande jaune actuelle"). Plusieurs tentatives precedentes de
+    // teinter cette base avec la couleur DE LA BANDE (interpolation RVB,
+    // puis teinte HSB a luminosite egale) donnaient un resultat different
+    // d'une bande a l'autre selon la teinte de l'accent (cyan/vert
+    // versus ambre) -- exactement l'inconsistance rapportee. Base
+    // alignee sur SixpackColours::lightPanelGradTop (haut du degrade
+    // metal, voir BandMetersRack::rebuildBackgroundCacheIfNeeded())
+    // SANS aucune teinte d'accent : rendu strictement IDENTIQUE partout
+    // (chaque bande + le header), garanti par construction.
+    const juce::Colour base = lightTheme ? SixpackColours::lightPanelGradTop : juce::Colour (0xff262422);
+
+    juce::Path shape;
+    shape.addRoundedRectangle (b, corner);
+
+    // Design "C" (retour utilisateur, reference visuelle -- capture CSS
+    // "C -- extreme") : le halo doit VRAIMENT deborder hors du bouton, pas
+    // juste un degrade interne (structurellement impossible a obtenir
+    // sans laisser deborder quelque chose -- retour utilisateur : "ça
+    // ressemble en rien à ça"). Cette fois l'espace pour deborder est
+    // REEL et RESERVE dans la mise en page (haloMargin, voir plus haut)
+    // -- le DropShadow peut deborder de `b` en restant TOUJOURS dans les
+    // limites de `bounds`, sans setPaintingIsUnclipped().
+    if (! recessed)
+    {
+        const float shadowRadius = juce::jmax (2.0f, haloMargin * 0.7f);
+        const int offsetPx = juce::roundToInt (haloMargin * 0.45f);
+        juce::DropShadow (juce::Colours::black.withAlpha (lightTheme ? 0.55f : 0.7f), (int) shadowRadius, { offsetPx, offsetPx }).drawForPath (g, shape);
+        juce::DropShadow (juce::Colours::white.withAlpha (lightTheme ? 0.9f : 0.18f), (int) shadowRadius, { -offsetPx, -offsetPx }).drawForPath (g, shape);
+        g.setColour (base);
+        g.fillRoundedRectangle (b, corner);
+    }
+    else
+    {
+        // Etat CREUX : reste ENTIEREMENT INTERNE (la reference "C" ne
+        // montre AUCUN halo qui deborde sur l'etat enfonce non plus,
+        // juste un aspect sombre/enfonce) -- degrades clippes dans la
+        // forme, jamais de debordement necessaire ici.
+        g.setColour (base.darker (lightTheme ? 0.10f : 0.16f));
+        g.fillRoundedRectangle (b, corner);
+
+        g.saveState();
+        g.reduceClipRegion (shape);
+        juce::ColourGradient darkCorner (juce::Colours::black.withAlpha (lightTheme ? 0.35f : 0.6f), b.getX(), b.getY(),
+                                          juce::Colours::transparentBlack, b.getCentreX(), b.getCentreY(), true);
+        g.setGradientFill (darkCorner);
+        g.fillRoundedRectangle (b, corner);
+        juce::ColourGradient lightCorner (juce::Colours::white.withAlpha (lightTheme ? 0.5f : 0.22f), b.getRight(), b.getBottom(),
+                                           juce::Colours::transparentWhite, b.getCentreX(), b.getCentreY(), true);
+        g.setGradientFill (lightCorner);
+        g.fillRoundedRectangle (b, corner);
+        g.restoreState();
+    }
+
+    auto textColour = lit ? (lightTheme ? accent.darker (0.2f) : accent).withAlpha (textAlphaMultiplier)
+                           : (lightTheme ? juce::Colour (0xff1a1a1a) : juce::Colours::white).withAlpha (0.88f);
+    g.setColour (textColour);
+    // Multiplicateur remonte 0.4->0.55 (retour utilisateur : "c'est ecrit
+    // trop petit" -- sur les petits boutons THD (~24px de haut), 0.4 ne
+    // donnait qu'environ 8pt, illisible ; 0.55 vise plutot 12pt a cette
+    // hauteur, tout en restant plafonne a 15 pour les boutons plus hauts
+    // (SOLO/SEL/LEARN, ~38px).
+    g.setFont (juce::Font (juce::FontOptions (juce::jmin (15.0f, b.getHeight() * 0.55f), juce::Font::bold)).withExtraKerningFactor (0.03f));
+    g.drawFittedText (text, b.toNearestInt(), juce::Justification::centred, 1);
+}
+
+juce::Image SixpackLookAndFeel::buildSignatureImage (juce::Colour ink, int targetW)
+{
+    auto master = juce::ImageCache::getFromMemory (BinaryData::signature_mikshake_master_png,
+                                                     BinaryData::signature_mikshake_master_pngSize);
+    if (master.isNull())
+        return {};
+
+    juce::Image argb (juce::Image::ARGB, master.getWidth(), master.getHeight(), true);
+    int minX = master.getWidth(), minY = master.getHeight(), maxX = -1, maxY = -1;
+    {
+        juce::Image::BitmapData s (master, juce::Image::BitmapData::readOnly);
+        juce::Image::BitmapData d (argb, juce::Image::BitmapData::writeOnly);
+        for (int y = 0; y < s.height; ++y)
+        {
+            for (int x = 0; x < s.width; ++x)
+            {
+                // Alpha = couverture d'encre reelle (encre noire sur fond
+                // blanc dans le maitre), preserve l'anti-aliasing natif du
+                // fichier source au lieu de le detruire par un seuillage
+                // binaire (voir doc de declaration dans SixpackLookAndFeel.h).
+                const float alpha = juce::jlimit (0.0f, 1.0f, 1.0f - s.getPixelColour (x, y).getPerceivedBrightness());
+                d.setPixelColour (x, y, ink.withAlpha (alpha));
+                if (alpha > 0.03f)
+                {
+                    minX = juce::jmin (minX, x); maxX = juce::jmax (maxX, x);
+                    minY = juce::jmin (minY, y); maxY = juce::jmax (maxY, y);
+                }
+            }
+        }
+    }
+    if (maxX < minX)
+        return {};
+
+    constexpr int margin = 15;
+    const auto bbox = juce::Rectangle<int> (minX, minY, maxX - minX + 1, maxY - minY + 1)
+                           .expanded (margin)
+                           .getIntersection ({ 0, 0, argb.getWidth(), argb.getHeight() });
+    auto cropped = argb.getClippedImage (bbox);
+
+    const int targetH = juce::roundToInt ((float) targetW * (float) cropped.getHeight() / (float) cropped.getWidth());
+
+    // Reduction par paliers x2 (chaque palier reste dans un ratio ou
+    // l'area-averaging de JUCE est fiable) jusqu'a approcher la taille
+    // finale, puis un dernier ajustement exact -- evite un seul palier a
+    // ratio extreme (~17:1 depuis le maitre) qui degraderait le resultat.
+    juce::Image cur = cropped;
+    while (cur.getWidth() > targetW * 2 && cur.getHeight() > targetH * 2)
+        cur = cur.rescaled (cur.getWidth() / 2, cur.getHeight() / 2, juce::Graphics::highResamplingQuality);
+    return cur.rescaled (targetW, targetH, juce::Graphics::highResamplingQuality);
+}

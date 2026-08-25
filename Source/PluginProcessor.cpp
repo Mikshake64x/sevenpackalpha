@@ -132,9 +132,22 @@ void SixpackAudioProcessor::timerCallback()
         {
             grMeterDb[(size_t) band].store (0.0f);
             grMeterExpandDb[(size_t) band].store (0.0f);
+            clipMeterAmountBand[(size_t) band].store (0.0f);
         }
         grMeterDbL.store (0.0f);
         grMeterDbR.store (0.0f);
+
+        // Meme bug que grMeterDb ci-dessus, meme fix (retour utilisateur :
+        // "dans le vu metre THD quand je coupe le son, il reste une led
+        // d'allumee continuelement") -- quand l'hote arrete d'appeler
+        // processBlock() (transport stoppe, piste desactivee...), la
+        // ballistique de clipMeterAmount (decroissance *0.995/echantillon,
+        // voir SoftClipper::processSample()) se fige a sa derniere valeur
+        // au lieu de continuer a decroitre vers 0, laissant la premiere
+        // diode de ThdHeaderModule allumee indefiniment.
+        clipMeterAmount.store (0.0f);
+        clipMeterAmountL.store (0.0f);
+        clipMeterAmountR.store (0.0f);
     }
 }
 
@@ -331,12 +344,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout SixpackAudioProcessor::creat
         ParameterID { idThdMode, 1 }, "THD Mode",
         StringArray { "Soft", "Tape", "Iron", "Air" }, 0));
 
+    // Defaut "Match" (dernier choix, index 9) au lieu de "Off" (retour
+    // utilisateur : screenshots des options a l'ouverture montrant MATCH
+    // coche par defaut, avec les 3 autres reglages AI Expand ci-dessous).
     params.push_back (std::make_unique<AudioParameterChoice> (
         ParameterID { idAiMasteringTarget, 1 }, "AI Mastering Target",
-        StringArray { "Off", "Apple Music", "YouTube", "Spotify", "Deezer", "SoundCloud", "TV", "CD", "Side Key", "Match" }, 0));
+        StringArray { "Off", "Apple Music", "YouTube", "Spotify", "Deezer", "SoundCloud", "TV", "CD", "Side Key", "Match" }, 9));
 
+    // Coche par defaut (retour utilisateur : "il faut qu'il soit active
+    // dans AI scope [crossover]") -- coherent avec Compression, deja ON
+    // par defaut ci-dessous.
     params.push_back (std::make_unique<AudioParameterBool> (
-        ParameterID { idAiScopeCrossover, 1 }, "AI Scope: Crossover", false));
+        ParameterID { idAiScopeCrossover, 1 }, "AI Scope: Crossover", true));
     params.push_back (std::make_unique<AudioParameterBool> (
         ParameterID { idAiScopeDetectors, 1 }, "AI Scope: Detectors", false));
     params.push_back (std::make_unique<AudioParameterBool> (
@@ -362,25 +381,26 @@ juce::AudioProcessorValueTreeState::ParameterLayout SixpackAudioProcessor::creat
         StringArray { "Off", "Smooth", "Mid", "Hard" }, 2));
 
     // Triade AI Expand (demande explicite : "pour l'ia de expand, il faut
-    // des reglages comme pour l'ia comp") -- memes 3 axes/valeurs par
-    // Off par defaut (contrairement a la triade compression ci-dessus,
-    // Medium/Medium/Mid) -- IMPORTANT : des qu'UN SEUL de ces 3 axes n'est
-    // pas sur Off, AI Learn bascule desormais AUTOMATIQUEMENT les 3 bandes
-    // en EXPAND (voir AiLearnAnalyzer::run(), retour utilisateur : "je
-    // veux pas avoir a activer les bandes expand pour les activer"). Si
-    // ces params defautaient a un mode reel comme la compression, AI Learn
-    // switcherait TOUJOURS les bandes en Expand (et donc desactiverait
-    // silencieusement la compression au-dessus du seuil, Expand n'ayant
-    // pas de branche Above) des le premier clic -- opt-in strict requis.
+    // des reglages comme pour l'ia comp"). Defauts REVUS (retour
+    // utilisateur : screenshots des options a l'ouverture montrant
+    // Hard/Smooth/Hard coches par defaut) -- Hard/Smooth/Hard au lieu de
+    // Off/Off/Off. ATTENTION, consequence assumee (confirmee explicitement
+    // par l'utilisateur) : des qu'UN SEUL de ces 3 axes n'est pas sur Off,
+    // AI Learn bascule AUTOMATIQUEMENT les 3 bandes en EXPAND (voir
+    // AiLearnAnalyzer::run()), ce qui desactive silencieusement la
+    // compression au-dessus du seuil (Expand n'a pas de branche Above) des
+    // le tout premier clic sur Learn -- avant cette revision, ces 3 axes
+    // defautaient a Off precisement pour eviter ca (opt-in strict), mais
+    // l'utilisateur a confirme vouloir ce basculement automatique.
     params.push_back (std::make_unique<AudioParameterChoice> (
         ParameterID { idAiExpandMode, 1 }, "AI Expand Mode",
-        StringArray { "Off", "Soft", "Medium", "Hard" }, 0));
+        StringArray { "Off", "Soft", "Medium", "Hard" }, 3));
     params.push_back (std::make_unique<AudioParameterChoice> (
         ParameterID { idAiExpandCharacter, 1 }, "AI Expand Attack/Release Character",
-        StringArray { "Off", "Smooth", "Medium", "Punchy" }, 0));
+        StringArray { "Off", "Smooth", "Medium", "Punchy" }, 1));
     params.push_back (std::make_unique<AudioParameterChoice> (
         ParameterID { idAiExpandAmount, 1 }, "AI Expand Amount",
-        StringArray { "Off", "Smooth", "Mid", "Hard" }, 0));
+        StringArray { "Off", "Smooth", "Mid", "Hard" }, 3));
 
     // Style musical (menu Options, section AI, demande explicite : "je
     // souhaite ajouter plusieurs styles musicaux qui vont changer la
@@ -957,7 +977,16 @@ void SixpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
             if (residR != nullptr)
                 residR[i] = sumR - dataR[i];
         }
+    }
 
+    // Meters de sortie (retour utilisateur : "on supprime la protection true
+    // peak" -- l'etage de correction dedie sur-echantillonne 4x a ete
+    // retire, son filtrage anti-repliement permanent grignotait le haut du
+    // spectre meme sans depassement reel ; seule la protection true-peak
+    // deja integree a SoftClipper pour Tape/Iron/Air/Limit subsiste, voir
+    // SoftClipper::applyTruePeakCeiling()).
+    for (int i = 0; i < numSamples; ++i)
+    {
         peakOutL = juce::jmax (peakOutL, dataL != nullptr ? std::abs (dataL[i]) : 0.0f);
         peakOutR = juce::jmax (peakOutR, dataR != nullptr ? std::abs (dataR[i]) : 0.0f);
     }
@@ -1058,8 +1087,8 @@ void SixpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     clipMeterAmount.store (juce::jmax (clipAmountL, clipAmountR));
 
     // Latence identique sur tous les canaux (memes reglages pousses a
-    // chaque Crossover ci-dessus) -- ne rappeler setLatencySamples() que
-    // si elle a reellement change.
+    // chaque Crossover ci-dessus) -- ne rappeler setLatencySamples() que si
+    // la valeur a reellement change.
     if (! crossovers.empty())
     {
         const int currentLatency = crossovers.front()->getLatencySamples();
@@ -1195,7 +1224,7 @@ void SixpackAudioProcessor::setStateInformation (const void* data, int sizeInByt
     apvts.replaceState (tree);
     needleModeIndex1 = apvts.state.getProperty ("needleModeIndex1", 1);
     needleModeIndex2 = apvts.state.getProperty ("needleModeIndex2", 1);
-    lightTheme.store ((bool) apvts.state.getProperty ("lightTheme", false) ? 1.0f : 0.0f);
+    lightTheme.store ((bool) apvts.state.getProperty ("lightTheme", true) ? 1.0f : 0.0f);
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

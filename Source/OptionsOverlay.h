@@ -28,8 +28,14 @@
             "on doit pouvoir agir que sur les points AI qui ne vont pas") --
             Off n'ecrit QUE sa propre cible (Input/Ratio/Attack+Release),
             le reste continue d'etre pousse normalement.
-          - AI SCOPE : 3 interrupteurs INDEPENDANTS (Crossover/Detecteurs/
-            Compression).
+          - AI SCOPE : 2 interrupteurs INDEPENDANTS (Crossover/Compression)
+            -- "Detecteurs" retire (retour utilisateur : "tu peux supprimer
+            detector car ils n'y sont plus" -- les controles Detector/Color
+            sont deja masques du visuel ailleurs, voir buildBandPanel(),
+            ce toggle n'avait donc plus rien a piloter de visible). Le
+            parametre idAiScopeDetectors et le code AiLearnAnalyzer associe
+            restent en place (meme logique que Detector/Color : garde pour
+            une eventuelle reactivation future), juste plus expose ici.
     Se ferme au clic hors du panneau, ou via le bouton CLOSE.
 */
 class OptionsOverlay : public juce::Component
@@ -146,9 +152,9 @@ public:
     void setCurrentAiCompressionMode (int idx)       { aiPanel.setCurrentAiCompressionMode (idx); }
     void setCurrentAiCharacter (int idx)             { aiPanel.setCurrentAiCharacter (idx); }
     void setCurrentAiGainReduction (int idx)         { aiPanel.setCurrentAiGainReduction (idx); }
-    void setAiScopeStates (bool crossoverOn, bool detectorsOn, bool compressionOn)
+    void setAiScopeStates (bool crossoverOn, bool compressionOn)
     {
-        aiPanel.setAiScopeStates (crossoverOn, detectorsOn, compressionOn);
+        aiPanel.setAiScopeStates (crossoverOn, compressionOn);
     }
     void setCurrentAiStyle (int idx)      { aiPanel.setCurrentAiStyle (idx); }
     void setAiFidelityState (bool enabled) { aiPanel.setAiFidelityState (enabled); }
@@ -242,7 +248,7 @@ public:
 
         auto drawSectionLabel = [&] (const juce::Rectangle<int>& area, const juce::String& text)
         {
-            g.setColour (SixpackColours::ledBlue);
+            g.setColour (SixpackLookAndFeel::textAccentBlue());
             g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
             g.drawFittedText (text, area, juce::Justification::centredLeft, 1);
         };
@@ -285,7 +291,7 @@ public:
     std::function<void(int)> onAiCompressionModeSelected;
     std::function<void(int)> onAiCharacterSelected;
     std::function<void(int)> onAiGainReductionSelected;
-    // scopeIndex : 0=Crossover, 1=Detectors, 2=Compression.
+    // scopeIndex : 0=Crossover, 1=Compression.
     std::function<void(int scopeIndex, bool enabled)> onAiScopeChanged;
     std::function<void(int)> onAiStyleSelected;
     std::function<void(bool)> onAiFidelityChanged;
@@ -309,7 +315,7 @@ private:
             static const char* compressionLabels[kNumCompressionModes] = { "OFF", "SOFT", "MEDIUM", "HARD" };
             static const char* characterLabels[kNumAttackReleaseCharacters] = { "OFF", "SMOOTH", "MEDIUM", "PUNCHY" };
             static const char* grLabels[kNumGainReductionModes] = { "OFF", "SMOOTH", "MID", "HARD" };
-            static const char* scopeLabels[kNumScopes] = { "CROSSOVER", "DETECTORS", "COMPRESSION" };
+            static const char* scopeLabels[kNumScopes] = { "CROSSOVER", "COMPRESSION" };
             static const char* styleLabels[kNumStyles] = { "OFF", "BASS", "LOUD", "ROCK", "POP", "ELECTRONIC" };
             static const char* expandModeLabels[kNumExpandModes] = { "OFF", "SOFT", "MEDIUM", "HARD" };
             static const char* expandCharacterLabels[kNumExpandCharacters] = { "OFF", "SMOOTH", "MEDIUM", "PUNCHY" };
@@ -525,11 +531,10 @@ private:
                 gainReductionButtons[i].setToggleState (i == idx, juce::dontSendNotification);
         }
 
-        void setAiScopeStates (bool crossoverOn, bool detectorsOn, bool compressionOn)
+        void setAiScopeStates (bool crossoverOn, bool compressionOn)
         {
             scopeButtons[0].setToggleState (crossoverOn,   juce::dontSendNotification);
-            scopeButtons[1].setToggleState (detectorsOn,   juce::dontSendNotification);
-            scopeButtons[2].setToggleState (compressionOn, juce::dontSendNotification);
+            scopeButtons[1].setToggleState (compressionOn, juce::dontSendNotification);
         }
 
         void setCurrentAiStyle (int idx)
@@ -648,7 +653,7 @@ private:
         {
             auto drawSectionLabel = [&] (const juce::Rectangle<int>& area, const juce::String& text)
             {
-                g.setColour (SixpackColours::ledBlue);
+                g.setColour (SixpackLookAndFeel::textAccentBlue());
                 g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
                 g.drawFittedText (text, area, juce::Justification::centredLeft, 1);
             };
@@ -681,7 +686,7 @@ private:
         static constexpr int kNumCompressionModes = 4;
         static constexpr int kNumAttackReleaseCharacters = 4;
         static constexpr int kNumGainReductionModes = 4;
-        static constexpr int kNumScopes = 3;
+        static constexpr int kNumScopes = 2;
         static constexpr int kNumStyles = 6;
         static constexpr int kNumExpandModes = 4;
         static constexpr int kNumExpandCharacters = 4;

@@ -5,11 +5,18 @@
 /**
     ThdEngageSwitch
     ---------------
-    Interrupteur ON/OFF du THD Valve (SOFTCLIP), sprite
-    Button-08-S-Filmstrip.png (filmstrip vertical 2 images -- haut =
-    engage, bas = off), meme famille que PowerRocker.h. La diode d'etat
-    reste sur ThdHeaderModule (voir ThdHeaderModule.h) -- ce composant est
-    juste l'actionneur physique.
+    Interrupteur ON/OFF du THD Valve (SOFTCLIP) -- refonte neumorphic
+    "dark mono" (retour utilisateur : preview A/B, "alors le A" -- rond,
+    extrusion 3D marquee), remplace l'ancien sprite Button-08-S-Filmstrip.
+    Meme recette que RackPushButton (SixpackLookAndFeel::
+    paintNeumorphicButton) mais en CERCLE et sans texte : souleve (halo
+    clair haut-gauche/sombre bas-droite) au repos, creuse quand engage. Un
+    point central reste visible en PERMANENCE (retour utilisateur : sur 3
+    variantes previewees -- "point terne toujours visible" / "anneau
+    grave" / "rien au repos" -- "le b") : terne/creux au repos, cyan +
+    glow une fois engage. La diode d'etat globale reste sur
+    ThdHeaderModule (voir ThdHeaderModule.h) -- ce composant est juste
+    l'actionneur physique.
 */
 class ThdEngageSwitch : public juce::Button
 {
@@ -17,38 +24,85 @@ public:
     ThdEngageSwitch() : juce::Button ("THD Engage")
     {
         setClickingTogglesState (true);
-        sprite = juce::ImageCache::getFromMemory (BinaryData::Button08SFilmstrip_png, BinaryData::Button08SFilmstrip_pngSize);
     }
 
-    void paintButton (juce::Graphics& g, bool /*isHighlighted*/, bool /*isButtonDown*/) override
-    {
-        auto bounds = getLocalBounds().toFloat();
+    // Voir RackPushButton::setHaloMargin()/l'appelant (ThdHeaderModule.h)
+    // doit agrandir les bounds de ce meme montant.
+    void setHaloMargin (float margin) noexcept { haloMargin = margin; repaint(); }
 
-        if (sprite.isNull())
+    bool hitTest (int x, int y) override
+    {
+        return getLocalBounds().toFloat().reduced (haloMargin).contains ((float) x, (float) y);
+    }
+
+    // Halo qui deborde REELLEMENT (retour utilisateur, reference visuelle
+    // "C -- extreme") -- voir SixpackLookAndFeel::paintNeumorphicButton()
+    // pour le meme raisonnement/technique, adapte ici en cercle.
+    void paintButton (juce::Graphics& g, bool /*isHighlighted*/, bool isDown) override
+    {
+        auto b = getLocalBounds().toFloat().reduced (haloMargin);
+        const bool lit = getToggleState();
+        const bool recessed = lit || isDown;
+        const float r = juce::jmin (b.getWidth(), b.getHeight()) * 0.5f;
+        const auto centre = b.getCentre();
+
+        const bool lightTheme = SixpackLookAndFeel::isLightThemeStatic();
+        const juce::Colour base = lightTheme ? SixpackColours::lightPanelGradTop : juce::Colour (0xff262422);
+
+        juce::Path shape;
+        shape.addEllipse (b);
+
+        if (! recessed)
         {
-            g.setColour (getToggleState() ? SixpackColours::ledAmber : juce::Colours::black);
-            g.fillEllipse (bounds);
-            return;
+            const float shadowRadius = juce::jmax (2.0f, haloMargin * 0.7f);
+            const int offsetPx = juce::roundToInt (haloMargin * 0.45f);
+            juce::DropShadow (juce::Colours::black.withAlpha (lightTheme ? 0.55f : 0.7f), (int) shadowRadius, { offsetPx, offsetPx }).drawForPath (g, shape);
+            juce::DropShadow (juce::Colours::white.withAlpha (lightTheme ? 0.9f : 0.18f), (int) shadowRadius, { -offsetPx, -offsetPx }).drawForPath (g, shape);
+            g.setColour (base);
+            g.fillEllipse (b);
+        }
+        else
+        {
+            g.setColour (base.darker (lightTheme ? 0.10f : 0.16f));
+            g.fillEllipse (b);
+
+            g.saveState();
+            g.reduceClipRegion (shape);
+            juce::ColourGradient darkCorner (juce::Colours::black.withAlpha (lightTheme ? 0.35f : 0.6f), b.getX(), b.getY(),
+                                              juce::Colours::transparentBlack, centre.x, centre.y, true);
+            g.setGradientFill (darkCorner);
+            g.fillEllipse (b);
+            juce::ColourGradient lightCorner (juce::Colours::white.withAlpha (lightTheme ? 0.5f : 0.22f), b.getRight(), b.getBottom(),
+                                               juce::Colours::transparentWhite, centre.x, centre.y, true);
+            g.setGradientFill (lightCorner);
+            g.fillEllipse (b);
+            g.restoreState();
         }
 
-        const int frameH = sprite.getHeight() / 2;
-        const int srcY = getToggleState() ? 0 : frameH; // haut = engage, bas = off
-
-        auto sub = sprite.getClippedImage ({ 0, srcY, sprite.getWidth(), frameH });
-
-        const float scale = juce::jmin (bounds.getWidth() / (float) sub.getWidth(),
-                                         bounds.getHeight() / (float) sub.getHeight());
-        const float w = sub.getWidth() * scale;
-        const float h = sub.getHeight() * scale;
-        auto dest = juce::Rectangle<float> (w, h).withCentre (bounds.getCentre());
-
-        g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
-        g.drawImage (sub, (int) dest.getX(), (int) dest.getY(), (int) dest.getWidth(), (int) dest.getHeight(),
-                     0, 0, sub.getWidth(), sub.getHeight());
+        // Point central TOUJOURS visible (retour utilisateur, variante
+        // "B" previewee : "j'aime bien quand il est active mais j'aime
+        // pas quand il est off" -- l'ancienne version ne dessinait rien
+        // au repos, juste un cercle nu) -- terne/creux quand eteint, cyan
+        // + glow une fois engage.
+        auto dot = juce::Rectangle<float> (r * 0.42f, r * 0.42f).withCentre (centre);
+        if (lit)
+        {
+            g.setColour (SixpackColours::ledCyan.withAlpha (0.9f));
+            g.fillEllipse (dot);
+            g.setColour (SixpackColours::ledCyan.withAlpha (0.4f));
+            g.drawEllipse (dot.expanded (2.0f), 2.0f);
+        }
+        else
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.4f));
+            g.fillEllipse (dot);
+            g.setColour (juce::Colours::black.withAlpha (0.6f));
+            g.drawEllipse (dot, 1.0f);
+        }
     }
 
 private:
-    juce::Image sprite;
+    float haloMargin = 7.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ThdEngageSwitch)
 };

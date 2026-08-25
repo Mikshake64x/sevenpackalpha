@@ -319,12 +319,18 @@ public:
     // Valeurs REVUES A LA BAISSE (retour utilisateur : "c'est pas tres
     // musical la, c'est trop") -- chaque mode est desormais une PLAGE
     // (min..max), pas une valeur fixe : Smooth 0.2-0.4dB, Mid 0.5-1dB,
-    // Hard 1-3dB. La position dans la plage suit la mesure "te" (plancher/
+    // Hard 2-3dB. La position dans la plage suit la mesure "te" (plancher/
     // quietness reel de la bande, voir run()) -- plus le plancher est
     // profond/marque, plus on se rapproche du haut de la plage du mode.
     static constexpr int kNumExpandAmountModes = 3;
     static constexpr int kNumExpandAmountModeChoices = 4; // + "Off"
-    static constexpr float kExpandAmountRangeMinDb[kNumExpandAmountModes] = { 0.2f, 0.5f, 1.0f }; // Smooth/Mid/Hard
+    // Plancher de Hard remonte de 1.0 a 2.0dB (retour utilisateur : "j'ai
+    // que 1db de range alors que je demande 2.1" -- le resultat pouvait
+    // descendre jusqu'a 1dB quand l'IA jugeait le creux dynamique modeste,
+    // ce qui paraissait trop faible/imprevisible pour un mode cense etre le
+    // plus marque des 3) -- Hard couvre desormais 2-3dB, jamais moins,
+    // quelle que soit la mesure "te".
+    static constexpr float kExpandAmountRangeMinDb[kNumExpandAmountModes] = { 0.2f, 0.5f, 2.0f }; // Smooth/Mid/Hard
     static constexpr float kExpandAmountRangeMaxDb[kNumExpandAmountModes] = { 0.4f, 1.0f, 3.0f };
 
     // Tables ratio/knee dupliquees depuis SixpackAudioProcessor (pas
@@ -961,11 +967,19 @@ private:
                 // combler -- on ignore ces cas (te=0, aucune proposition)
                 // plutot que de coller un boost meme discret sur une bande
                 // qui n'en a pas vraiment besoin. Seul un ecart NETTEMENT
-                // marque (10-30dB) produit une proposition, avec une
-                // intensite proportionnelle a l'ampleur reelle du trou.
+                // marque produit une proposition, avec une intensite
+                // proportionnelle a l'ampleur reelle du trou. Plafond
+                // ramene de 30 a 25dB (retour utilisateur : "en hard [Range]
+                // peut monter jusqu'a 2.1db", alors que le mode couvre 1-3dB
+                // -- un ecart de 30dB pour toucher le haut de la plage etait
+                // trop extreme, la plupart des programmes n'y arrivaient
+                // jamais) -- Hard (et les autres modes/axes, qui partagent
+                // cette meme mesure te) atteignent desormais leur plafond
+                // sur des programmes moins extremes.
                 constexpr float kFloorDeadZoneDb = 10.0f;
+                constexpr float kFloorCrestCeilingDb = 25.0f;
                 const float te = juce::jlimit (0.0f, 1.0f,
-                    (floorCrestDb - kFloorDeadZoneDb) / (30.0f - kFloorDeadZoneDb));
+                    (floorCrestDb - kFloorDeadZoneDb) / (kFloorCrestCeilingDb - kFloorDeadZoneDb));
 
                 // 3 axes STRICTEMENT independants (retour utilisateur : "il
                 // y a 3 reglages d'ai. un pour le range, un pour le ratio
@@ -976,7 +990,7 @@ private:
                 // explicite : "le knob input du mode comp passe en mode
                 // range"). Chaque mode est une PLAGE (retour utilisateur :
                 // "c'est pas tres musical, c'est trop" -- Smooth 0.2-0.4dB,
-                // Mid 0.5-1dB, Hard 1-3dB), interpolee selon "te" (voir
+                // Mid 0.5-1dB, Hard 2-3dB), interpolee selon "te" (voir
                 // zone morte ci-dessus) -- pas de simulation/dichotomie, la
                 // DSP elle-meme respecte nativement ce plafond (voir
                 // FeedbackCompressor::setExpandRangeDb()). 0dB (Off) =

@@ -28,9 +28,14 @@ public:
     // permet au juce::Viewport parent de savoir jusqu'ou scroller.
     struct ColumnItem
     {
-        enum class Kind { Paragraph, Header, Bullet };
+        // Image : photo pleine largeur de colonne, hauteur deduite de son
+        // ratio d'aspect (voir itemHeight()) -- text/image mutuellement
+        // exclusifs selon kind, pas besoin d'un union, un seul item de plus
+        // par colonne au total (voir buildOverviewColumns()).
+        enum class Kind { Paragraph, Header, Bullet, Image };
         juce::String text;
         Kind kind = Kind::Paragraph;
+        juce::Image image;
     };
 
     class ParagraphColumn : public juce::Component
@@ -72,7 +77,7 @@ public:
                 switch (it.kind)
                 {
                     case ColumnItem::Kind::Header:
-                        g.setColour (SixpackColours::ledBlue);
+                        g.setColour (SixpackLookAndFeel::textAccentBlue());
                         g.setFont (headFont);
                         g.drawFittedText (it.text, { 0, (int) y, (int) w, 18 }, juce::Justification::centredLeft, 1);
                         break;
@@ -92,6 +97,20 @@ public:
                     default:
                         drawParagraph (g, it.text, { 0.0f, y, w, 0.0f }, bodyFont, SixpackColours::textBright, 1.3f);
                         break;
+
+                    case ColumnItem::Kind::Image:
+                        if (! it.image.isNull())
+                        {
+                            // Pleine largeur de colonne, AUCUNE marge/bordure
+                            // decorative (retour utilisateur : "assez gros,
+                            // avec le minimum de zone morte autour") -- juste
+                            // l'image, hauteur deduite de son ratio d'aspect
+                            // (voir itemHeight()).
+                            g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+                            const float h = itemHeight (it, w);
+                            g.drawImage (it.image, 0.0f, y, w, h, 0, 0, it.image.getWidth(), it.image.getHeight());
+                        }
+                        break;
                 }
 
                 y += itemHeight (it, w) + itemGap (it);
@@ -104,6 +123,9 @@ public:
             switch (it.kind)
             {
                 case ColumnItem::Kind::Header: return 18.0f;
+                case ColumnItem::Kind::Image:
+                    return it.image.isNull() ? 0.0f
+                        : width * (float) it.image.getHeight() / (float) juce::jmax (1, it.image.getWidth());
                 case ColumnItem::Kind::Bullet:
                 {
                     // Meme calcul que Paragraph, mais largeur reduite des
@@ -170,8 +192,12 @@ public:
         // Variante BLANCHE (pas la noire utilisee sous le logo SIXPACK sur
         // la barre de controle claire) -- ce voile About est sombre (voile
         // noir + panneau verre, voir rebuildChromeCache()), une signature
-        // noire y serait quasi invisible.
-        signatureImage = juce::ImageCache::getFromMemory (BinaryData::signature_mikshake_white_png, BinaryData::signature_mikshake_white_pngSize);
+        // noire y serait quasi invisible. Construite depuis le PNG maitre
+        // via le meme pipeline de qualite que PluginEditor.cpp (retour
+        // utilisateur : "ca fait une soupe de pixels" -- voir
+        // SixpackLookAndFeel::buildSignatureImage()).
+        signatureImage = SixpackLookAndFeel::buildSignatureImage (juce::Colours::white, 55);
+        splashImage = juce::ImageCache::getFromMemory (BinaryData::Mikshakesplash_png, BinaryData::Mikshakesplash_pngSize);
 
         buildOverviewColumns();
         buildFeaturesAndPhilosophyColumn();
@@ -254,7 +280,7 @@ public:
     {
         if (websiteBounds.contains (e.position))
         {
-            juce::URL ("https://sidekey.fr").launchInDefaultBrowser();
+            juce::URL ("https://sidekeysystem.com").launchInDefaultBrowser();
             return;
         }
 
@@ -345,7 +371,7 @@ private:
         auto versionArea = headerRow.removeFromRight (56.0f);
         g.setColour (SixpackColours::textDim);
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
-        g.drawFittedText ("v1.8.0", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
+        g.drawFittedText ("v1.16.1", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
 
         auto titleArea = headerRow.removeFromLeft (juce::jmin (240.0f, headerRow.getWidth() * 0.48f));
         g.setColour (SixpackColours::ledAmber);
@@ -357,7 +383,7 @@ private:
         g.drawFittedText ("ABOUT SIXPACK", titleArea.toNearestInt(), juce::Justification::centredLeft, 1);
 
         headerRow.removeFromLeft (14.0f);
-        g.setColour (SixpackColours::ledBlue.withAlpha (0.85f));
+        g.setColour (SixpackLookAndFeel::textAccentBlue().withAlpha (0.85f));
         g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::italic)).withExtraKerningFactor (0.10f));
         g.drawFittedText ("Dynamics. Refined.", headerRow.toNearestInt(), juce::Justification::centredLeft, 1);
 
@@ -454,6 +480,12 @@ private:
             { "With this many bands and this many things to tweak, the Learn module felt like an almost indispensable extension of "
               "SIXPACK.", ColumnItem::Kind::Paragraph },
             { "Six bands, two dynamics processors per band, and one button to try and put a little order back into all of it.", ColumnItem::Kind::Paragraph },
+            // Photo (retour utilisateur : "voici la nouvelle photo a mettre
+            // dans about ... colonne du centre ... assez gros, avec le
+            // minimum de zone morte autour", puis "il faut que la photo ...
+            // soit sous le texte pas au dessus") -- pleine largeur de
+            // colonne, en fin de colonne, apres le texte Learn.
+            { "", ColumnItem::Kind::Image, splashImage },
         });
     }
 
@@ -487,7 +519,6 @@ private:
             "THD Valve: Soft / Tape / Iron / Air Mastering Saturation, One Shared Stage",
             "True Peak Safety Ceiling on the THD Valve",
             "Dual Needle VU (Input / Output / THD) plus One THD Needle per Band",
-            "Global Power with Full Unit Dim",
             "Link In / Link Out for Ganged Input/Output Trim",
             "Factory and User Preset Browser, with a Genuine Default Preset",
             "Resizable UI (75% to 100%), Locked Against Accidental Host Fullscreen",
@@ -542,14 +573,10 @@ private:
 
         // Signature, fond transparent, juste apres la photo (retour
         // utilisateur explicite : "dans la page about dans le cadre du bas
-        // ou il y a la ma photo et les licences", puis "elle doit etre
-        // completement noire. pas de transparence, pas d'opacite" -- meme
-        // fix que sous le logo SIXPACK, voir PluginEditor.cpp : le PNG est
-        // genere DIRECTEMENT a sa taille d'affichage finale (45x30, seuil
-        // binaire) et dessine ici en 1:1 EXACT (drawImageAt, pas de
-        // destW/destH -- tout resample reintroduit des bords semi-opaques,
-        // meme depuis une source deja binaire). Variante BLANCHE (voile
-        // sombre ici, voir signatureImage/constructeur).
+        // ou il y a la ma photo et les licences") -- construite depuis le
+        // PNG maitre via SixpackLookAndFeel::buildSignatureImage() (voir
+        // constructeur), dessinee ici en 1:1 EXACT (drawImageAt, aucun
+        // resample supplementaire). Variante BLANCHE (voile sombre ici).
         if (! signatureImage.isNull())
         {
             auto sigBounds = signatureImage.getBounds().toFloat().withCentre (area.getCentre()).withX (area.getX());
@@ -622,12 +649,12 @@ private:
         g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)).withExtraKerningFactor (0.04f));
 
         juce::GlyphArrangement gaSite;
-        gaSite.addLineOfText (g.getCurrentFont(), "sidekey.fr", 0.0f, 0.0f);
+        gaSite.addLineOfText (g.getCurrentFont(), "sidekeysystem.com", 0.0f, 0.0f);
         const float siteW = gaSite.getBoundingBox (0, -1, true).getWidth();
 
         websiteBounds = row.withWidth (siteW);
-        g.setColour (SixpackColours::ledBlue);
-        g.drawFittedText ("sidekey.fr", websiteBounds.toNearestInt(), juce::Justification::centredLeft, 1);
+        g.setColour (SixpackLookAndFeel::textAccentBlue());
+        g.drawFittedText ("sidekeysystem.com", websiteBounds.toNearestInt(), juce::Justification::centredLeft, 1);
         g.drawLine (websiteBounds.getX(), websiteBounds.getBottom() - 3.0f,
                     websiteBounds.getX() + siteW, websiteBounds.getBottom() - 3.0f, 1.0f);
 
@@ -667,13 +694,14 @@ private:
         g.setColour (SixpackColours::textDim.withAlpha (0.5f));
         g.drawFittedText ("|", juce::Rectangle<float> (manualBounds.getRight(), row.getY(), sepW, row.getHeight()).toNearestInt(),
                            juce::Justification::centred, 1);
-        g.setColour (SixpackColours::ledBlue);
+        g.setColour (SixpackLookAndFeel::textAccentBlue());
         g.drawFittedText (licenseText, licenseBounds.toNearestInt(), juce::Justification::centredLeft, 1);
     }
 
     juce::Image badgeImage;
     juce::Image photoImage;
     juce::Image signatureImage;
+    juce::Image splashImage;
     juce::Image chromeCache;
     juce::Rectangle<float> websiteBounds;
     juce::Rectangle<float> manualBounds;

@@ -55,7 +55,12 @@ public:
         for (int i = 0; i < numSegs; ++i)
         {
             const float segCentre = ((float) i + 0.5f) / (float) numSegs;
-            const bool lit = segCentre >= loFrac && segCentre <= hiFrac;
+            // powered=false eteint tous les segments (retour utilisateur :
+            // "le bouton on off etaint aussi les diodes des dry wet et mono
+            // spread") -- avant ce fix, ces LEDs restaient allumees quel
+            // que soit l'etat de POWER, contrairement a tous les autres
+            // meters du plugin (GR, master, etc).
+            const bool lit = powered && segCentre >= loFrac && segCentre <= hiFrac;
 
             // Couleur a 2 tons de part et d'autre du neutre (demande
             // explicite : "le fader spread est completement orange, c'est
@@ -114,6 +119,11 @@ public:
     // du neutre = SPREAD, cyan en-dessous = MONO).
     void setAccentColourBelowNeutral (juce::Colour c) { accentColourBelowNeutral = c; twoTone = true; }
 
+    // Voir doc de drawLinearSlider() -- eteint tous les segments quand le
+    // plugin est desactive (POWER), meme convention que le reste des
+    // meters (BandMetersRack::timerCallback()).
+    void setPowered (bool shouldBePowered) noexcept { powered = shouldBePowered; }
+
     // Fait demarrer l'allumage des segments depuis cette valeur au lieu du
     // bas (utilise par le fader Width : neutre = 100%, au centre de la
     // piste 0..200).
@@ -127,6 +137,57 @@ private:
     juce::Colour accentColour = SixpackColours::ledCyan;
     juce::Colour accentColourBelowNeutral = SixpackColours::ledCyan;
     bool twoTone = false;
+    bool powered = true;
+};
+
+/**
+    PreciseVerticalSlider
+    ---------------------
+    juce::Slider vertical avec drag "maison", meme code/raisonnement que
+    KnobSlider/ConsoleFader (voir leurs commentaires) : remplace le drag
+    absolu par defaut de JUCE (dont le mode "velocity" declenche par Ctrl
+    teleportait le curseur au relachement de la touche -- "gros a-coups"
+    rapportes) par un calcul manuel a partir du deplacement vertical de la
+    souris, avec une sensibilite reduite (4x, donc plus precis) pendant que
+    Ctrl est enfonce, et un reancrage au moment ou Ctrl change d'etat pour
+    ne jamais sauter.
+*/
+class PreciseVerticalSlider : public juce::Slider
+{
+public:
+    using juce::Slider::Slider;
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        dragStartProportion = valueToProportionOfLength (getValue());
+        dragStartY = e.position.y;
+        ctrlWasDown = e.mods.isCtrlDown();
+        juce::Slider::mouseDown (e);
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        const bool ctrlDown = e.mods.isCtrlDown();
+        if (ctrlDown != ctrlWasDown)
+        {
+            dragStartProportion = valueToProportionOfLength (getValue());
+            dragStartY = e.position.y;
+            ctrlWasDown = ctrlDown;
+        }
+
+        constexpr float normalDragPixels = 250.0f;
+        constexpr float fineDragPixels = 1000.0f;
+        const float pixelsForFullRange = ctrlDown ? fineDragPixels : normalDragPixels;
+
+        const double deltaProportion = (double) (dragStartY - e.position.y) / (double) pixelsForFullRange;
+        const double newProportion = juce::jlimit (0.0, 1.0, dragStartProportion + deltaProportion);
+        setValue (proportionOfLengthToValue (newProportion), juce::sendNotificationSync);
+    }
+
+private:
+    double dragStartProportion = 0.0;
+    float dragStartY = 0.0f;
+    bool ctrlWasDown = false;
 };
 
 /**
@@ -137,7 +198,7 @@ private:
 */
 struct FaderControl
 {
-    juce::Slider slider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
+    PreciseVerticalSlider slider { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
     juce::Label  topLabel;
     juce::Label  bottomLabel;
     FaderVerticalLookAndFeel lookAndFeel;

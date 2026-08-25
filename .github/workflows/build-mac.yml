@@ -36,21 +36,11 @@ jobs:
         run: |
           xcodebuild -project "Builds/MacOSX/Sixpack.xcodeproj" -target "Sixpack - VST3" -configuration Release
 
-      - name: Compiler le plugin (AU)
-        run: |
-          xcodebuild -project "Builds/MacOSX/Sixpack.xcodeproj" -target "Sixpack - AU" -configuration Release
-
       - name: Uploader le VST3
         uses: actions/upload-artifact@v4
         with:
           name: Sixpack-macOS-VST3
           path: "Builds/MacOSX/build/Release/Sixpack.vst3"
-
-      - name: Uploader le composant AU
-        uses: actions/upload-artifact@v4
-        with:
-          name: Sixpack-macOS-AU
-          path: "Builds/MacOSX/build/Release/Sixpack.component"
 
   build-dmg:
     needs: build-mac
@@ -66,27 +56,20 @@ jobs:
           name: Sixpack-macOS-VST3
           path: staging/Sixpack.vst3
 
-      - name: Télécharger le composant AU
-        uses: actions/download-artifact@v4
-        with:
-          name: Sixpack-macOS-AU
-          path: staging/Sixpack.component
-
       - name: Assembler le DMG
         run: |
           set -e
           cp Readme-osx.txt "staging/Readme.txt"
 
-          # Raccourcis glisser-déposer vers les dossiers de plugins standards
+          # Raccourci glisser-déposer vers le dossier de plugins VST3 standard
           ln -s /Library/Audio/Plug-Ins/VST3 "staging/VST3 (drag plugin here)"
-          ln -s /Library/Audio/Plug-Ins/Components "staging/Components (drag plugin here)"
 
-          hdiutil create -volname "Sixpack 1.0.0" \
+          hdiutil create -volname "Sixpack 1.16.1" \
             -srcfolder staging -ov -format UDZO \
-            "Sixpack-1.0.0.dmg"
+            "Sixpack-1.16.1.dmg"
 
       - name: Uploader le DMG
         uses: actions/upload-artifact@v4
         with:
-          name: Sixpack-1.0.0-DMG
-          path: "Sixpack-1.0.0.dmg"
+          name: Sixpack-1.16.1-DMG
+          path: "Sixpack-1.16.1.dmg"
