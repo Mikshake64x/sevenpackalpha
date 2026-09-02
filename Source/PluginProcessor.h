@@ -55,8 +55,8 @@
 class SixpackAudioProcessor : public juce::AudioProcessor, private juce::Timer
 {
 public:
-    enum Band { Low = 0, LowMid = 1, Mid = 2, HighMid = 3, Presence = 4, High = 5, NumBands = 6 };
-    static constexpr int NumCrossovers = NumBands - 1; // 5 points de crossover
+    enum Band { Low = 0, LowMid = 1, Mid = 2, HighMid = 3, Presence = 4, High = 5, Air = 6, NumBands = 7 };
+    static constexpr int NumCrossovers = NumBands - 1; // 6 points de crossover
 
     SixpackAudioProcessor();
     ~SixpackAudioProcessor() override;
@@ -308,8 +308,8 @@ public:
     // = ce point separe-t-il reellement 2 bandes, ou est-il "eteint" (les 2
     // bandes voisines fusionnent, voir doc de classe ci-dessus)). Index 0 =
     // le plus bas (Low/LowMid), index 4 = le plus haut (Presence/High).
-    static constexpr const char* idCrossover[NumCrossovers] = { "crossoverA", "crossoverB", "crossoverC", "crossoverD", "crossoverE" };
-    static constexpr const char* idCrossoverEnabled[NumCrossovers] = { "crossoverAEnabled", "crossoverBEnabled", "crossoverCEnabled", "crossoverDEnabled", "crossoverEEnabled" };
+    static constexpr const char* idCrossover[NumCrossovers] = { "crossoverA", "crossoverB", "crossoverC", "crossoverD", "crossoverE", "crossoverF" };
+    static constexpr const char* idCrossoverEnabled[NumCrossovers] = { "crossoverAEnabled", "crossoverBEnabled", "crossoverCEnabled", "crossoverDEnabled", "crossoverEEnabled", "crossoverFEnabled" };
 
     // Cible de mastering LUFS pour le bouton AI (menu Options/engrenage,
     // section "AI") -- reglage PERSISTANT (sauvegarde en session/preset,
@@ -395,7 +395,7 @@ public:
     // switch_metal.png + diode) a gauche de chaque rangee/plaque de bande.
     // Une bande fusionnee (voir idCrossoverXEnabled) n'a pas de solo propre
     // effectif puisqu'elle ne traite rien (voir processBlock()).
-    static constexpr const char* idSolo[NumBands] = { "soloLow", "soloLowMid", "soloMid", "soloHighMid", "soloPresence", "soloHigh" };
+    static constexpr const char* idSolo[NumBands] = { "soloLow", "soloLowMid", "soloMid", "soloHighMid", "soloPresence", "soloHigh", "soloAir" };
 
     // Budget de latence du mode LINEAR : 0=Low(~7ms) / 1=Medium(~25ms) /
     // 2=High(~80ms). Ignore en mode WIDE (toujours 0 latence).

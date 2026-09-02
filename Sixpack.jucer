@@ -2,7 +2,7 @@
 
 <JUCERPROJECT id="Pc5XqR" name="Sixpack" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" pluginFormats="buildAU,buildStandalone,buildUnity,buildVST3"
-              companyName="Side Key System" version="1.16.1">
+              companyName="Side Key System" version="1.17.0">
   <MAINGROUP id="ROqGi2" name="Sixpack">
     <GROUP id="{DE5886B3-4345-FADC-030F-9B92F9E2500D}" name="Source">
       <FILE id="fCLEz3" name="PluginProcessor.cpp" compile="1" resource="0"

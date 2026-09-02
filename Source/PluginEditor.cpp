@@ -269,6 +269,30 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
     linkOutSwitch.setToggleState (processorRef.linkOutEnabled.load(), juce::dontSendNotification);
     linkOutSwitch.onClick = [this]
     {
+        // Meme garde que dans onBandSelectRequested : Link Out et un
+        // groupe SEL d'au moins 2 bandes ne doivent jamais etre actifs en
+        // meme temps (retour utilisateur). Ici c'est l'ordre inverse --
+        // un groupe est deja forme et l'utilisateur essaie d'allumer Link
+        // Out par-dessus. Plutot que de bloquer silencieusement le clic
+        // (retour utilisateur suivant : ca ne faisait rien, confus), on
+        // resout le conflit activement -- reduire la selection a la seule
+        // bande affichee (meme effet qu'un clic simple sur SEL) pour
+        // permettre l'activation. linkedBands NE compte PAS selectedBand
+        // lui-meme (toujours membre implicite du groupe, voir
+        // isInSelectionGroup() dans BandMetersRack.h), d'ou le seuil >= 1.
+        if (linkOutSwitch.getToggleState())
+        {
+            int linkedCount = 0;
+            for (bool b : linkedBands)
+                if (b) ++linkedCount;
+
+            if (linkedCount >= 1)
+            {
+                linkedBands.fill (false);
+                refreshBandPanelVisibility();
+            }
+        }
+
         processorRef.linkOutEnabled.store (linkOutSwitch.getToggleState());
         updateOutputLinkVisuals();
     };
@@ -276,12 +300,13 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
     addAndMakeVisible (suppressorLogoButton);
     suppressorLogoButton.onClick = [this] { aboutOverlay.setVisible (true); aboutOverlay.toFront (true); };
 
-    // --- 6 bandes -- progression spectrale cyan (Low) -> rouge (High),
-    // Presence (nouvelle 6e bande, 1-5kHz) inseree en violet entre
-    // High-Mid (orange) et High (rouge) pour rester visuellement distincte
-    // de ses 2 voisines. ---
-    static const juce::Colour bandAccents[kNumBands] = { SixpackColours::ledCyan, SixpackColours::ledGreen, SixpackColours::ledAmber, SixpackColours::ledOrange, SixpackColours::ledPurple, SixpackColours::ledRed };
-    static const char* bandTags[kNumBands] = { "LOW", "LOW-MID", "MID", "HIGH-MID", "PRESENCE", "HIGH" };
+    // --- 7 bandes -- progression spectrale cyan (Low) -> rouge (High),
+    // Presence (6e bande, 1-5kHz) inseree en violet entre High-Mid (orange)
+    // et High (rouge) pour rester visuellement distincte de ses 2 voisines.
+    // Air (7e bande, au-dessus de High) poursuit la roue chromatique en
+    // rose au-dela du rouge. ---
+    static const juce::Colour bandAccents[kNumBands] = { SixpackColours::ledCyan, SixpackColours::ledGreen, SixpackColours::ledAmber, SixpackColours::ledOrange, SixpackColours::ledPurple, SixpackColours::ledRed, SixpackColours::ledPink };
+    static const char* bandTags[kNumBands] = { "LOW", "LOW-MID", "MID", "HIGH-MID", "PRESENCE", "HIGH", "AIR" };
     for (int band = 0; band < kNumBands; ++band)
         buildBandPanel (band, bandAccents[band], bandTags[band]);
     refreshBandPanelVisibility(); // n'affiche que bandPanels[selectedBand] -- voir doc de classe BandPanel
@@ -318,6 +343,33 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
         {
             if (band != selectedBand)
                 linkedBands[(size_t) band] = ! linkedBands[(size_t) band];
+
+            // Retour utilisateur : "quand j'active link out et que je
+            // selectionne plusieurs tranches ... quand je bouge les faders
+            // ca fait n'importe quoi" -- Link Out (wireOutputLink(), tous
+            // les knobs Output des 6 bandes) et le groupe SEL multi-select
+            // (BandMetersRack, delta releatif entre les seules bandes
+            // choisies) sont deux mecanismes de liaison independants qui
+            // peuvent tous les deux reagir au meme geste et se marcher
+            // dessus. Des qu'un groupe d'au moins 2 bandes est forme,
+            // Link Out se desactive automatiquement pour lever
+            // l'ambiguite -- le groupe SEL reste la source de verite pour
+            // le deplacement relatif tant qu'il est actif.
+            // linkedBands NE compte PAS selectedBand lui-meme (toujours
+            // membre implicite du groupe, voir isInSelectionGroup() dans
+            // BandMetersRack.h) -- la vraie taille du groupe est donc
+            // linkedCount + 1, d'ou le seuil >= 1 ici (1 Ctrl+clic suffit
+            // deja a former un groupe de 2 : selectedBand + cette bande).
+            int linkedCount = 0;
+            for (bool b : linkedBands)
+                if (b) ++linkedCount;
+
+            if (linkedCount >= 1 && linkOutSwitch.getToggleState())
+            {
+                linkOutSwitch.setToggleState (false, juce::dontSendNotification);
+                processorRef.linkOutEnabled.store (false);
+                updateOutputLinkVisuals();
+            }
         }
         else
         {
@@ -775,7 +827,7 @@ void SixpackEditorContent::buildBandPanel (int band, juce::Colour accent, const 
     // s'affichent plus jamais (voir ci-dessus), mais le parametre reste
     // fonctionnel bande par bande (LowMid/Mid/HighMid) si jamais l'UI
     // Detector est remise un jour.
-    const bool useBell2 = (band != SixpackAudioProcessor::Low && band != SixpackAudioProcessor::High);
+    const bool useBell2 = (band != SixpackAudioProcessor::Low && band != kNumBands - 1);
 
     bp.detectorHpAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
         processorRef.apvts, pid (SixpackAudioProcessor::idDetectorHp), bp.detectorHpToggle);
@@ -809,15 +861,15 @@ void SixpackEditorContent::buildBandPanel (int band, juce::Colour accent, const 
         *processorRef.apvts.getRawParameterValue (pid (SixpackAudioProcessor::idDetectorBell)),
         *processorRef.apvts.getParameter (pid (SixpackAudioProcessor::idDetectorBellFreq)),
         *processorRef.apvts.getParameter (pid (SixpackAudioProcessor::idDetectorBellGain)),
-        band == SixpackAudioProcessor::High, viewMin, viewMax,
+        band == kNumBands - 1, viewMin, viewMax,
         useBell2 ? processorRef.apvts.getRawParameterValue (pid (SixpackAudioProcessor::idDetectorBell2)) : nullptr,
         useBell2 ? processorRef.apvts.getParameter (pid (SixpackAudioProcessor::idDetectorBell2Freq)) : nullptr,
         useBell2 ? processorRef.apvts.getParameter (pid (SixpackAudioProcessor::idDetectorBell2Gain)) : nullptr);
     addChildComponent (*bp.filterGraph);
 
-    // Bande HIGH : le point HP devient LP (meme mecanique) -- relabelle le
-    // bouton en consequence.
-    if (band == SixpackAudioProcessor::High)
+    // Bande la plus haute (Air) : le point HP devient LP (meme mecanique) --
+    // relabelle le bouton en consequence.
+    if (band == kNumBands - 1)
         bp.detectorHpToggle.setText ("LP");
 
     // 2 decimales (retour utilisateur : "pour que je puisse calibrer
@@ -1574,7 +1626,7 @@ void SixpackEditorContent::paint (juce::Graphics& g)
     SixpackLookAndFeel::drawEngravedText (g, "POWER", { 29, barTop + 8, 70, 11 }, SixpackColours::textDim);
 
     static const juce::Colour bandTintColours[kNumBands] =
-        { SixpackColours::ledCyan, SixpackColours::ledGreen, SixpackColours::ledAmber, SixpackColours::ledOrange, SixpackColours::ledPurple, SixpackColours::ledRed };
+        { SixpackColours::ledCyan, SixpackColours::ledGreen, SixpackColours::ledAmber, SixpackColours::ledOrange, SixpackColours::ledPurple, SixpackColours::ledRed, SixpackColours::ledPink };
 
     // Un seul en-tete a dessiner -- celui de la bande actuellement
     // selectionnee (voir BandPanel/selectedBand), redessine a CHAQUE
@@ -1728,7 +1780,7 @@ void SixpackEditorContent::buildPresetList()
         {
             auto& band = p.bands[b];
             band = PresetData::Band {};
-            band.detectorHpFreq = (b == SixpackAudioProcessor::High) ? 16000.0f : 50.0f;
+            band.detectorHpFreq = (b == kNumBands - 1) ? 16000.0f : 50.0f;
             band.detectorHpSlope = 8;
         }
         p.author = "Side Key"; p.isFactory = true; addPreset (p);

@@ -371,7 +371,7 @@ private:
         auto versionArea = headerRow.removeFromRight (56.0f);
         g.setColour (SixpackColours::textDim);
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
-        g.drawFittedText ("v1.16.1", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
+        g.drawFittedText ("v1.17.0", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
 
         auto titleArea = headerRow.removeFromLeft (juce::jmin (240.0f, headerRow.getWidth() * 0.48f));
         g.setColour (SixpackColours::ledAmber);
@@ -445,7 +445,7 @@ private:
     void buildOverviewColumns()
     {
         columnA.setItems ({
-            { "SIXPACK: Six Bands, One Mastering Chain", ColumnItem::Kind::Header },
+            { "SIXPACK: Seven Bands, One Mastering Chain", ColumnItem::Kind::Header },
             { "I designed SIXPACK with an experimental goal above all else. After many attempts at building multiband compressors, "
               "I started multiplying the bands right from the earliest stages of development, with a fairly simple idea: chase the "
               "best possible mastering, even if it meant making the CPU cry.", ColumnItem::Kind::Paragraph },
@@ -453,7 +453,7 @@ private:
               "turning the mix into a spectral puzzle.", ColumnItem::Kind::Paragraph },
             { "I already have several ideas for what comes next, especially as processors keep bulking up on steroids. But for now, "
               "I want SIXPACK to stay accessible and usable across a wide range of hardware configurations.", ColumnItem::Kind::Paragraph },
-            { "The principle itself is fairly simple: 6 bands, in the philosophy of Tripressor, with a feedforward compressor built "
+            { "The principle itself is fairly simple: 7 bands, in the philosophy of Tripressor, with a feedforward compressor built "
               "on Tripressor's current DSP, and a crossover designed to be as transparent as possible.", ColumnItem::Kind::Paragraph },
             { "With THD disabled, the measured deviation reaches about 0.001dB. In other words, the crossover tries very hard not to "
               "be noticed. It does its job and goes back to its office.", ColumnItem::Kind::Paragraph },
@@ -463,15 +463,15 @@ private:
               "while keeping maximum energy for LUFS.", ColumnItem::Kind::Paragraph },
             { "In short, SIXPACK lets you compress hard, very hard, or not at all, while trying to preserve what actually matters: "
               "the energy of the mix.", ColumnItem::Kind::Paragraph },
-            { "And yes, there are six bands.", ColumnItem::Kind::Paragraph },
-            { "I could have called it Quadruple Compressor Extended Pro Ultimate, but SIXPACK seemed slightly more honest.", ColumnItem::Kind::Paragraph },
+            { "And yes, there are now seven bands, not six. SIXPACK was named back when that was still true.", ColumnItem::Kind::Paragraph },
+            { "I could rename it SEVENPACK, but at this point the name is more brand than description, and SEVENPACK sounds like a multivitamin.", ColumnItem::Kind::Paragraph },
         });
 
         columnB.setItems ({
             { "Learn: A Starting Point, Not an Autopilot", ColumnItem::Kind::Header },
             { "I also built in a Learn module, designed to automatically provide a coherent starting point for compression and "
               "expansion.", ColumnItem::Kind::Paragraph },
-            { "Because with six bands, finding the right attack and release for every single one can quickly turn into a small "
+            { "Because with seven bands, finding the right attack and release for every single one can quickly turn into a small "
               "exercise in mental torture. Eventually you end up practically negotiating with each transient.", ColumnItem::Kind::Paragraph },
             { "The Learn module analyzes the behavior of the signal to suggest a coherent starting point for your dynamics settings. "
               "The goal, obviously, is not to replace your ears, but to save you time and spare you from starting on a blank page.", ColumnItem::Kind::Paragraph },
@@ -479,7 +479,7 @@ private:
               "your mix and your own approach to mastering.", ColumnItem::Kind::Paragraph },
             { "With this many bands and this many things to tweak, the Learn module felt like an almost indispensable extension of "
               "SIXPACK.", ColumnItem::Kind::Paragraph },
-            { "Six bands, two dynamics processors per band, and one button to try and put a little order back into all of it.", ColumnItem::Kind::Paragraph },
+            { "Seven bands, two dynamics processors per band, and one button to try and put a little order back into all of it.", ColumnItem::Kind::Paragraph },
             // Photo (retour utilisateur : "voici la nouvelle photo a mettre
             // dans about ... colonne du centre ... assez gros, avec le
             // minimum de zone morte autour", puis "il faut que la photo ...
@@ -508,8 +508,8 @@ private:
         // Pass filters" etaient inexacts, corriges ici.
         static const char* features[] =
         {
-            "6 Band Feedforward Compression (Low / LowMid / Mid / HighMid / Presence / High)",
-            "5 Point Crossover, Every Point Independently Foldable to Fuse Adjacent Bands",
+            "7 Band Feedforward Compression (Low / LowMid / Mid / HighMid / Presence / High / Air)",
+            "6 Point Crossover, Every Point Independently Foldable to Fuse Adjacent Bands",
             "Wide (Analog) / Linear (FIR) Crossover, Switchable",
             "Crossover Amplitude Accuracy: 0.001dB, Wide and Linear",
             "7 Step Discrete LED Ratio Selection, 2:1 to 20:1",

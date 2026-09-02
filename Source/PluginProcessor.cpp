@@ -24,16 +24,16 @@ constexpr const char* SixpackAudioProcessor::idSolo[NumBands];
 // 5 trims sont remis A PLAT (0.0) en attendant une nouvelle campagne de
 // mesure sur le crossover 4 points -- a refaire avant une sortie publique
 // de sixpack, voir note de suivi laissee au demandeur.
-static constexpr float kInputCalibrationTrimDbAnalog[(size_t) SixpackAudioProcessor::NumBands]  = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
-static constexpr float kOutputCalibrationTrimDbAnalog[(size_t) SixpackAudioProcessor::NumBands] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
-static constexpr float kInputCalibrationTrimDbLinear[(size_t) SixpackAudioProcessor::NumBands]  = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
-static constexpr float kOutputCalibrationTrimDbLinear[(size_t) SixpackAudioProcessor::NumBands] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+static constexpr float kInputCalibrationTrimDbAnalog[(size_t) SixpackAudioProcessor::NumBands]  = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+static constexpr float kOutputCalibrationTrimDbAnalog[(size_t) SixpackAudioProcessor::NumBands] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+static constexpr float kInputCalibrationTrimDbLinear[(size_t) SixpackAudioProcessor::NumBands]  = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+static constexpr float kOutputCalibrationTrimDbLinear[(size_t) SixpackAudioProcessor::NumBands] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 
 juce::String SixpackAudioProcessor::bandParamId (const char* baseId, int band)
 {
     if (band == Mid)
         return juce::String (baseId); // compat presets/sessions Suppressor mono-bande
-    static const char* suffix[SixpackAudioProcessor::NumBands] = { "_low", "_lowmid", "", "_highmid", "_presence", "_high" };
+    static const char* suffix[SixpackAudioProcessor::NumBands] = { "_low", "_lowmid", "", "_highmid", "_presence", "_high", "_air" };
     return juce::String (baseId) + suffix[band];
 }
 
@@ -156,7 +156,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SixpackAudioProcessor::creat
     using namespace juce;
     std::vector<std::unique_ptr<RangedAudioParameter>> params;
 
-    static const char* bandNamePrefix[(size_t) NumBands] = { "Low ", "Low-Mid ", "", "High-Mid ", "Presence ", "High " };
+    static const char* bandNamePrefix[(size_t) NumBands] = { "Low ", "Low-Mid ", "", "High-Mid ", "Presence ", "High ", "Air " };
 
     for (int band = 0; band < (int) NumBands; ++band)
     {
@@ -253,7 +253,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SixpackAudioProcessor::creat
         // 48dB/oct (cran de pente max, voir SidechainEQ::maxSlopeSteps).
         params.push_back (std::make_unique<AudioParameterFloat> (
             ParameterID { bandParamId (idDetectorHpFreq, band), 1 }, prefix + "Detector HP Frequency",
-            NormalisableRange<float> (20.0f, 20000.0f, 0.1f, 0.25f), band == High ? 16000.0f : 50.0f,
+            NormalisableRange<float> (20.0f, 20000.0f, 0.1f, 0.25f), band == NumBands - 1 ? 16000.0f : 50.0f,
             AudioParameterFloatAttributes().withLabel ("Hz")));
         params.push_back (std::make_unique<AudioParameterInt> (
             ParameterID { bandParamId (idDetectorHpSlope, band), 1 }, prefix + "Detector HP Slope", 1, 8, 8));
@@ -417,7 +417,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SixpackAudioProcessor::creat
     params.push_back (std::make_unique<AudioParameterBool> (
         ParameterID { idAiFidelity, 1 }, "AI Fidelity", true));
 
-    static const char* crossoverName[NumCrossovers] = { "Crossover A", "Crossover B", "Crossover C", "Crossover D", "Crossover E" };
+    static const char* crossoverName[NumCrossovers] = { "Crossover A", "Crossover B", "Crossover C", "Crossover D", "Crossover E", "Crossover F" };
     for (int x = 0; x < NumCrossovers; ++x)
     {
         params.push_back (std::make_unique<AudioParameterFloat> (
@@ -440,7 +440,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SixpackAudioProcessor::creat
         ParameterID { idLinearLatencyMode, 1 }, "Linear Latency",
         StringArray { "Low", "Medium", "High" }, 0));
 
-    static const char* soloName[(size_t) NumBands] = { "Solo Low", "Solo Low-Mid", "Solo Mid", "Solo High-Mid", "Solo Presence", "Solo High" };
+    static const char* soloName[(size_t) NumBands] = { "Solo Low", "Solo Low-Mid", "Solo Mid", "Solo High-Mid", "Solo Presence", "Solo High", "Solo Air" };
     for (int band = 0; band < (int) NumBands; ++band)
         params.push_back (std::make_unique<AudioParameterBool> (
             ParameterID { idSolo[band], 1 }, soloName[band], false));
@@ -628,7 +628,7 @@ void SixpackAudioProcessor::updateDspFromParams()
             comp.setBritishMode (isBritish);
             comp.setAboveBelowMode (aboveBelowMode);
             comp.setExpandRangeDb (effRangeDb);
-            comp.setDetectorHpIsLowPass (band == High); // bande HIGH : HP -> LP (voir doc de classe)
+            comp.setDetectorHpIsLowPass (band == NumBands - 1); // bande la plus haute (Air) : HP -> LP (voir doc de classe)
             comp.setDetectorHpEngaged (detHp);
             comp.setDetectorHpFrequency (detHpFreq);
             comp.setDetectorHpSlopeSteps (detHpSlope);

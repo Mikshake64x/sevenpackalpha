@@ -6,8 +6,8 @@
 /**
     Crossover
     ---------
-    Separe un signal mono en 6 bandes via 5 points de crossover (kNumSplits
-    = 5, kNumBandsOut = 6) -- generalisation du crossover 3 bandes/2 points
+    Separe un signal mono en 7 bandes via 6 points de crossover (kNumSplits
+    = 6, kNumBandsOut = 7) -- generalisation du crossover 3 bandes/2 points
     de Tripressor (porte tel quel depuis Nuke Mext) a sixpack. Deux
     modes, selecteur ANALOG / LINEAR cote UI (voir PluginEditor et
     XoverModeButton) :
@@ -102,8 +102,8 @@
 class Crossover
 {
 public:
-    static constexpr int kNumSplits   = 5;
-    static constexpr int kNumBandsOut = kNumSplits + 1; // 6
+    static constexpr int kNumSplits   = 6;
+    static constexpr int kNumBandsOut = kNumSplits + 1; // 7
 
     // Bornes et defauts par point de crossover (index 0 = le plus bas, 3 =
     // le plus haut). Reference partagee avec PluginProcessor::
@@ -124,11 +124,12 @@ public:
     // CrossoverSpectrumEditor -- un crossover desactive se laisse pousser
     // par ses voisins actifs plutot que de leur faire obstacle), pas par
     // des bornes de parametre distinctes par indice.
-    static constexpr float kSplitMinHz[kNumSplits]     = {   20.0f,   20.0f,    20.0f,    20.0f,    20.0f };
-    static constexpr float kSplitMaxHz[kNumSplits]     = { 20000.0f, 20000.0f, 20000.0f, 20000.0f, 20000.0f };
+    static constexpr float kSplitMinHz[kNumSplits]     = {   20.0f,   20.0f,    20.0f,    20.0f,    20.0f,    20.0f };
+    static constexpr float kSplitMaxHz[kNumSplits]     = { 20000.0f, 20000.0f, 20000.0f, 20000.0f, 20000.0f, 20000.0f };
     // Valeurs d'ouverture retour utilisateur explicite (2026-08-20, revues
-    // pour la 6e bande "Presence") : 60 / 110 / 300 / 1000 / 2500 Hz.
-    static constexpr float kSplitDefaultHz[kNumSplits] = {   60.0f,  110.0f,   300.0f, 1000.0f, 2500.0f };
+    // pour la 6e bande "Presence") : 60 / 110 / 300 / 1000 / 2500 Hz. X6
+    // (frontiere High/Air, 7e bande) ajoute a 5000Hz.
+    static constexpr float kSplitDefaultHz[kNumSplits] = {   60.0f,  110.0f,   300.0f, 1000.0f, 2500.0f, 5000.0f };
 
     // EXPLICITE et necessaire : JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR
     // (voir tout en bas de la classe) supprime le constructeur de copie --
@@ -274,7 +275,7 @@ private:
         dirtyWide = false;
     }
 
-    std::array<float, kNumSplits> crossoverHz { { kSplitDefaultHz[0], kSplitDefaultHz[1], kSplitDefaultHz[2], kSplitDefaultHz[3], kSplitDefaultHz[4] } };
+    std::array<float, kNumSplits> crossoverHz { { kSplitDefaultHz[0], kSplitDefaultHz[1], kSplitDefaultHz[2], kSplitDefaultHz[3], kSplitDefaultHz[4], kSplitDefaultHz[5] } };
     bool dirtyWide = true;
 
     // ================= LINEAR (FIR phase lineaire, convolution directe) =================
@@ -441,6 +442,32 @@ private:
         return sum;
     }
 
+    // Nombre de coefficients MINIMUM pour qu'un passe-bas Kaiser (beta=6,
+    // ~60dB de rejection) place son vrai point -3dB a moins de ~15% de la
+    // frequence nominale demandee -- retour utilisateur (PluginDoctor,
+    // ajout de la 7e bande "Air") : "les cross over en linear me paraissent
+    // completement faux", confirme par mesure directe de la reponse en
+    // frequence reelle (pas juste comptage de taps) : en mode Low CPU, le
+    // crossover a 77Hz tombait reellement a 283Hz (3.67x plus haut), 152Hz
+    // a 459Hz, etc. -- un budget de latence FIXE reparti entre les etages
+    // ne peut JAMAIS garantir cette precision, quelle que soit la
+    // repartition, des que le budget total est structurellement insuffisant
+    // pour la frequence la plus basse en jeu.
+    //
+    // Formule EMPIRIQUE (pas de derivation DSP rigoureuse ici, mesuree
+    // directement) : le ratio (N * freq / fs) converge vers ~0.70 pour
+    // toute frequence en dessous de ~2kHz avec ce fenetrage Kaiser --
+    // verifie sur 30Hz a 2000Hz (ratio mesure entre 0.67 et 0.77 partout
+    // sur cette plage), constante utilisee telle quelle. Au-dela de ~2kHz
+    // le plancher jmax(15,...) prend le relais naturellement (une frequence
+    // haute n'a besoin que de tres peu de coefficients pour la meme
+    // precision relative).
+    static int minTapsForAccuracy (float freqHz, double sampleRate) noexcept
+    {
+        const double n = 0.70 * sampleRate / (double) freqHz;
+        return juce::jmax (15, (int) std::ceil (n));
+    }
+
     void updateLinearFilters()
     {
         const int latencyIndex = (int) latencyMode;
@@ -454,40 +481,46 @@ private:
 
         const float nyquistMargin = (float) (fs * 0.45);
         float safeHz[kNumSplits];
-        double invFreq[kNumSplits];
-        double invSum = 0.0;
+        for (int s = 0; s < kNumSplits; ++s)
+            safeHz[s] = juce::jlimit (20.0f, nyquistMargin, crossoverHz[(size_t) s]);
+
+        // GARANTIE DE PRECISION D'ABORD, latence-cible ensuite (retour
+        // utilisateur : "beaucoup de personnes vont utiliser Low CPU" --
+        // un mode qui ne garantit pas des crossovers corrects n'est pas
+        // acceptable meme pour economiser du CPU). Chaque etage recoit
+        // D'ABORD son minimum minTapsForAccuracy() -- non negociable, quel
+        // que soit le palier de latence choisi -- puis le budget de latence
+        // CIBLE (samplesForTarget) ne sert plus que de SUPPLEMENT de
+        // qualite au-dela de ce plancher reel, reparti equitablement entre
+        // les etages (pas par 1/frequence ici : la ponderation 1/frequence
+        // est deja entierement capturee par minTapsForAccuracy() lui-meme,
+        // la reappliquer sur le supplement favoriserait deux fois de suite
+        // le grave). Si le budget cible est deja epuise par les minimums
+        // (typiquement le cas en Low CPU des que les crossovers descendent
+        // sous quelques centaines de Hz), la latence EFFECTIVE grandit
+        // au-dela de la cible nominale plutot que de sacrifier la
+        // precision -- get LatencySamples() reflete toujours la vraie
+        // valeur utilisee, jamais la cible nominale seule.
+        int accuracyMinTaps[kNumSplits];
+        int accuracyTotal = 0;
         for (int s = 0; s < kNumSplits; ++s)
         {
-            safeHz[s] = juce::jlimit (20.0f, nyquistMargin, crossoverHz[(size_t) s]);
-            invFreq[s] = 1.0 / (double) safeHz[s];
-            invSum += invFreq[s];
+            accuracyMinTaps[s] = makeOdd (minTapsForAccuracy (safeHz[s], fs));
+            accuracyTotal += accuracyMinTaps[s];
         }
 
-        // Repartition PROPORTIONNELLE a 1/frequence (PAS 1/sqrt(frequence),
-        // bug corrige -- retour utilisateur explicite : "quand je monte le
-        // output de la bande low qui a son crossover a 48hz ca monte
-        // jusqu'a 100hz, les frequences des bandes en lineaire ne sont pas
-        // bien respectees") -- un FIR a une largeur de transition ABSOLUE
-        // (en Hz) qui ne depend QUE du nombre de coefficients (a fenetre
-        // Kaiser fixee), pas de la frequence de coupure -- donc pour une
-        // raideur RELATIVE (en octaves) constante d'un etage a l'autre, il
-        // faut N ~ fs/frequence (proportionnel a 1/f), pas 1/sqrt(f) : ce
-        // dernier sous-alloue les basses frequences, qui se retrouvent avec
-        // une transition bien plus large que necessaire par rapport a leur
-        // frequence de coupure (une pente 1/sqrt(f) etait un compromis
-        // insuffisant, pas la formule exacte decrite par le commentaire
-        // d'origine ci-dessus). Le dernier etage absorbe le reste de
-        // l'arrondi pour que la somme reste EXACTEMENT samplesForTarget
-        // (meme principe que l'original 2 etages).
+        const int effectiveTarget = juce::jmax (samplesForTarget, accuracyTotal);
+        const int bonusRemaining  = effectiveTarget - accuracyTotal;
+        const int bonusPerStage   = bonusRemaining / kNumSplits;
+
         int tapsRaw[kNumSplits];
         int assigned = 0;
         for (int s = 0; s < kNumSplits - 1; ++s)
         {
-            const double fraction = invFreq[s] / invSum;
-            tapsRaw[s] = (int) std::round (samplesForTarget * fraction);
+            tapsRaw[s] = accuracyMinTaps[s] + bonusPerStage;
             assigned += tapsRaw[s];
         }
-        tapsRaw[kNumSplits - 1] = samplesForTarget - assigned;
+        tapsRaw[kNumSplits - 1] = effectiveTarget - assigned;
 
         int delaySamples[kNumSplits];
         for (int s = 0; s < kNumSplits; ++s)

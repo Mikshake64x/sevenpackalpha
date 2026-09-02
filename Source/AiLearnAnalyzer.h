@@ -82,16 +82,16 @@ public:
         0.0f,    // Match (non utilise, cible calculee dynamiquement)
     };
 
-    // 6 bandes (Low/LowMid/Mid/HighMid/Presence/High), 5 points de crossover --
-    // memes indices que SixpackAudioProcessor::Band/NumBands/NumCrossovers
-    // (pas d'include croise possible, voir kRatioTable/kKneeTable plus bas
-    // pour la meme contrainte).
-    static constexpr int kNumBands = 6;
-    static constexpr int kNumCrossovers = kNumBands - 1; // 5
+    // 7 bandes (Low/LowMid/Mid/HighMid/Presence/High/Air), 6 points de
+    // crossover -- memes indices que SixpackAudioProcessor::Band/NumBands/
+    // NumCrossovers (pas d'include croise possible, voir kRatioTable/
+    // kKneeTable plus bas pour la meme contrainte).
+    static constexpr int kNumBands = 7;
+    static constexpr int kNumCrossovers = kNumBands - 1; // 6
 
     struct Result
     {
-        std::array<float, (size_t) kNumCrossovers> crossoverHz { { 90.0f, 270.0f, 650.0f, 1700.0f, 3500.0f } };
+        std::array<float, (size_t) kNumCrossovers> crossoverHz { { 90.0f, 270.0f, 650.0f, 1700.0f, 3500.0f, 6500.0f } };
         std::array<float, (size_t) kNumBands> inputDb {};
         std::array<float, (size_t) kNumBands> ratioIndex {};  // 0..6 (flottant, l'appelant arrondit)
         std::array<float, (size_t) kNumBands> attackMs {};
@@ -343,23 +343,23 @@ public:
     // "plusieurs styles musicaux qui vont changer la balance des outputs en
     // fonction du style. Bass +3dB sur la bande bass, Loud +3dB en bass et
     // high...") -- offsets STATIQUES par bande (Low/LowMid/Mid/HighMid/
-    // Presence/High) ajoutes a l'Output, independamment de tout le reste
+    // Presence/High/Air) ajoutes a l'Output, independamment de tout le reste
     // (ratio/input/etc). Simple lookup, pas d'analyse -- contrairement a
     // Fidelity ci-dessous. "Off" (index 0, pas d'entree ici) = aucun
     // offset. Colonnes LowMid/HighMid INTERPOLEES depuis les valeurs Low/
     // Mid/High mesurees a l'origine (Tripressor, 3 bandes) -- Presence
     // (6e bande, ajoutee ensuite) INTERPOLEE a son tour entre HighMid et
-    // High -- a affiner empiriquement, pas remesurees sur la nouvelle
-    // geometrie 6 bandes.
+    // High. Air (7e bande) laissee a 0.0f partout -- pas encore de retour
+    // utilisateur pour la caler, a affiner empiriquement comme les autres.
     static constexpr int kNumStyles = 5;
     static constexpr int kNumStyleChoices = 6; // + "Off"
     static constexpr float kStyleOutputBiasDb[kNumStyles][(size_t) kNumBands] =
     {
-        { 3.0f, 1.5f, 0.0f, 0.0f, 0.0f,  0.0f }, // Bass
-        { 3.0f, 1.5f, 0.0f, 1.5f, 2.25f, 3.0f }, // Loud (courbe "smiley")
-        { 2.0f, 1.5f, 1.0f, 1.5f, 1.75f, 2.0f }, // Rock (leger boost general, un peu de presence)
-        { 0.0f, 1.0f, 2.0f, 1.5f, 1.25f, 1.0f }, // Pop (presence vocale + un peu d'air)
-        { 4.0f, 2.0f, 0.0f, 1.5f, 2.25f, 3.0f }, // Electronic (smiley plus marque)
+        { 3.0f, 1.5f, 0.0f, 0.0f, 0.0f,  0.0f, 0.0f }, // Bass
+        { 3.0f, 1.5f, 0.0f, 1.5f, 2.25f, 3.0f, 0.0f }, // Loud (courbe "smiley")
+        { 2.0f, 1.5f, 1.0f, 1.5f, 1.75f, 2.0f, 0.0f }, // Rock (leger boost general, un peu de presence)
+        { 0.0f, 1.0f, 2.0f, 1.5f, 1.25f, 1.0f, 0.0f }, // Pop (presence vocale + un peu d'air)
+        { 4.0f, 2.0f, 0.0f, 1.5f, 2.25f, 3.0f, 0.0f }, // Electronic (smiley plus marque)
     };
 
     AiLearnAnalyzer() : juce::Thread ("AI Learn Analyzer") {}
@@ -459,10 +459,17 @@ private:
         r.applyStyle = style > 0;
         if (r.applyStyle)
         {
+            // Bug corrige au passage (ajout 7e bande) : seules les 3
+            // premieres colonnes (Low/LowMid/Mid) etaient recopiees ici,
+            // alors que kStyleOutputBiasDb a toujours eu une valeur pour
+            // chacune des kNumBands colonnes et que PluginEditor::
+            // applyAiResult() les lit TOUTES (voir result.styleOutputDb[band])
+            // -- HighMid/Presence/High ne recevaient donc jamais leur biais,
+            // contrairement au commentaire d'origine ("Loud +3dB en bass ET
+            // high").
             const auto& biasDb = kStyleOutputBiasDb[(size_t) (style - 1)];
-            r.styleOutputDb[0] = biasDb[0];
-            r.styleOutputDb[1] = biasDb[1];
-            r.styleOutputDb[2] = biasDb[2];
+            for (int band = 0; band < kNumBands; ++band)
+                r.styleOutputDb[(size_t) band] = biasDb[(size_t) band];
         }
         r.applyFidelity = fidelity;
 
@@ -625,12 +632,12 @@ private:
 
         if (totalEnergy > 1.0e-12)
         {
-            // 5 points de crossover -> fractions d'energie cumulee visant
+            // 6 points de crossover -> fractions d'energie cumulee visant
             // des bandes Low 15% / LowMid 20% / Mid 30% / HighMid 20% /
-            // Presence 7% / High 8% -- X1-X4 reprennent exactement les 4
-            // fractions historiques (decoupage 5 bandes inchange jusqu'a
-            // HighMid), X5 (nouveau, frontiere Presence/High) ajoute a 92%.
-            static constexpr float kEnergyFractions[kNumCrossovers] = { 0.15f, 0.35f, 0.65f, 0.85f, 0.92f };
+            // Presence 7% / High 5% / Air 3% -- X1-X5 inchanges (decoupage
+            // jusqu'a Presence/High), X6 (nouveau, frontiere High/Air, 7e
+            // bande) ajoute a 97%.
+            static constexpr float kEnergyFractions[kNumCrossovers] = { 0.15f, 0.35f, 0.65f, 0.85f, 0.92f, 0.97f };
 
             // Plages resserrees DEDIEES a l'AI Scope Crossover (retour
             // utilisateur historique sur Tripressor : "il me trouve souvent
@@ -644,9 +651,10 @@ private:
             // la).
             // Tolerances retour utilisateur explicite (2026-08-20, revues
             // pour la 6e bande "Presence") : X1 60-110Hz, X2 110-300Hz, X3
-            // 300-1000Hz, X4 1000-2500Hz, X5 2500-5000Hz.
-            static constexpr float kTightMinHz[kNumCrossovers] = {  60.0f,  110.0f,  300.0f, 1000.0f, 2500.0f };
-            static constexpr float kTightMaxHz[kNumCrossovers] = { 110.0f,  300.0f, 1000.0f, 2500.0f, 5000.0f };
+            // 300-1000Hz, X4 1000-2500Hz, X5 2500-5000Hz. X6 (frontiere
+            // High/Air, 7e bande) ajoute a 5000-10000Hz.
+            static constexpr float kTightMinHz[kNumCrossovers] = {  60.0f,  110.0f,  300.0f, 1000.0f, 2500.0f, 5000.0f };
+            static constexpr float kTightMaxHz[kNumCrossovers] = { 110.0f,  300.0f, 1000.0f, 2500.0f, 5000.0f, 10000.0f };
 
             for (int x = 0; x < kNumCrossovers; ++x)
             {
@@ -780,7 +788,7 @@ private:
         // (High) -- LowMid/HighMid INTERPOLES (moyenne geometrique des
         // voisins) depuis les 3 valeurs mesurees a l'origine (Tripressor),
         // Presence (6e bande) INTERPOLEE a son tour entre HighMid et High.
-        static constexpr float baseReleaseMs[(size_t) kNumBands] = { 220.0f, 165.0f, 120.0f, 92.0f, 80.0f, 70.0f };
+        static constexpr float baseReleaseMs[(size_t) kNumBands] = { 220.0f, 165.0f, 120.0f, 92.0f, 80.0f, 70.0f, 60.0f };
         // Biais de largeur par bande (demande explicite : jouer aussi sur
         // le Mono/Stereo Spread) -- convention mastering classique :
         // resserrer le bas (mono-compatibilite), garder le medium honnete,
@@ -790,9 +798,9 @@ private:
         // LowMid/HighMid INTERPOLES entre leurs voisins (meme reserve que
         // baseReleaseMs/kStyleOutputBiasDb ci-dessus), Presence interpolee
         // entre HighMid et High.
-        static constexpr float widthBiasPerDb[(size_t) kNumBands] = { -3.0f, -1.0f, 1.0f, 2.0f, 2.5f, 3.0f };
-        static constexpr float widthMin[(size_t) kNumBands] = { 40.0f, 60.0f, 80.0f, 90.0f, 95.0f, 100.0f };
-        static constexpr float widthMax[(size_t) kNumBands] = { 100.0f, 110.0f, 120.0f, 145.0f, 158.0f, 170.0f };
+        static constexpr float widthBiasPerDb[(size_t) kNumBands] = { -3.0f, -1.0f, 1.0f, 2.0f, 2.5f, 3.0f, 3.5f };
+        static constexpr float widthMin[(size_t) kNumBands] = { 40.0f, 60.0f, 80.0f, 90.0f, 95.0f, 100.0f, 100.0f };
+        static constexpr float widthMax[(size_t) kNumBands] = { 100.0f, 110.0f, 120.0f, 145.0f, 158.0f, 170.0f, 180.0f };
 
         // Fidelity : balance relative par bande AVANT compression (rmsDb,
         // deja calculee dans la boucle ci-dessous) vs. APRES (simulation,

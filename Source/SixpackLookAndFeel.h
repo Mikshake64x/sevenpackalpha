@@ -40,6 +40,12 @@ namespace SixpackColours
     // delibrement distincte du vert->jaune->orange->rouge de la reduction.
     const juce::Colour ledPurple   { 0xffb84dff };
 
+    // Accent de la 7e bande "Air" (au-dessus de High) -- continue le
+    // degrade spectral cyan->vert->ambre->orange->violet->rouge en
+    // poursuivant la roue chromatique au-dela du rouge, plutot que de
+    // reutiliser une teinte deja prise par une bande voisine.
+    const juce::Colour ledPink     { 0xffff4da6 };
+
     const juce::Colour lcdBg       { 0xff0a1620 };
     const juce::Colour lcdText     { 0xff3fd0ff };
 

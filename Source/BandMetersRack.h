@@ -520,9 +520,12 @@ private:
     // (212px) ne tenait plus dans le content disponible a 228px de
     // colonne (202px), et le fader SPREAD (2e des 2 mixWidthFaderW)
     // se faisait tronquer silencieusement par removeFromLeft().
-    static constexpr float dividerZoneW = 14.0f;   // marge + trait + marge
+    // Retrecies encore (14->8, 10->9) pour l'ajout de la 7e bande "Air",
+    // meme philosophie que le squeeze precedent (voir plus bas) : on
+    // retaille les gaps/marges, jamais meterW/faderW/mixWidthFaderW.
+    static constexpr float dividerZoneW = 7.0f;    // marge + trait + marge
     static constexpr float meterW = 10.0f;
-    static constexpr float meterFaderGap = 10.0f;  // > edgePadding pour garder un vrai espace visible
+    static constexpr float meterFaderGap = 9.0f;   // > edgePadding (8) pour garder un vrai espace visible
     static constexpr float faderW = 40.0f;         // largeur NOMINALE (avant expansion par edgePadding)
     // Zone WET/DRY + SPREAD, a droite du fader VOLUME -- retour utilisateur
     // explicite : "le dry wet et le spread on va les integrer dans la
@@ -530,9 +533,9 @@ private:
     // de zone separatrice que dividerZoneW, faders plus etroits (barre LED
     // segmentee, pas de capuchon a proteger comme ConsoleFader) que
     // faderW.
-    static constexpr float mixWidthDividerZoneW = 14.0f;
+    static constexpr float mixWidthDividerZoneW = 7.0f;
     static constexpr float mixWidthFaderW = 30.0f;
-    static constexpr float mixWidthFaderGap = 6.0f;
+    static constexpr float mixWidthFaderGap = 4.0f;
     // Retrecie 250 -> 228 (retour utilisateur explicite, ajout de la 6e
     // bande "Presence") puis 228 -> 224 (retour utilisateur : "j'ai une
     // plaque a gauche derriere la console mais elle n'est pas a droite du
@@ -544,7 +547,13 @@ private:
     // (reservee par une demande passee, "je veux mettre d'autres
     // fonctions a droite") se reduit en consequence mais la fenetre et la
     // barre de controle du haut restent inchangees.
-    static constexpr float compactBandW = 224.0f;  // 150 + zone WET/DRY+SPREAD
+    // Retrecie 224 -> 191 pour l'ajout de la 7e bande "Air" (retour
+    // utilisateur : garder la fenetre a sa taille actuelle plutot que
+    // l'elargir) -- 7 x 191 = 1337px, tient dans les ~1346px disponibles
+    // (marge symetrique de 24px de chaque cote du rackArea, voir
+    // PluginEditor.cpp resized()) une fois les gaps/marges internes
+    // retaillees ci-dessous (meterW/faderW/mixWidthFaderW inchanges).
+    static constexpr float compactBandW = 191.0f;
     static constexpr float edgePadding = 8.0f;     // voir ConsoleFader::setEdgePadding()
     // Marge haute DELIBEREMENT plus petite que edgePadding (retour
     // utilisateur : "j'ai la bande du fader qui coupe bizarement et
@@ -585,7 +594,7 @@ private:
         // 2 vis de coin INFERIEURES, meme encombrement ~12.4px que celles
         // du haut). Cout net compense par la rangee de boutons remontee/
         // reduite ci-dessus : la course du fader ne perd quasiment rien.
-        auto content = plate.reduced (10.0f, 0.0f);
+        auto content = plate.reduced (3.0f, 0.0f); // retreci de 10 (etait trop genereux pour 7 bandes, voir compactBandW)
         content.removeFromTop (6.0f);
         content.removeFromBottom (15.0f);
 
@@ -632,7 +641,7 @@ private:
     static juce::Colour bandAccent (int band) noexcept
     {
         static const std::array<juce::Colour, (size_t) SixpackAudioProcessor::NumBands> colours =
-            { SixpackColours::ledCyan, SixpackColours::ledGreen, SixpackColours::ledAmber, SixpackColours::ledOrange, SixpackColours::ledPurple, SixpackColours::ledRed };
+            { SixpackColours::ledCyan, SixpackColours::ledGreen, SixpackColours::ledAmber, SixpackColours::ledOrange, SixpackColours::ledPurple, SixpackColours::ledRed, SixpackColours::ledPink };
         return colours[(size_t) band];
     }
 

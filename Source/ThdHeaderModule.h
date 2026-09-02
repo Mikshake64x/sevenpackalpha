@@ -82,12 +82,17 @@ public:
         // sur celui de la grille de boutons ci-dessous.
         auto switchRow = content.removeFromTop (38.0f);
         auto switchArea = switchRow.reduced (10.0f, 0.0f);
-        engageSwitch.setBounds (juce::Rectangle<float> (38.0f, 38.0f)
-                                     .withCentre ({ switchArea.getX() + 19.0f, switchArea.getCentreY() })
+        // Diametre reduit (retour utilisateur : "un peu trop grand"), voir
+        // switchDiameter -- centre/label recales sur cette meme constante
+        // pour garder le bord gauche aligne sur la grille de boutons en
+        // dessous et le meme espacement label/bouton qu'avant.
+        constexpr float switchDiameter = 32.0f;
+        engageSwitch.setBounds (juce::Rectangle<float> (switchDiameter, switchDiameter)
+                                     .withCentre ({ switchArea.getX() + switchDiameter * 0.5f, switchArea.getCentreY() })
                                      .expanded (6.0f)
                                      .toNearestInt());
-        labelBounds = { switchArea.getX() + 38.0f + 8.0f, switchArea.getY(),
-                        switchArea.getRight() - (switchArea.getX() + 38.0f + 8.0f), switchArea.getHeight() };
+        labelBounds = { switchArea.getX() + switchDiameter + 8.0f, switchArea.getY(),
+                        switchArea.getRight() - (switchArea.getX() + switchDiameter + 8.0f), switchArea.getHeight() };
 
         content.removeFromTop (3.0f);
 

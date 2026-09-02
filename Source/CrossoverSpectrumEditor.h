@@ -33,6 +33,14 @@
     endChangeGesture) et meme mapping log-frequence (xFracToFreq/
     freqToXFrac), meme edition texte au double-clic (voir KnobSlider.h)
     que le reste du plugin.
+
+    LIGNE ELASTIQUE (retour utilisateur, remplace les anciennes lignes
+    draggables IN/RANGE) : un indicateur visuel non-interactif par bande,
+    voir drawElasticLine() -- tendu (vert) sous la compression, detendu
+    (bleu) sous l'expansion, reagit aux valeurs REELLES du DSP (meme
+    source que la colorisation du spectre, voir drawSpectrum()). Input et
+    Expand Range se reglent desormais uniquement via les knobs du panneau
+    de bande, plus depuis ce composant.
 */
 class CrossoverSpectrumEditor : public juce::Component,
                                  private juce::Timer,
@@ -47,13 +55,7 @@ public:
             enabledParam[(size_t) x] = processorRef.apvts.getParameter (SixpackAudioProcessor::idCrossoverEnabled[x]);
         }
         for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
-        {
             soloParam[(size_t) band] = processorRef.apvts.getParameter (SixpackAudioProcessor::idSolo[band]);
-            inputParam[(size_t) band] = processorRef.apvts.getParameter (
-                SixpackAudioProcessor::bandParamId (SixpackAudioProcessor::idInput, band));
-            expandRangeParam[(size_t) band] = processorRef.apvts.getParameter (
-                SixpackAudioProcessor::bandParamId (SixpackAudioProcessor::idInputExpand, band));
-        }
 
         freqEditor.setJustification (juce::Justification::centred);
         freqEditor.setInputRestrictions (6, "0123456789.");
@@ -150,10 +152,10 @@ public:
             g.strokePath (frameOutline, juce::PathStrokeType (isSelected ? 1.6f : 1.3f));
 
             drawSoloButton (g, lay.soloRow, x0, x1, band, accent);
-            drawBandControlLines (g, lay.plot, band, x0, x1, accent);
+            drawElasticLine (g, lay.plot, band, x0, x1, accent);
         }
 
-        const auto curveY = drawSpectrum (g, lay.plot, owner, boundaryHz);
+        drawSpectrum (g, lay.plot, owner, boundaryHz);
 
         // prevPillRight : quand un crossover desactive est pousse contre son
         // voisin actif (voir pushDisabledNeighborsIntoOrder()), leurs deux
@@ -163,7 +165,7 @@ public:
         // derniere pastille reellement dessinee.
         float prevPillRight = -1.0e9f;
         for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
-            drawCrossoverLine (g, lay, x, boundaryHz[(size_t) (x + 1)], curveY, prevPillRight);
+            drawCrossoverLine (g, lay, x, boundaryHz[(size_t) (x + 1)], prevPillRight);
 
         g.restoreState();
         g.setColour (juce::Colour (0xff2a3540));
@@ -213,7 +215,7 @@ public:
             if (std::abs (e.position.x - lineX) > kLineHitRadius)
                 continue;
 
-            const float handleY = spectrumYAt (lay.plot, freq);
+            const float handleY = crossoverHandleY (lay.plot);
             if (juce::Point<float> (lineX, handleY).getDistanceFrom (e.position) <= kHandleHitRadius)
                 toggleCrossoverEnabled (x);
             else
@@ -225,61 +227,7 @@ public:
             return;
         }
 
-        // 3. Lignes IN (haut, descendre = plus de compression) / RANGE
-        // (bas, monter = plus d'expansion) -- une paire par groupe de
-        // bande actif, voir drawBandControlLines().
-        if (lay.plot.contains (e.position))
-        {
-            const auto owner = computeGroupOwners();
-            float boundaryHz[(size_t) SixpackAudioProcessor::NumBands + 1];
-            boundaryHz[0] = 20.0f; boundaryHz[SixpackAudioProcessor::NumBands] = 20000.0f;
-            for (int cx = 0; cx < SixpackAudioProcessor::NumCrossovers; ++cx)
-                boundaryHz[cx + 1] = freqParam[(size_t) cx]->convertFrom0to1 (freqParam[(size_t) cx]->getValue());
-
-            for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
-            {
-                if (owner[(size_t) band] != band) continue;
-                int groupEnd = band;
-                while (groupEnd + 1 < SixpackAudioProcessor::NumBands && owner[(size_t) (groupEnd + 1)] == band) ++groupEnd;
-                const float x0 = lay.plot.getX() + freqToXFrac (boundaryHz[(size_t) band]) * lay.plot.getWidth();
-                const float x1 = lay.plot.getX() + freqToXFrac (boundaryHz[(size_t) (groupEnd + 1)]) * lay.plot.getWidth();
-                if (e.position.x < x0 || e.position.x >= x1)
-                    continue;
-
-                // Uniquement le POINT central (pas toute la ligne) --
-                // retour utilisateur explicite : "on ne doit pas pouvoir
-                // les monter et descendre en cliquant sur la ligne, mais
-                // seulement en cliquant sur le point au milieu. il faut
-                // elargir la zone de clique autour du point" -- distance
-                // au point (cx, y), pas juste proximite verticale sur
-                // toute la largeur de la bande. Rayon genereux
-                // (kControlPointHitRadius, voir plus bas) pour ne pas
-                // avoir a viser pile le petit cercle de 4px dessine.
-                const float cx = (x0 + x1) * 0.5f;
-
-                const float inputDb = inputParam[(size_t) band]->convertFrom0to1 (inputParam[(size_t) band]->getValue());
-                if (juce::Point<float> (cx, inLineY (lay.plot, inputDb)).getDistanceFrom (e.position) <= kControlPointHitRadius)
-                {
-                    draggingInBand = band;
-                    inputParam[(size_t) band]->beginChangeGesture();
-                    dragInLineTo (band, e.position, lay.plot);
-                    return;
-                }
-
-                const float rangeDb = expandRangeParam[(size_t) band]->convertFrom0to1 (expandRangeParam[(size_t) band]->getValue());
-                if (juce::Point<float> (cx, rangeLineY (lay.plot, rangeDb)).getDistanceFrom (e.position) <= kControlPointHitRadius)
-                {
-                    draggingRangeBand = band;
-                    expandRangeParam[(size_t) band]->beginChangeGesture();
-                    dragRangeLineTo (band, e.position, lay.plot);
-                    return;
-                }
-
-                break; // zone horizontale trouvee, inutile de tester les autres bandes
-            }
-        }
-
-        // 4. Sinon : selectionne la bande dont la zone contient ce point X.
+        // 3. Sinon : selectionne la bande dont la zone contient ce point X.
         if (lay.plot.contains (e.position))
         {
             const float freq = xFracToFreq (juce::jlimit (0.0f, 1.0f, (e.position.x - lay.plot.getX()) / lay.plot.getWidth()));
@@ -290,8 +238,6 @@ public:
     void mouseDrag (const juce::MouseEvent& e) override
     {
         if (draggingCrossover >= 0) { dragTo (draggingCrossover, e.position, computeLayout().plot); return; }
-        if (draggingInBand >= 0) { dragInLineTo (draggingInBand, e.position, computeLayout().plot); return; }
-        if (draggingRangeBand >= 0) { dragRangeLineTo (draggingRangeBand, e.position, computeLayout().plot); return; }
     }
 
     void mouseUp (const juce::MouseEvent&) override
@@ -300,16 +246,6 @@ public:
         {
             freqParam[(size_t) draggingCrossover]->endChangeGesture();
             draggingCrossover = -1;
-        }
-        if (draggingInBand >= 0)
-        {
-            inputParam[(size_t) draggingInBand]->endChangeGesture();
-            draggingInBand = -1;
-        }
-        if (draggingRangeBand >= 0)
-        {
-            expandRangeParam[(size_t) draggingRangeBand]->endChangeGesture();
-            draggingRangeBand = -1;
         }
     }
 
@@ -355,7 +291,6 @@ private:
     static constexpr float kLogMax = 4.30103f;  // log10(20000)
     static constexpr float kLineHitRadius = 7.0f;
     static constexpr float kHandleHitRadius = 8.0f;
-    static constexpr float kControlPointHitRadius = 13.0f; // IN/RANGE -- point central uniquement, voir mouseDown()
     static constexpr float kMinRatio = 1.05f;
 
     struct Layout
@@ -522,49 +457,6 @@ private:
         repaint();
     }
 
-    // --- Lignes IN (Input, retour utilisateur : "en haut ... descendre
-    // augmente le input") / RANGE (Expand Range, "en bas ... monter
-    // augmente le range") -- mapping lineaire sur TOUTE la hauteur du
-    // plot, sens opposes (voir doc de classe). ---
-
-    static float inLineY (juce::Rectangle<float> plot, float inputDb) noexcept
-    {
-        const float yFrac = juce::jlimit (0.0f, 1.0f, (inputDb + 30.0f) / 60.0f); // -30..+30 -> 0..1
-        return plot.getY() + yFrac * plot.getHeight();
-    }
-
-    static float rangeLineY (juce::Rectangle<float> plot, float rangeDb) noexcept
-    {
-        const float yFrac = juce::jlimit (0.0f, 1.0f, 1.0f - rangeDb / 24.0f); // 0..24 -> bas..haut
-        return plot.getY() + yFrac * plot.getHeight();
-    }
-
-    static float yToInputDb (juce::Rectangle<float> plot, float y) noexcept
-    {
-        const float yFrac = juce::jlimit (0.0f, 1.0f, (y - plot.getY()) / plot.getHeight());
-        return juce::jmap (yFrac, 0.0f, 1.0f, -30.0f, 30.0f);
-    }
-
-    static float yToRangeDb (juce::Rectangle<float> plot, float y) noexcept
-    {
-        const float yFrac = juce::jlimit (0.0f, 1.0f, (y - plot.getY()) / plot.getHeight());
-        return juce::jmap (yFrac, 0.0f, 1.0f, 24.0f, 0.0f);
-    }
-
-    void dragInLineTo (int band, juce::Point<float> pos, juce::Rectangle<float> plot)
-    {
-        const float db = yToInputDb (plot, pos.y);
-        inputParam[(size_t) band]->setValueNotifyingHost (inputParam[(size_t) band]->convertTo0to1 (db));
-        repaint();
-    }
-
-    void dragRangeLineTo (int band, juce::Point<float> pos, juce::Rectangle<float> plot)
-    {
-        const float db = yToRangeDb (plot, pos.y);
-        expandRangeParam[(size_t) band]->setValueNotifyingHost (expandRangeParam[(size_t) band]->convertTo0to1 (db));
-        repaint();
-    }
-
     // --- Edition texte de la frequence (double-clic, meme pattern que KnobSlider) ---
 
     juce::Rectangle<float> freqPillBounds (const Layout& lay, int x) const noexcept
@@ -633,47 +525,63 @@ private:
                            juce::Justification::centred, 1);
     }
 
-    // Ligne IN (haut, descendre = plus de compression) + ligne RANGE (bas,
-    // monter = plus d'expansion) pour une bande -- retour utilisateur, voir
-    // doc de classe. Seul le POINT central est draggable (voir mouseDown()
-    // et kControlPointHitRadius) ; le trait n'est qu'un repere visuel.
-    // Style "fondu vers le point" (direction B validee en preview) -- trait
-    // PLEIN (plus de pointilles) dont l'opacite decroit vers les bords via
-    // un ColourGradient, pour attirer l'oeil sur la zone cliquable plutot
-    // que de suggerer que toute la ligne se drag.
-    void drawBandControlLines (juce::Graphics& g, juce::Rectangle<float> plot, int band, float x0, float x1, juce::Colour accent)
+    // Ligne "elastique" par bande (retour utilisateur : remplace les deux
+    // anciennes lignes draggables IN/RANGE par un indicateur visuel unique,
+    // en lecture seule, qui reagit a la compression ET l'expansion REELLES
+    // -- meme source (grMeterDb/grMeterExpandDb) que la colorisation du
+    // spectre ci-dessous, voir drawSpectrum()). Au repos : trait droit au
+    // centre vertical du plot, comme un elastique detendu. La compression
+    // le TEND vers le haut (vert, plus epais/lumineux avec l'intensite),
+    // l'expansion le DETEND vers le bas (bleu) -- deux forces opposees sur
+    // le meme elastique, la position nette refletant laquelle domine a cet
+    // instant. Courbe de Bezier quadratique (un seul point de controle au
+    // centre) pour la silhouette "corde pincee" plutot qu'un trait droit.
+    void drawElasticLine (juce::Graphics& g, juce::Rectangle<float> plot, int band, float x0, float x1, juce::Colour accent)
     {
-        const float inputDb = inputParam[(size_t) band]->convertFrom0to1 (inputParam[(size_t) band]->getValue());
-        const float rangeDb = expandRangeParam[(size_t) band]->convertFrom0to1 (expandRangeParam[(size_t) band]->getValue());
+        const float compT   = juce::jlimit (0.0f, 1.0f, processorRef.grMeterDb[(size_t) band].load() / 15.0f);
+        const float expandT = juce::jlimit (0.0f, 1.0f, processorRef.grMeterExpandDb[(size_t) band].load() / 15.0f);
+        const float tension = juce::jmax (compT, expandT);
+
+        const float restY = plot.getCentreY();
+        const float maxBow = plot.getHeight() * 0.32f;
+        const float bowY = restY - (compT - expandT) * maxBow;
+
         const float cx = (x0 + x1) * 0.5f;
+        juce::Path elastic;
+        elastic.startNewSubPath (x0 + 2.0f, restY);
+        elastic.quadraticTo (cx, bowY, x1 - 2.0f, restY);
 
-        auto drawLine = [&] (float y)
+        const juce::Colour tint = compT >= expandT ? SixpackColours::ledGreen : SixpackColours::ledBlue;
+        const juce::Colour colour = accent.interpolatedWith (tint, tension * 0.85f);
+
+        if (tension > 0.02f)
         {
-            juce::ColourGradient grad (accent.withAlpha (0.0f), x0 + 2.0f, y,
-                                        accent.withAlpha (0.0f), x1 - 2.0f, y, false);
-            grad.addColour (0.5, accent.withAlpha (0.85f));
-            grad.addColour (0.4, accent.withAlpha (0.7f));
-            grad.addColour (0.6, accent.withAlpha (0.7f));
-            g.setGradientFill (grad);
-            g.drawLine (x0 + 2.0f, y, x1 - 2.0f, y, 1.3f);
-
-            constexpr float r = 4.0f;
-            g.setColour (juce::Colour (0xff0a1620));
-            g.fillEllipse (cx - r, y - r, r * 2.0f, r * 2.0f);
-            g.setColour (accent);
-            g.drawEllipse (cx - r, y - r, r * 2.0f, r * 2.0f, 1.5f);
-        };
-
-        drawLine (inLineY (plot, inputDb));
-        drawLine (rangeLineY (plot, rangeDb));
+            juce::Path stroked;
+            juce::PathStrokeType (1.4f + tension * 1.3f).createStrokedPath (stroked, elastic);
+            juce::DropShadow (colour.withAlpha (0.5f), juce::roundToInt (3.0f + tension * 4.0f), { 0, 0 }).drawForPath (g, stroked);
+        }
+        g.setColour (colour.withAlpha (0.55f + 0.4f * tension));
+        g.strokePath (elastic, juce::PathStrokeType (1.4f + tension * 1.3f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
-    void drawCrossoverLine (juce::Graphics& g, const Layout& lay, int x, float freq, const std::array<float, kCurveSamples>& curveY,
-                             float& prevPillRight)
+    // Position Y FIXE de la poignee (retour utilisateur : "des fois il faut
+    // chercher le point d'activation et desactivation du cross over" --
+    // avant, la poignee suivait la hauteur de la courbe du spectre, donc
+    // se retrouvait n'importe ou selon le niveau du signal a cette
+    // frequence, parfois ecrasee en haut ou en bas du plot). Toujours au
+    // meme endroit, juste au-dessus des lignes elastiques, quel que soit
+    // le contenu audio -- meme calcul utilise pour le dessin et le
+    // hit-test (voir mouseDown()).
+    static float crossoverHandleY (juce::Rectangle<float> plot) noexcept
+    {
+        return plot.getY() + 13.0f;
+    }
+
+    void drawCrossoverLine (juce::Graphics& g, const Layout& lay, int x, float freq, float& prevPillRight)
     {
         const bool enabled = enabledParam[(size_t) x]->getValue() > 0.5f;
         const float lineX = lay.plot.getX() + freqToXFrac (freq) * lay.plot.getWidth();
-        const float handleY = sampleCurveY (curveY, lay.plot, lineX);
+        const float handleY = crossoverHandleY (lay.plot);
         // Fond FIXE (0xff0a1620, jamais retheme, voir paint()) -- texte
         // FIXE clair aussi (chipTextBright, pas textBright qui s'assombrit
         // en theme clair).
@@ -861,22 +769,6 @@ private:
         return ys;
     }
 
-    float spectrumYAt (juce::Rectangle<float> plot, float freq) const noexcept
-    {
-        auto& spec = processorRef.spectrumAnalyzer;
-        if (spec.getSampleRate() <= 0.0)
-            return plot.getBottom();
-        const float mag = spec.getMagnitudeInterpolated (freq);
-        return plot.getBottom() - mag * plot.getHeight() * 0.85f;
-    }
-
-    static float sampleCurveY (const std::array<float, kCurveSamples>& curveY, juce::Rectangle<float> plot, float x) noexcept
-    {
-        const float xt = juce::jlimit (0.0f, 1.0f, (x - plot.getX()) / plot.getWidth());
-        const int i = juce::jlimit (0, kCurveSamples - 1, juce::roundToInt (xt * (float) (kCurveSamples - 1)));
-        return curveY[(size_t) i];
-    }
-
     // Fonction-locale STATIC (pas un membre statique de classe defini hors
     // ligne) -- evite tout risque d'ordre d'initialisation entre globales
     // inline de 2 headers differents (voir SixpackColours::ledCyan etc.
@@ -886,7 +778,7 @@ private:
     static juce::Colour bandAccent (int band) noexcept
     {
         static const std::array<juce::Colour, (size_t) SixpackAudioProcessor::NumBands> colours =
-            { SixpackColours::ledCyan, SixpackColours::ledGreen, SixpackColours::ledAmber, SixpackColours::ledOrange, SixpackColours::ledPurple, SixpackColours::ledRed };
+            { SixpackColours::ledCyan, SixpackColours::ledGreen, SixpackColours::ledAmber, SixpackColours::ledOrange, SixpackColours::ledPurple, SixpackColours::ledRed, SixpackColours::ledPink };
         return colours[(size_t) band];
     }
 
@@ -894,20 +786,12 @@ private:
     std::array<juce::RangedAudioParameter*, (size_t) SixpackAudioProcessor::NumCrossovers> freqParam {};
     std::array<juce::RangedAudioParameter*, (size_t) SixpackAudioProcessor::NumCrossovers> enabledParam {};
     std::array<juce::RangedAudioParameter*, (size_t) SixpackAudioProcessor::NumBands> soloParam {};
-    std::array<juce::RangedAudioParameter*, (size_t) SixpackAudioProcessor::NumBands> inputParam {};
-    std::array<juce::RangedAudioParameter*, (size_t) SixpackAudioProcessor::NumBands> expandRangeParam {};
 
     juce::TextEditor freqEditor;
     int editingCrossover = -1;
 
     int selectedBand = (int) SixpackAudioProcessor::Mid;
     int draggingCrossover = -1;
-
-    // Ligne IN (haut, descendre = plus de compression) / RANGE (bas,
-    // monter = plus d'expansion) actuellement draggee, PAR BANDE OWNER --
-    // voir doc de classe et drawBandControlLines()/mouseDown(). -1 = aucune.
-    int draggingInBand = -1;
-    int draggingRangeBand = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CrossoverSpectrumEditor)
 };
