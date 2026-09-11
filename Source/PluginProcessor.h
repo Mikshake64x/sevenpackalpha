@@ -183,6 +183,25 @@ public:
     std::atomic<bool> linkInEnabled  { false };
     std::atomic<bool> linkOutEnabled { false };
 
+    // --- Routage multi-sorties STANDALONE (voir idBandRouteOut + Options).
+    // Index de PAIRE de sortie de la carte son (0 = sorties 1-2, 1 = 3-4,
+    // ...). mainOutPairIndex = ou va le mix principal ; bandOutPairIndex[b]
+    // = ou va la bande b quand elle est routee. Non-parametres (specifiques
+    // a l'interface audio, pas automatables) mais persistes dans apvts.state
+    // comme needleModeIndex1/2. Lus par processBlock() (redispatch des 16
+    // canaux du buffer standalone) -- d'ou les atomics. En VST3/AU ils ne
+    // servent pas : c'est l'hote qui route les bus nommes.
+    std::atomic<int> mainOutPairIndex { 0 };
+    std::array<std::atomic<int>, (size_t) NumBands> bandOutPairIndex { {} };
+
+    // Noms des canaux de sortie de l'interface audio courante, pousses par
+    // SixpackStandaloneApp a chaque (re)configuration du peripherique. Lu
+    // UNIQUEMENT par l'editeur (thread message) pour peupler les menus de
+    // l'overlay Options -- jamais par processBlock. Vide hors standalone.
+    void setStandaloneOutputChannelNames (const juce::StringArray& names);
+    juce::StringArray getStandaloneOutputChannelNames() const;
+    int getStandaloneOutputPairCount() const;
+
     // Bouton AI (barre de controle, au-dessus de Analog/Linear) : capture
     // quelques secondes de programme audio puis propose des valeurs de
     // depart pour Crossover Low/High + Input/Ratio/Attack/Release par
@@ -292,6 +311,17 @@ public:
     static constexpr const char* idBandMix   = "bandMix";
     static constexpr const char* idBandWidth = "bandWidth";
 
+    // Routage multi-sorties PAR BANDE (demande explicite : "separer sur
+    // differentes sorties les bandes si on a une carte son avec plein de
+    // sortie"). true = cette bande sort UNIQUEMENT sur sa paire stereo
+    // dediee (bus de sortie index 1 + band) et est RETIREE du mix principal
+    // (semantique "split", pas un send parallele). En VST3 l'hote active les
+    // bus voulus ; en standalone les 7 bus aux sont forces actifs et mappes
+    // aux sorties physiques de la carte (mix = sorties 1-2, Low = 3-4, ...
+    // Air = 15-16), a assigner dans Audio Settings. Une bande fusionnee
+    // (crossover replie) routee laisse sa sortie dediee muette.
+    static constexpr const char* idBandRouteOut = "bandRouteOut";
+
     // --- Parametres GLOBAUX (non rattaches a une bande) ---
     static constexpr const char* idPower                = "power";
     static constexpr const char* idSoftClip             = "softClip"; // THD Valve global
@@ -302,6 +332,13 @@ public:
     // possible a la fois -- selectionner "aucun" (reclique sur le mode
     // actif) revient a Classic.
     static constexpr const char* idThdMode              = "thdMode";
+    // Plafond de sortie de l'etage THD Valve (voir SoftClipper::ceilingLin)
+    // -- reglable de -0.5 dB (defaut, ancienne valeur fixe) a -3 dB. Expose
+    // dans la barre du bas a cote des presets (retour utilisateur explicite :
+    // "je souhaite quand meme pouvoir gerer le niveau de sortie apres le
+    // THD ... de -0.5 a -3"). N'a d'effet que quand le THD Valve est engage
+    // (idSoftClip / modes Tape/Iron/Air), comme le plafond true-peak.
+    static constexpr const char* idThdOutput            = "thdOutput";
 
     // 5 points de crossover (idCrossoverX = frequence Hz, voir Crossover.h/
     // Crossover::kSplitMinHz/MaxHz/DefaultHz pour les bornes ; idCrossoverXEnabled
@@ -466,6 +503,26 @@ private:
     juce::AudioBuffer<float> thdResidualBuffer;
     std::array<juce::AudioBuffer<float>, (size_t) NumBands> thdBandBuffers;
 
+    // Copie locale du bus sidechain externe, faite en tout debut de
+    // processBlock(). Necessaire depuis l'ajout des 7 bus de sortie par
+    // bande (idBandRouteOut) : avec la buses API, le bus d'ENTREE sidechain
+    // (index 1) et le 1er bus de SORTIE par bande partagent les memes
+    // canaux du buffer de process -- ecrire une sortie de bande ecraserait
+    // le sidechain avant qu'il soit lu. On lit donc le sidechain ici une
+    // bonne fois, puis on ne touche plus qu'aux sorties.
+    juce::AudioBuffer<float> sidechainCopyBuffer;
+
+    // Copie de travail pour le redispatch des sorties en standalone (voir
+    // mainOutPairIndex/bandOutPairIndex + processBlock). Dimensionnee dans
+    // prepareToPlay a getTotalNumOutputChannels() x samplesPerBlock.
+    juce::AudioBuffer<float> outputRemapScratch;
+
+    // Noms des sorties de l'interface (voir accesseurs publics). Protege par
+    // un lock : ecrit par le thread message (SixpackStandaloneApp), lu par
+    // le thread message (editeur) -- jamais l'audio.
+    juce::StringArray standaloneOutChannelNames;
+    juce::CriticalSection standaloneOutNamesLock;
+
     std::array<std::atomic<float>*, (size_t) NumBands> inputParam            {};
     std::array<std::atomic<float>*, (size_t) NumBands> ratioIndexParam       {};
     std::array<std::atomic<float>*, (size_t) NumBands> attackParam          {};
@@ -494,10 +551,12 @@ private:
     std::array<std::atomic<float>*, (size_t) NumBands> britishParam         {};
     std::array<std::atomic<float>*, (size_t) NumBands> bandMixParam         {};
     std::array<std::atomic<float>*, (size_t) NumBands> bandWidthParam       {};
+    std::array<std::atomic<float>*, (size_t) NumBands> bandRouteOutParam    {};
 
     std::atomic<float>* powerParam            = nullptr;
     std::atomic<float>* softClipParam         = nullptr;
     std::atomic<float>* thdModeParam          = nullptr;
+    std::atomic<float>* thdOutputParam        = nullptr;
     std::atomic<float>* aiMasteringTargetParam = nullptr;
     std::atomic<float>* aiScopeCrossoverParam   = nullptr;
     std::atomic<float>* aiScopeDetectorsParam   = nullptr;

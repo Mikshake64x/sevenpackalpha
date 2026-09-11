@@ -108,6 +108,41 @@ public:
         licenseButton.setColour (juce::TextButton::textColourOffId, SixpackColours::ledAmber);
         licenseButton.onClick = [this] { if (onOpenLicense) onOpenLicense(); };
 
+        // SEPARATE OUTPUTS -- routage multi-sorties par bande (voir
+        // idBandRouteOut / mainOutPairIndex / bandOutPairIndex). Un menu par
+        // bande : "MIX" = reste dans le mix principal (defaut) ; sinon la
+        // bande quitte le mix et part sur la paire de sortie choisie. Un
+        // menu supplementaire choisit la paire du mix principal lui-meme.
+        // En standalone les entrees sont les vraies paires de la carte son ;
+        // en VST3/AU un seul choix "BUS" (l'hote fait le routage des bus).
+        auto styleCombo = [] (juce::ComboBox& c)
+        {
+            c.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff2b2e33));
+            c.setColour (juce::ComboBox::textColourId, SixpackColours::chipTextBright);
+            c.setColour (juce::ComboBox::arrowColourId, SixpackColours::ledAmber);
+            c.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xff3a3d42));
+            c.setJustificationType (juce::Justification::centred);
+        };
+
+        addAndMakeVisible (mainOutCombo);
+        styleCombo (mainOutCombo);
+        mainOutCombo.onChange = [this]
+        {
+            if (onMainOutPairChanged && mainOutCombo.getSelectedId() > 0)
+                onMainOutPairChanged (mainOutCombo.getSelectedId() - 1);
+        };
+
+        for (int i = 0; i < kNumRouteBands; ++i)
+        {
+            addAndMakeVisible (bandOutCombos[i]);
+            styleCombo (bandOutCombos[i]);
+            bandOutCombos[i].onChange = [this, i]
+            {
+                if (onBandOutRoutingChanged && bandOutCombos[i].getSelectedId() > 0)
+                    onBandOutRoutingChanged (i, bandOutCombos[i].getSelectedId() - 1); // 0 = MIX, >=1 = paire+1
+            };
+        }
+
         addAndMakeVisible (aiViewport);
         aiViewport.setScrollBarsShown (true, false);
         aiViewport.setViewedComponent (&aiPanel, false);
@@ -146,6 +181,48 @@ public:
     void setLightThemeState (bool light)
     {
         themeButton.setToggleState (light, juce::dontSendNotification);
+    }
+
+    // Peuple les menus. standalone = true : `pairLabels` liste les paires de
+    // sortie de la carte ("1-2", "3-4", ...). standalone = false : un seul
+    // choix de routage ("BUS") -- c'est l'hote qui route les bus nommes.
+    void setOutputRoutingOptions (bool standalone, const juce::StringArray& pairLabels)
+    {
+        outIsStandalone = standalone;
+        outPairCount = standalone ? pairLabels.size() : 1;
+
+        mainOutCombo.clear (juce::dontSendNotification);
+        mainOutCombo.setVisible (standalone);
+        if (standalone)
+            for (int p = 0; p < pairLabels.size(); ++p)
+                mainOutCombo.addItem (pairLabels[p], p + 1);
+
+        for (int i = 0; i < kNumRouteBands; ++i)
+        {
+            auto& c = bandOutCombos[i];
+            c.clear (juce::dontSendNotification);
+            c.addItem ("MIX", 1); // id 1 => selectedId-1 == 0 => "dans le mix"
+            if (standalone)
+                for (int p = 0; p < pairLabels.size(); ++p)
+                    c.addItem (pairLabels[p], p + 2); // id p+2 => selectedId-1 == p+1
+            else
+                c.addItem ("BUS", 2);
+        }
+    }
+
+    void setMainOutPair (int pairIndex)
+    {
+        mainOutCombo.setSelectedId (juce::jlimit (0, juce::jmax (0, outPairCount - 1), pairIndex) + 1,
+                                    juce::dontSendNotification);
+    }
+
+    // comboIndex : 0 = dans le mix principal ; >=1 = (paire de sortie + 1) en
+    // standalone, ou 1 = "sur son bus" en VST3.
+    void setBandOutRouting (int band, int comboIndex)
+    {
+        if (band < 0 || band >= kNumRouteBands)
+            return;
+        bandOutCombos[band].setSelectedId (juce::jmax (0, comboIndex) + 1, juce::dontSendNotification);
     }
 
     void setCurrentAiTargetIndex (int idx)          { aiPanel.setCurrentAiTargetIndex (idx); }
@@ -206,8 +283,30 @@ public:
         content.removeFromTop (14.0f);           // ligne + marge
         licenseButton.setBounds (content.removeFromTop (34.0f).toNearestInt());
 
-        aiDividerY = content.getY() + 14.0f;
-        content.removeFromTop (24.0f);           // ligne + marge
+        // SEPARATE OUTPUTS : label + menu du mix principal sur la meme ligne,
+        // puis une rangee de 7 menus (un par bande), juste avant le
+        // separateur de la section AI.
+        content.removeFromTop (16.0f);
+        {
+            auto labelRow = content.removeFromTop (22.0f);
+            // Menu du mix principal cale a droite (seulement en standalone).
+            auto mainComboArea = labelRow.removeFromRight (150.0f);
+            mainOutMiniLabelBounds = mainComboArea.removeFromLeft (44.0f).toNearestInt();
+            mainOutCombo.setBounds (mainComboArea.reduced (0.0f, 1.0f).toNearestInt());
+            routeOutLabelBounds = labelRow.toNearestInt();
+        }
+        content.removeFromTop (4.0f);
+        bandOutInitialsBounds = content.removeFromTop (12.0f).toNearestInt();
+        auto routeRow = content.removeFromTop (26.0f);
+        const float bw3 = (routeRow.getWidth() - gap * (kNumRouteBands - 1)) / (float) kNumRouteBands;
+        for (int i = 0; i < kNumRouteBands; ++i)
+        {
+            bandOutCombos[i].setBounds (routeRow.removeFromLeft ((int) bw3).toNearestInt());
+            routeRow.removeFromLeft ((int) gap);
+        }
+
+        aiDividerY = content.getY() + 12.0f;
+        content.removeFromTop (20.0f);           // ligne + marge
 
         // En-tete "AI" -- meme logique que GENERAL ci-dessus, mais pour
         // toute la section scrollable (portee, cibles, style, fidelity...).
@@ -269,9 +368,38 @@ public:
         drawSectionLabel (latencyLabelBounds, "LINEAR MODE CPU BUDGET");
         drawSectionLabel (themeLabelBounds, "DESIGN");
 
+        // "SEPARATE OUTPUTS" + aide inline + "MAIN" au-dessus du menu du mix.
+        drawSectionLabel (routeOutLabelBounds, "SEPARATE OUTPUTS");
+        {
+            g.setColour (SixpackColours::textDim);
+            g.setFont (juce::Font (juce::FontOptions (10.0f)));
+            auto hint = routeOutLabelBounds;
+            hint.removeFromLeft (150);
+            g.drawFittedText (outIsStandalone ? "pick the sound card output pair per band"
+                                              : "MIX / BUS per band, host routes the buses",
+                              hint, juce::Justification::centredLeft, 1);
+
+            if (outIsStandalone)
+            {
+                g.setColour (SixpackColours::textDim);
+                g.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)));
+                g.drawFittedText ("MAIN", mainOutMiniLabelBounds, juce::Justification::centredRight, 1);
+            }
+
+            // Initiales des 7 bandes au-dessus de leur menu.
+            static const char* bandInitials[kNumRouteBands] = { "LOW", "L-MID", "MID", "H-MID", "PRES", "HIGH", "AIR" };
+            g.setColour (SixpackColours::textDim);
+            g.setFont (juce::Font (juce::FontOptions (9.0f, juce::Font::bold)).withExtraKerningFactor (0.05f));
+            for (int i = 0; i < kNumRouteBands; ++i)
+                g.drawFittedText (bandInitials[i], bandOutCombos[i].getBounds().withY (bandOutInitialsBounds.getY())
+                                                       .withHeight (bandOutInitialsBounds.getHeight()),
+                                  juce::Justification::centred, 1);
+        }
+
         g.setColour (SixpackColours::gridLine);
         g.drawLine (content.getX(), latencyLabelBounds.getY() - 18.0f, content.getRight(), latencyLabelBounds.getY() - 18.0f, 1.0f);
         g.drawLine (content.getX(), themeLabelBounds.getY() - 18.0f, content.getRight(), themeLabelBounds.getY() - 18.0f, 1.0f);
+        g.drawLine (content.getX(), routeOutLabelBounds.getY() - 8.0f, content.getRight(), routeOutLabelBounds.getY() - 8.0f, 1.0f);
         g.drawLine (content.getX(), aiDividerY, content.getRight(), aiDividerY, 1.0f);
         drawGroupHeader (aiHeaderBounds, "AI");
     }
@@ -298,6 +426,11 @@ public:
     std::function<void(int)> onAiExpandModeSelected;
     std::function<void(int)> onAiExpandCharacterSelected;
     std::function<void(int)> onAiExpandAmountSelected;
+    // pairIndex : paire de sortie de la carte (0 = 1-2, 1 = 3-4, ...).
+    std::function<void(int pairIndex)> onMainOutPairChanged;
+    // band : 0=Low..6=Air. comboIndex : 0 = dans le mix ; >=1 = paire+1
+    // (standalone) ou 1 = sur son bus (VST3).
+    std::function<void(int band, int comboIndex)> onBandOutRoutingChanged;
 
 private:
     // Contenu SCROLLABLE de la section AI -- meme idiome que AboutOverlay::
@@ -712,10 +845,15 @@ private:
 
     static constexpr int kNumScales = 6;
     static constexpr int kNumLatency = 3;
+    static constexpr int kNumRouteBands = 7;
     static constexpr float kScaleValues[kNumScales] = { 0.75f, 0.80f, 0.85f, 0.90f, 0.95f, 1.0f };
 
     juce::TextButton scaleButtons[kNumScales];
     juce::TextButton latencyButtons[kNumLatency];
+    juce::ComboBox   mainOutCombo;
+    juce::ComboBox   bandOutCombos[kNumRouteBands];
+    bool outIsStandalone = false;
+    int  outPairCount = 1;
     juce::TextButton themeButton;
     juce::TextButton licenseButton;
     juce::TextButton closeButton;
@@ -726,6 +864,7 @@ private:
 
     juce::Rectangle<float> panelBounds;
     juce::Rectangle<int> scaleLabelBounds, latencyLabelBounds, themeLabelBounds;
+    juce::Rectangle<int> routeOutLabelBounds, mainOutMiniLabelBounds, bandOutInitialsBounds;
     juce::Rectangle<int> generalHeaderBounds, aiHeaderBounds;
     float aiDividerY = 0.0f;
 

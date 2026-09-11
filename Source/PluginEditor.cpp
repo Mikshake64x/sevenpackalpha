@@ -538,6 +538,24 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
         setParamValue (SixpackAudioProcessor::idAiExpandAmount, (float) index);
     };
 
+    optionsOverlay.onMainOutPairChanged = [this] (int pairIndex)
+    {
+        processorRef.mainOutPairIndex.store (juce::jmax (0, pairIndex));
+    };
+
+    optionsOverlay.onBandOutRoutingChanged = [this] (int band, int comboIndex)
+    {
+        if (band < 0 || band >= (int) SixpackAudioProcessor::NumBands)
+            return;
+        // comboIndex 0 = reste dans le mix ; >=1 = routee (et, en standalone,
+        // sur la paire comboIndex-1).
+        const bool routed = comboIndex >= 1;
+        setParamValue (SixpackAudioProcessor::bandParamId (SixpackAudioProcessor::idBandRouteOut, band),
+                       routed ? 1.0f : 0.0f);
+        if (routed)
+            processorRef.bandOutPairIndex[(size_t) band].store (comboIndex - 1);
+    };
+
     // --- Presets rapides (meme mecanisme que Nuke Mext) ---
     buildPresetList();
 
@@ -570,6 +588,30 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
 
     deletePresetButton.onClick = [this] { promptDeletePreset(); };
     addAndMakeVisible (deletePresetButton);
+
+    // --- Plafond de sortie THD Valve (-0.5 -> -3 dB) dans la barre du bas ---
+    // Retour utilisateur : "je souhaite quand meme pouvoir gerer le niveau de
+    // sortie apres le THD ... de -0.5 a -3". Slider LinearBar : la valeur
+    // s'ecrit DANS la barre, pas besoin d'une text-box separee (rangee de
+    // 26px seulement).
+    thdCeilingLabel.setText ("THD CEIL", juce::dontSendNotification);
+    thdCeilingLabel.setJustificationType (juce::Justification::centredRight);
+    thdCeilingLabel.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)).withExtraKerningFactor (0.12f));
+    thdCeilingLabel.setColour (juce::Label::textColourId, SixpackColours::textDim);
+    addAndMakeVisible (thdCeilingLabel);
+
+    thdCeilingSlider.setSliderStyle (juce::Slider::LinearBar);
+    thdCeilingSlider.setTextValueSuffix (" dB");
+    thdCeilingSlider.setNumDecimalPlacesToDisplay (1);
+    thdCeilingSlider.setColour (juce::Slider::trackColourId, SixpackColours::ledGreen.withAlpha (0.45f));
+    thdCeilingSlider.setColour (juce::Slider::textBoxTextColourId, SixpackColours::textBright);
+    thdCeilingSlider.setColour (juce::Slider::backgroundColourId, juce::Colours::black.withAlpha (0.35f));
+    thdCeilingSlider.setTooltip ("Plafond de sortie de l'etage THD Valve (-0.5 a -3 dB)");
+    if (auto* ceilParam = processorRef.apvts.getParameter (SixpackAudioProcessor::idThdOutput))
+        thdCeilingSlider.setDoubleClickReturnValue (true, ceilParam->convertFrom0to1 (ceilParam->getDefaultValue()));
+    thdCeilingAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
+        processorRef.apvts, SixpackAudioProcessor::idThdOutput, thdCeilingSlider);
+    addAndMakeVisible (thdCeilingSlider);
 
     addChildComponent (presetBrowser);
     presetBrowser.setVisible (false);
@@ -1155,6 +1197,35 @@ void SixpackEditorContent::showOptionsOverlay()
     optionsOverlay.setCurrentAiExpandAmount ((int) std::round (
         *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiExpandAmount)));
 
+    {
+        const bool standalone = processorRef.wrapperType == juce::AudioProcessor::wrapperType_Standalone;
+
+        juce::StringArray pairLabels;
+        if (standalone)
+        {
+            const auto names = processorRef.getStandaloneOutputChannelNames();
+            const int pairs = names.size() / 2;
+            for (int p = 0; p < pairs; ++p)
+                pairLabels.add (juce::String (p * 2 + 1) + "-" + juce::String (p * 2 + 2));
+        }
+        optionsOverlay.setOutputRoutingOptions (standalone, pairLabels);
+
+        const int pairCount = juce::jmax (1, pairLabels.size());
+        optionsOverlay.setMainOutPair (juce::jlimit (0, pairCount - 1, processorRef.mainOutPairIndex.load()));
+
+        for (int b = 0; b < (int) SixpackAudioProcessor::NumBands; ++b)
+        {
+            const bool routed = *processorRef.apvts.getRawParameterValue (
+                SixpackAudioProcessor::bandParamId (SixpackAudioProcessor::idBandRouteOut, b)) > 0.5f;
+            int comboIndex = 0; // dans le mix
+            if (routed)
+                comboIndex = standalone
+                    ? juce::jlimit (0, pairCount - 1, processorRef.bandOutPairIndex[(size_t) b].load()) + 1
+                    : 1; // VST3 : "sur son bus"
+            optionsOverlay.setBandOutRouting (b, comboIndex);
+        }
+    }
+
     optionsOverlay.setVisible (true);
     optionsOverlay.toFront (true);
 }
@@ -1391,6 +1462,16 @@ void SixpackEditorContent::resized()
     saveButton.setBounds (presetBar.removeFromLeft (60).expanded ((int) presetBtnMargin));
     presetBar.removeFromLeft (8);
     deletePresetButton.setBounds (presetBar.removeFromLeft (26));
+
+    // Plafond de sortie THD -- vers le bord DROIT de la barre, sans toucher
+    // au groupe preset a gauche (il reste ~730px libres entre les deux).
+    // Marge de 20px reservee a droite : la vis d'angle bas-droite de
+    // outerPlate (centre ~x1379, rayon 5, voir rebuildBackgroundCache())
+    // mordait sinon sur le bord droit du slider (retour utilisateur).
+    presetBar.removeFromRight (20);
+    thdCeilingSlider.setBounds (presetBar.removeFromRight (128));
+    presetBar.removeFromRight (6);
+    thdCeilingLabel.setBounds (presetBar.removeFromRight (66));
 
     aboutOverlay.setBounds (getLocalBounds());
     optionsOverlay.setBounds (getLocalBounds());

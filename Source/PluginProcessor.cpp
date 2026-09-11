@@ -49,6 +49,19 @@ SixpackAudioProcessor::SixpackAudioProcessor()
                          .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false)
                         #endif
                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
+                         // 7 bus de sortie stereo par bande -- DESACTIVES par
+                         // defaut (aucun impact sur un insert stereo normal).
+                         // En VST3 l'hote active ceux qu'il veut ; en
+                         // standalone ils sont forces actifs au demarrage
+                         // (voir plus bas) pour alimenter une carte multi-out.
+                         // Ordre = enum Band : bus 1 = Low ... bus 7 = Air.
+                         .withOutput ("Low",      juce::AudioChannelSet::stereo(), false)
+                         .withOutput ("Low Mid",  juce::AudioChannelSet::stereo(), false)
+                         .withOutput ("Mid",      juce::AudioChannelSet::stereo(), false)
+                         .withOutput ("High Mid", juce::AudioChannelSet::stereo(), false)
+                         .withOutput ("Presence", juce::AudioChannelSet::stereo(), false)
+                         .withOutput ("High",     juce::AudioChannelSet::stereo(), false)
+                         .withOutput ("Air",      juce::AudioChannelSet::stereo(), false)
                        #endif
                          )
 {
@@ -86,11 +99,30 @@ SixpackAudioProcessor::SixpackAudioProcessor()
         britishParam[b]          = apvts.getRawParameterValue (bandParamId (idBritish, band));
         bandMixParam[b]          = apvts.getRawParameterValue (bandParamId (idBandMix, band));
         bandWidthParam[b]        = apvts.getRawParameterValue (bandParamId (idBandWidth, band));
+        bandRouteOutParam[b]     = apvts.getRawParameterValue (bandParamId (idBandRouteOut, band));
+        bandOutPairIndex[b].store (band + 1); // defaut : Low->3-4, Low-Mid->5-6, ... Air->15-16
+    }
+
+    // Standalone : les 7 bus de sortie par bande sont forces actifs des la
+    // construction, pour que getTotalNumOutputChannels() == 16 et que le
+    // wrapper standalone (voir StandaloneApp.cpp, channelConfig {2,16})
+    // ouvre la carte son avec 16 sorties -- mix sur 1-2, Low sur 3-4, ...
+    // Air sur 15-16. En VST3/AU/Unity on ne touche a rien : l'hote garde
+    // la main sur l'activation des bus (desactives par defaut).
+    if (wrapperType == wrapperType_Standalone)
+    {
+        auto layout = getBusesLayout();
+        for (int busIdx = 1; busIdx <= (int) NumBands; ++busIdx)
+            if (busIdx < layout.outputBuses.size())
+                layout.outputBuses.getReference (busIdx) = juce::AudioChannelSet::stereo();
+
+        setBusesLayout (layout); // no-op si refuse -- les bus restent inactifs
     }
 
     powerParam            = apvts.getRawParameterValue (idPower);
     softClipParam         = apvts.getRawParameterValue (idSoftClip);
     thdModeParam          = apvts.getRawParameterValue (idThdMode);
+    thdOutputParam        = apvts.getRawParameterValue (idThdOutput);
     aiMasteringTargetParam = apvts.getRawParameterValue (idAiMasteringTarget);
     aiScopeCrossoverParam   = apvts.getRawParameterValue (idAiScopeCrossover);
     aiScopeDetectorsParam   = apvts.getRawParameterValue (idAiScopeDetectors);
@@ -331,6 +363,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout SixpackAudioProcessor::creat
             ParameterID { bandParamId (idBandWidth, band), 1 }, prefix + "Width",
             NormalisableRange<float> (0.0f, 200.0f, 0.1f), 100.0f,
             AudioParameterFloatAttributes().withLabel ("%")));
+
+        // Routage sur sa propre sortie (voir idBandRouteOut) -- off par
+        // defaut : comportement inchange, la bande va dans le mix principal.
+        params.push_back (std::make_unique<AudioParameterBool> (
+            ParameterID { bandParamId (idBandRouteOut, band), 1 }, prefix + "Separate Out", false));
     }
 
     // --- Parametres globaux ---
@@ -343,6 +380,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout SixpackAudioProcessor::creat
     params.push_back (std::make_unique<AudioParameterChoice> (
         ParameterID { idThdMode, 1 }, "THD Mode",
         StringArray { "Soft", "Tape", "Iron", "Air" }, 0));
+
+    // Plafond de sortie du THD Valve -- -0.5 dB par defaut (ancienne valeur
+    // fixe), abaissable jusqu'a -3 dB depuis la barre du bas. Pas de skew :
+    // plage courte, lecture directe en dB.
+    params.push_back (std::make_unique<AudioParameterFloat> (
+        ParameterID { idThdOutput, 1 }, "THD Output Ceiling",
+        NormalisableRange<float> (-3.0f, -0.5f, 0.1f), -0.5f,
+        AudioParameterFloatAttributes().withLabel ("dB")));
 
     // Defaut "Match" (dernier choix, index 9) au lieu de "Off" (retour
     // utilisateur : screenshots des options a l'ouverture montrant MATCH
@@ -483,6 +528,14 @@ void SixpackAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
     for (auto& buf : thdBandBuffers)
         buf.setSize (numChannels, samplesPerBlock);
 
+    // Toujours 2 canaux : suffit pour un sidechain mono ou stereo (voir
+    // sidechainCopyBuffer, PluginProcessor.h).
+    sidechainCopyBuffer.setSize (2, samplesPerBlock);
+
+    // Redispatch des sorties standalone : autant de canaux que le buffer de
+    // process en fournira (16 en standalone via channelConfig {2,16}).
+    outputRemapScratch.setSize (juce::jmax (2, getTotalNumOutputChannels()), samplesPerBlock);
+
     spectrumAnalyzer.prepare (sampleRate);
 
     // Coefficient de retombee PAR ECHANTILLON pour bandOutputEnvLin (voir
@@ -500,6 +553,24 @@ void SixpackAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
 
 void SixpackAudioProcessor::releaseResources() {}
 
+void SixpackAudioProcessor::setStandaloneOutputChannelNames (const juce::StringArray& names)
+{
+    const juce::ScopedLock sl (standaloneOutNamesLock);
+    standaloneOutChannelNames = names;
+}
+
+juce::StringArray SixpackAudioProcessor::getStandaloneOutputChannelNames() const
+{
+    const juce::ScopedLock sl (standaloneOutNamesLock);
+    return standaloneOutChannelNames;
+}
+
+int SixpackAudioProcessor::getStandaloneOutputPairCount() const
+{
+    const juce::ScopedLock sl (standaloneOutNamesLock);
+    return standaloneOutChannelNames.size() / 2;
+}
+
 #ifndef JucePlugin_PreferredChannelConfigurations
 bool SixpackAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
@@ -513,6 +584,16 @@ bool SixpackAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) 
     const auto scSet = layouts.getChannelSet (true, 1);
     if (! scSet.isDisabled() && scSet != juce::AudioChannelSet::mono() && scSet != juce::AudioChannelSet::stereo())
         return false;
+
+    // Bus de sortie par bande (index 1..7) : chacun doit etre soit
+    // desactive, soit stereo. L'hote (ou le standalone) est libre d'en
+    // activer autant qu'il veut, dans n'importe quelle combinaison.
+    for (int busIdx = 1; busIdx <= (int) NumBands; ++busIdx)
+    {
+        const auto set = layouts.getChannelSet (false, busIdx);
+        if (! set.isDisabled() && set != juce::AudioChannelSet::stereo())
+            return false;
+    }
 
     return true;
 }
@@ -719,11 +800,40 @@ void SixpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
 
     // Bus sidechain externe -- voir constructeur. Le bouton SC de CHAQUE
     // bande decide independamment si celle-ci ecoute ce signal.
+    // IMPORTANT : on COPIE le sidechain dans sidechainCopyBuffer tout de
+    // suite, car ses canaux dans le buffer de process sont partages avec le
+    // 1er bus de sortie par bande (buses API) -- ecrire une sortie de bande
+    // plus bas ecraserait sinon le sidechain avant sa lecture.
     auto sidechainBuffer = getBusBuffer (buffer, true, 1);
     const bool sidechainBusActive = sidechainBuffer.getNumChannels() > 0;
-    const float* scDataL = sidechainBusActive ? sidechainBuffer.getReadPointer (0) : nullptr;
-    const float* scDataR = sidechainBusActive && sidechainBuffer.getNumChannels() > 1
-                                ? sidechainBuffer.getReadPointer (1) : scDataL;
+    const float* scDataL = nullptr;
+    const float* scDataR = nullptr;
+    if (sidechainBusActive)
+    {
+        const int scChans = juce::jmin (2, sidechainBuffer.getNumChannels());
+        for (int ch = 0; ch < scChans; ++ch)
+            sidechainCopyBuffer.copyFrom (ch, 0, sidechainBuffer, ch, 0, numSamples);
+        scDataL = sidechainCopyBuffer.getReadPointer (0);
+        scDataR = scChans > 1 ? sidechainCopyBuffer.getReadPointer (1) : scDataL;
+    }
+
+    // Bus de sortie par bande (index 1..NumBands, voir idBandRouteOut).
+    // Recuperes et remis a ZERO systematiquement : une bande non routee,
+    // fusionnee dans une voisine, ou un power-off laisse ainsi sa sortie
+    // dediee SILENCIEUSE (jamais de fuite du signal d'entree). Tableau de
+    // pointeurs nul quand le bus correspondant est desactive par l'hote.
+    std::array<float*, (size_t) NumBands> bandOutL {};
+    std::array<float*, (size_t) NumBands> bandOutR {};
+    for (int band = 0; band < (int) NumBands; ++band)
+    {
+        auto bandBus = getBusBuffer (buffer, false, 1 + band);
+        if (bandBus.getNumChannels() > 0)
+        {
+            bandBus.clear();
+            bandOutL[(size_t) band] = bandBus.getWritePointer (0);
+            bandOutR[(size_t) band] = bandBus.getNumChannels() > 1 ? bandBus.getWritePointer (1) : nullptr;
+        }
+    }
 
     if (! powerOn)
     {
@@ -762,6 +872,13 @@ void SixpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     clipperL.setMode (satMode);
     clipperR.setMode (satMode);
 
+    // Plafond de sortie THD reglable (-0.5 -> -3 dB, voir idThdOutput) --
+    // ne mord que quand le THD Valve tourne (branches LIMIT + Tape/Iron/Air
+    // de SoftClipper::processSample()).
+    const float thdCeilingDb = juce::jlimit (-3.0f, -0.5f, thdOutputParam->load());
+    clipperL.setCeilingDb (thdCeilingDb);
+    clipperR.setCeilingDb (thdCeilingDb);
+
     // Calcule UNE SEULE FOIS ici (reutilise plus bas pour la fusion des
     // buffers) -- necessaire des maintenant pour le Solo ci-dessous : une
     // bande fusionnee/non-owner ne traite jamais rien (voir plus bas), son
@@ -790,11 +907,20 @@ void SixpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
 
     bool bandSidechainOn[(size_t) NumBands];
     bool bandDetectorLink[(size_t) NumBands];
+    bool bandRouteOut[(size_t) NumBands];   // vers sa propre sortie (voir idBandRouteOut)
     float bandMixLin[(size_t) NumBands];    // fader Mix, 0..1 (voir idBandMix)
     float bandWidthLin[(size_t) NumBands];  // fader Width, 0..2, 1=neutre (voir idBandWidth)
     float bandOutGainLin[(size_t) NumBands]; // meme gain de sortie que celui applique par le compresseur, pour le dry de reference du fader Mix
     for (int band = 0; band < (int) NumBands; ++band)
     {
+        // Route sur sa sortie dediee uniquement si : le parametre est ON,
+        // ET le bus correspondant est reellement actif (hote/standalone),
+        // ET la bande est "owner" (une bande fusionnee n'a pas de signal
+        // propre -- elle est deja comptee dans sa voisine). Sinon la bande
+        // reste dans le mix principal (comportement inchange).
+        bandRouteOut[(size_t) band]     = bandRouteOutParam[(size_t) band]->load() > 0.5f
+                                          && bandOutL[(size_t) band] != nullptr
+                                          && bandIsOwner[(size_t) band];
         bandSidechainOn[(size_t) band]  = sidechainEnableParam[(size_t) band]->load() > 0.5f;
         bandDetectorLink[(size_t) band] = dataR != nullptr && detectorLinkParam[(size_t) band]->load() > 0.5f;
         bandMixLin[(size_t) band]       = juce::jlimit (0.0f, 1.0f, bandMixParam[(size_t) band]->load() * 0.01f);
@@ -943,12 +1069,29 @@ void SixpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
             {
                 const float mid  = (wetL + wetR) * 0.5f;
                 const float side = (wetL - wetR) * 0.5f * bandWidthLin[(size_t) band];
-                sumL += mid + side;
-                sumR += mid - side;
+                const float outL = mid + side;
+                const float outR = mid - side;
+
+                if (bandRouteOut[(size_t) band])
+                {
+                    // Split : la bande sort UNIQUEMENT sur son bus dedie,
+                    // elle est retiree du mix principal (voir idBandRouteOut).
+                    bandOutL[(size_t) band][i] += outL;
+                    if (bandOutR[(size_t) band] != nullptr)
+                        bandOutR[(size_t) band][i] += outR;
+                }
+                else
+                {
+                    sumL += outL;
+                    sumR += outR;
+                }
             }
             else
             {
-                sumL += wetL;
+                if (bandRouteOut[(size_t) band])
+                    bandOutL[(size_t) band][i] += wetL;
+                else
+                    sumL += wetL;
             }
         }
 
@@ -1086,6 +1229,39 @@ void SixpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     clipMeterAmountR.store (clipAmountR);
     clipMeterAmount.store (juce::jmax (clipAmountL, clipAmountR));
 
+    // --- Redispatch des sorties (STANDALONE uniquement) ---
+    // Le buffer de process fait 16 canaux en standalone (channelConfig
+    // {2,16} de SixpackStandaloneApp). On les traite comme 8 paires stereo
+    // a plat et on place : le mix principal sur la paire mainOutPairIndex,
+    // chaque bande routee sur bandOutPairIndex[b]. Plusieurs sources sur la
+    // meme paire se somment. En VST3/AU on ne touche a rien (l'hote route
+    // les bus nommes).
+    if (wrapperType == wrapperType_Standalone)
+    {
+        const int scratchCh = juce::jmin (buffer.getNumChannels(), outputRemapScratch.getNumChannels());
+        const int numPairs  = scratchCh / 2;
+        if (numPairs >= 1 && numSamples <= outputRemapScratch.getNumSamples())
+        {
+            for (int ch = 0; ch < scratchCh; ++ch)
+                outputRemapScratch.copyFrom (ch, 0, buffer, ch, 0, numSamples);
+            for (int ch = 0; ch < scratchCh; ++ch)
+                buffer.clear (ch, 0, numSamples);
+
+            auto place = [&] (int srcPair, int dstPair)
+            {
+                dstPair = juce::jlimit (0, numPairs - 1, dstPair);
+                const int s = srcPair * 2, d = dstPair * 2;
+                buffer.addFrom (d,     0, outputRemapScratch, s,     0, numSamples);
+                buffer.addFrom (d + 1, 0, outputRemapScratch, s + 1, 0, numSamples);
+            };
+
+            place (0, mainOutPairIndex.load()); // paire source 0 = mix principal
+            for (int band = 0; band < (int) NumBands; ++band)
+                if (bandRouteOut[(size_t) band])
+                    place (1 + band, bandOutPairIndex[(size_t) band].load());
+        }
+    }
+
     // Latence identique sur tous les canaux (memes reglages pousses a
     // chaque Crossover ci-dessus) -- ne rappeler setLatencySamples() que si
     // la valeur a reellement change.
@@ -1132,6 +1308,7 @@ static const std::vector<juce::String>& getABParamIds()
             SixpackAudioProcessor::idAudioDist3, SixpackAudioProcessor::idOptical,
             SixpackAudioProcessor::idBritish, SixpackAudioProcessor::idAboveBelow,
             SixpackAudioProcessor::idBandMix, SixpackAudioProcessor::idBandWidth,
+            SixpackAudioProcessor::idBandRouteOut,
         };
         for (int band = 0; band < (int) SixpackAudioProcessor::NumBands; ++band)
             for (auto* base : bandBaseIds)
@@ -1144,6 +1321,7 @@ static const std::vector<juce::String>& getABParamIds()
         }
         v.push_back (SixpackAudioProcessor::idSoftClip);
         v.push_back (SixpackAudioProcessor::idThdMode);
+        v.push_back (SixpackAudioProcessor::idThdOutput);
         // Analog/Linear -- INCLUS (chaque slot A/B memorise et
         // restaure son propre mode de crossover, sur demande explicite --
         // pas exclu comme Power/Solo, contrairement au comportement par
@@ -1178,6 +1356,11 @@ void SixpackAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     apvts.state.setProperty ("needleModeIndex1", needleModeIndex1, nullptr);
     apvts.state.setProperty ("needleModeIndex2", needleModeIndex2, nullptr);
     apvts.state.setProperty ("lightTheme", lightTheme.load() > 0.5f, nullptr);
+
+    // Routage multi-sorties standalone (voir mainOutPairIndex/bandOutPairIndex).
+    apvts.state.setProperty ("mainOutPair", mainOutPairIndex.load(), nullptr);
+    for (int b = 0; b < (int) NumBands; ++b)
+        apvts.state.setProperty ("bandOutPair" + juce::String (b), bandOutPairIndex[(size_t) b].load(), nullptr);
 
     auto state = apvts.copyState();
 
@@ -1225,6 +1408,10 @@ void SixpackAudioProcessor::setStateInformation (const void* data, int sizeInByt
     needleModeIndex1 = apvts.state.getProperty ("needleModeIndex1", 1);
     needleModeIndex2 = apvts.state.getProperty ("needleModeIndex2", 1);
     lightTheme.store ((bool) apvts.state.getProperty ("lightTheme", true) ? 1.0f : 0.0f);
+
+    mainOutPairIndex.store ((int) apvts.state.getProperty ("mainOutPair", 0));
+    for (int b = 0; b < (int) NumBands; ++b)
+        bandOutPairIndex[(size_t) b].store ((int) apvts.state.getProperty ("bandOutPair" + juce::String (b), b + 1));
 }
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

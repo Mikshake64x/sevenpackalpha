@@ -71,12 +71,12 @@ jobs:
           # Raccourci glisser-déposer vers le dossier de plugins VST3 standard
           ln -s /Library/Audio/Plug-Ins/VST3 "staging/VST3 (drag plugin here)"
 
-          hdiutil create -volname "Sixpack 1.17.0" \
+          hdiutil create -volname "Sixpack 1.18.0" \
             -srcfolder staging -ov -format UDZO \
-            "Sixpack-1.17.0.dmg"
+            "Sixpack-1.18.0.dmg"
 
       - name: Uploader le DMG
         uses: actions/upload-artifact@v4
         with:
-          name: Sixpack-1.17.0-DMG
-          path: "Sixpack-1.17.0.dmg"
+          name: Sixpack-1.18.0-DMG
+          path: "Sixpack-1.18.0.dmg"

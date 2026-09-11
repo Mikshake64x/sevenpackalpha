@@ -11,7 +11,9 @@
     comme le softclip de l'Arousor/Distressor qui n'a pas de brickwall
     numerique strict.
 
-    Bouton LIMIT active : brickwall fixe a -0.5dBFS, avec une protection
+    Bouton LIMIT active : brickwall a -0.5dBFS par defaut (abaissable
+    jusqu'a -3dBFS, voir setCeilingDb() / idThdOutput -- barre du bas),
+    avec une protection
     "true clip" inspiree du Glue Compressor d'Ableton : on estime le pic
     INTER-echantillon par interpolation lineaire et on limite aussi ce pic
     estime, pas seulement l'echantillon brut, pour eviter les depassements
@@ -37,6 +39,14 @@ public:
     }
 
     void setHardLimitEnabled (bool shouldLimit) noexcept { hardLimit = shouldLimit; }
+
+    // Plafond de l'etage (brickwall + protection true-peak). -0.5 dBFS par
+    // defaut, reglable jusqu'a -3 dBFS depuis la barre du bas (voir
+    // idThdOutput). N'a d'effet que sur les branches LIMIT et Tape/Iron/Air.
+    void setCeilingDb (float db) noexcept
+    {
+        ceilingLin = juce::Decibels::decibelsToGain (db);
+    }
 
     void setMode (SatMode m) noexcept { mode = m; }
 
@@ -67,7 +77,7 @@ public:
         }
         else if (hardLimit)
         {
-            // --- Mode LIMIT : brickwall fixe a -0.5dBFS + protection true-peak ---
+            // --- Mode LIMIT : brickwall a ceilingLin (-0.5..-3 dBFS) + protection true-peak ---
             z = applyTruePeakCeiling (x) / driveGain;
         }
         else
@@ -92,7 +102,7 @@ public:
     float getClipAmount() const noexcept { return clipAmount; }
 
 private:
-    // Brickwall a -0.5dBFS + protection "true clip" (pic inter-echantillon
+    // Brickwall a ceilingLin (-0.5dBFS par defaut) + protection "true clip" (pic inter-echantillon
     // estime par interpolation lineaire, meme principe que le Glue
     // Compressor d'Ableton) -- partagee par le mode LIMIT et par les 4
     // modes mastering (voir processSample()).
@@ -154,7 +164,7 @@ private:
     float clipAmount = 0.0f;
     bool  hardLimit    = false;
     float prevY         = 0.0f;
-    float ceilingLin     = juce::Decibels::decibelsToGain (-0.5f); // fixe, plus de knob separe
+    float ceilingLin     = juce::Decibels::decibelsToGain (-0.5f); // defaut -0.5 dBFS, voir setCeilingDb() / idThdOutput
     SatMode mode = SatMode::Soft;
 
     float ironDcPrev = 0.0f, ironDcState = 0.0f;

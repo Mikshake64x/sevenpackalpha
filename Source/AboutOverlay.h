@@ -371,7 +371,7 @@ private:
         auto versionArea = headerRow.removeFromRight (56.0f);
         g.setColour (SixpackColours::textDim);
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
-        g.drawFittedText ("v1.17.0", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
+        g.drawFittedText ("v1.18.0", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
 
         auto titleArea = headerRow.removeFromLeft (juce::jmin (240.0f, headerRow.getWidth() * 0.48f));
         g.setColour (SixpackColours::ledAmber);
@@ -516,8 +516,10 @@ private:
             "Optical and Overkill Mode per Band",
             "Stereo Detector Link per Band",
             "Per Band Solo",
+            "Separate Outputs: Route Any Band to its Own Stereo Pair, Split from the Main Mix "
+            "(Named Buses in a Host, Sound Card Output Pairs in the Standalone)",
             "THD Valve: Soft / Tape / Iron / Air Mastering Saturation, One Shared Stage",
-            "True Peak Safety Ceiling on the THD Valve",
+            "Adjustable True Peak Output Ceiling on the THD Valve, -0.5 to -3 dB",
             "Dual Needle VU (Input / Output / THD) plus One THD Needle per Band",
             "Link In / Link Out for Ganged Input/Output Trim",
             "Factory and User Preset Browser, with a Genuine Default Preset",

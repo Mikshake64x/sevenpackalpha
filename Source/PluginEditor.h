@@ -411,6 +411,14 @@ private:
     RackButton saveButton { "SAVE", SixpackColours::ledGreen };
     TrashButton deletePresetButton; // supprime le preset utilisateur courant -- desactivee pour les presets Side Key
 
+    // Plafond de sortie du THD Valve, loge a droite de la barre de presets
+    // (retour utilisateur : "je souhaite quand meme pouvoir gerer le niveau
+    // de sortie apres le THD ... de -0.5 a -3"). Slider LinearBar compact
+    // pour tenir dans la rangee de 26px.
+    juce::Label  thdCeilingLabel;
+    juce::Slider thdCeilingSlider;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> thdCeilingAttachment;
+
     PresetBrowserOverlay presetBrowser;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SixpackEditorContent)
