@@ -22,10 +22,10 @@ void GRMeter::timerCallback()
 
     // Retour utilisateur : "quand on appuie sur off ... les parametre qui
     // s'eteignet clignotte comme un neon a l'extinction seulement" -- voir
-    // SixpackLookAndFeel::getPowerTransitionMix(). Suivi ici pour continuer
+    // SevenpackLookAndFeel::getPowerTransitionMix(). Suivi ici pour continuer
     // a repeindre PENDANT toute la fenetre de transition (~400ms), pas
     // seulement au tick ou powered bascule.
-    const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
+    const auto* laf = dynamic_cast<SevenpackLookAndFeel*> (&getLookAndFeel());
     powerFlickerMix = laf != nullptr ? laf->getPowerTransitionMix() : 1.0f;
 
     if (std::abs (displayedGrDb - lastPaintedGrDb) > 0.02f
@@ -114,12 +114,12 @@ void GRMeter::paint (juce::Graphics& g)
             if (i < litExpandCount)
             {
                 const float t = (float) i / (float) (numExpandLeds - 1);
-                g.setColour (SixpackLookAndFeel::ledGradientColourExpand (t));
+                g.setColour (SevenpackLookAndFeel::ledGradientColourExpand (t));
                 g.fillEllipse (dot);
             }
             else
             {
-                g.setColour (SixpackColours::ledOff);
+                g.setColour (SevenpackColours::ledOff);
                 g.fillEllipse (dot);
             }
         }
@@ -153,7 +153,7 @@ void GRMeter::paint (juce::Graphics& g)
         const int j = i;
         const bool lit = j >= (numLeds - litCount);
         const float t = 1.0f - (float) j / (float) (numLeds - 1);
-        const juce::Colour ledColour = SixpackLookAndFeel::ledGradientColour (t);
+        const juce::Colour ledColour = SevenpackLookAndFeel::ledGradientColour (t);
 
         auto ledBounds = juce::Rectangle<float> (ledDiameter, ledDiameter)
                               .withY (ledArea.getCentreY() - ledDiameter * 0.5f)
@@ -161,13 +161,13 @@ void GRMeter::paint (juce::Graphics& g)
 
         if (lit)
         {
-            SixpackLookAndFeel::drawGlossyDot (g, ledBounds, ledColour, true);
+            SevenpackLookAndFeel::drawGlossyDot (g, ledBounds, ledColour, true);
         }
         else
         {
-            g.setColour (SixpackColours::ledOff);
+            g.setColour (SevenpackColours::ledOff);
             g.fillEllipse (ledBounds);
-            g.setColour (SixpackColours::gridLine);
+            g.setColour (SevenpackColours::gridLine);
             g.drawEllipse (ledBounds, 0.4f);
         }
     }
@@ -195,9 +195,9 @@ void GRMeter::paint (juce::Graphics& g)
         const float xPos = startX + ledIndex * (ledDiameter + gap) + ledDiameter * 0.5f;
         const juce::String text = (db <= 0.0f) ? juce::String (0) : "-" + juce::String ((int) db);
 
-        SixpackLookAndFeel::drawEngravedText (g, text,
+        SevenpackLookAndFeel::drawEngravedText (g, text,
             juce::Rectangle<float> (xPos - labelW * 0.5f, scaleArea.getY(), labelW, scaleArea.getHeight()).toNearestInt(),
-            SixpackColours::textBright.withAlpha (0.78f));
+            SevenpackColours::textBright.withAlpha (0.78f));
     }
 
     // Retour utilisateur : "clignotte comme un neon a l'extinction seulement"
@@ -220,7 +220,7 @@ void GRMeter::paint (juce::Graphics& g)
                 auto dot = juce::Rectangle<float> (eDiameter, eDiameter)
                                .withY (expandRowArea.getCentreY() - eDiameter * 0.5f)
                                .withX (eStartX + i * (eDiameter + egap));
-                g.setColour (SixpackLookAndFeel::ledGradientColourExpand ((float) i / (float) (numExpandLeds - 1)));
+                g.setColour (SevenpackLookAndFeel::ledGradientColourExpand ((float) i / (float) (numExpandLeds - 1)));
                 g.fillEllipse (dot);
             }
         }
@@ -231,7 +231,7 @@ void GRMeter::paint (juce::Graphics& g)
             auto ledBounds = juce::Rectangle<float> (ledDiameter, ledDiameter)
                                   .withY (ledArea.getCentreY() - ledDiameter * 0.5f)
                                   .withX (startX + i * (ledDiameter + gap));
-            SixpackLookAndFeel::drawGlossyDot (g, ledBounds, SixpackLookAndFeel::ledGradientColour (t), true);
+            SevenpackLookAndFeel::drawGlossyDot (g, ledBounds, SevenpackLookAndFeel::ledGradientColour (t), true);
         }
 
         g.endTransparencyLayer();

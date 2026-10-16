@@ -1,7 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 #include "SteelRockerToggle.h"
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 
 /**
     SoloSwitch
@@ -48,7 +48,7 @@ public:
     void paint (juce::Graphics& g) override
     {
         const bool on = lever.getToggleState();
-        SixpackLookAndFeel::drawGlossyDot (g, ledBounds,
+        SevenpackLookAndFeel::drawGlossyDot (g, ledBounds,
             on ? ledColour : ledColour.interpolatedWith (juce::Colours::black, 0.85f), on);
 
         // Libelle : seule la diode indique l'etat solo, le texte ne change
@@ -56,7 +56,7 @@ public:
         // sombre/clair comme les autres libelles (retour utilisateur
         // explicite : "il faut faire la meme chose pour ... solo").
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.1f));
-        SixpackLookAndFeel::drawEngravedText (g, "SOLO", labelBounds, SixpackColours::textBright);
+        SevenpackLookAndFeel::drawEngravedText (g, "SOLO", labelBounds, SevenpackColours::textBright);
     }
 
 private:

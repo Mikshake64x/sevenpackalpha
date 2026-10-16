@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "LicenseManager.h"
+#include "AlphaSkin.h"
 
 // Full-window modal blocking the plugin UI until a valid license is activated.
 // Sits as the last child of the editor so it paints on top and eats all clicks.
@@ -15,10 +16,10 @@ public:
     explicit LicenseOverlay (LicenseManager& lm) : license (lm)
     {
         addAndMakeVisible (titleLabel);
-        titleLabel.setText ("Activate Sixpack", juce::dontSendNotification);
+        titleLabel.setText ("Activate Sevenpack Alpha", juce::dontSendNotification);
         titleLabel.setJustificationType (juce::Justification::centred);
         titleLabel.setFont (juce::Font (20.0f, juce::Font::bold));
-        titleLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+        titleLabel.setColour (juce::Label::textColourId, AlphaPalette::get().heading());
 
         addAndMakeVisible (keyEditor);
         keyEditor.setTextToShowWhenEmpty ("License key (required)", juce::Colours::grey);
@@ -54,7 +55,7 @@ public:
 
         addAndMakeVisible (statusLabel);
         statusLabel.setJustificationType (juce::Justification::centred);
-        statusLabel.setColour (juce::Label::textColourId, juce::Colours::orangered);
+        statusLabel.setColour (juce::Label::textColourId, juce::Colour (0xffd0402b));
         statusLabel.setFont (juce::Font (13.0f));
 
         setInterceptsMouseClicks (true, true);
@@ -73,9 +74,22 @@ public:
         toFront (true);
     }
 
+    // Style Alpha : voile + panneau clair autour du formulaire.
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (juce::Colours::black.withAlpha (0.92f));
+        AlphaDraw::overlayVeil (g, getLocalBounds().toFloat());
+        AlphaDraw::overlaySheet (g, getLocalBounds().withSizeKeepingCentre (380, 400).toFloat(), 12.0f);
+    }
+
+    void visibilityChanged() override
+    {
+        if (isVisible())
+        {
+            AlphaDraw::styleControls (*this);
+            titleLabel.setColour (juce::Label::textColourId, AlphaPalette::get().heading());
+            for (auto* e : { &keyEditor, &firstNameEditor, &lastNameEditor, &emailEditor })
+                e->setTextToShowWhenEmpty (e->getTextToShowWhenEmpty(), AlphaPalette::get().sheetTextSoft());
+        }
     }
 
     void resized() override
@@ -123,13 +137,13 @@ private:
 
         if (email.isEmpty())
         {
-            statusLabel.setColour (juce::Label::textColourId, juce::Colours::orangered);
+            statusLabel.setColour (juce::Label::textColourId, juce::Colour (0xffd0402b));
             statusLabel.setText ("Email is required.", juce::dontSendNotification);
             return;
         }
 
         activateButton.setEnabled (false);
-        statusLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+        statusLabel.setColour (juce::Label::textColourId, AlphaPalette::get().sheetText());
         statusLabel.setText ("Checking...", juce::dontSendNotification);
         license.activate (key, firstNameEditor.getText(), lastNameEditor.getText(), email);
     }
@@ -172,22 +186,22 @@ private:
 
         if (status == LicenseManager::Status::licensed)
         {
-            titleLabel.setText ("Sixpack License", juce::dontSendNotification);
-            statusLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+            titleLabel.setText ("Sevenpack Alpha License", juce::dontSendNotification);
+            statusLabel.setColour (juce::Label::textColourId, AlphaPalette::get().sheetText());
             statusLabel.setText ("Licensed and active. Key: " + license.getLicenseKey(), juce::dontSendNotification);
         }
         else if (status == LicenseManager::Status::trial || status == LicenseManager::Status::offlineGrace)
         {
-            titleLabel.setText ("Sixpack - Demo Mode", juce::dontSendNotification);
-            statusLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+            titleLabel.setText ("Sevenpack Alpha - Demo Mode", juce::dontSendNotification);
+            statusLabel.setColour (juce::Label::textColourId, AlphaPalette::get().sheetText());
             statusLabel.setText ("Demo mode - " + juce::String (license.getTrialDaysLeft())
                                       + " day(s) left. Enter a key below to unlock the full version.",
                                   juce::dontSendNotification);
         }
         else if (status == LicenseManager::Status::invalid)
         {
-            titleLabel.setText ("Activate Sixpack", juce::dontSendNotification);
-            statusLabel.setColour (juce::Label::textColourId, juce::Colours::orangered);
+            titleLabel.setText ("Activate Sevenpack Alpha", juce::dontSendNotification);
+            statusLabel.setColour (juce::Label::textColourId, juce::Colour (0xffd0402b));
             auto err = license.getLastError();
             statusLabel.setText (err.isNotEmpty() ? ("Invalid license: " + err) : "Invalid or revoked license.",
                                   juce::dontSendNotification);
@@ -195,12 +209,12 @@ private:
         else if (status == LicenseManager::Status::trialExpired)
         {
             titleLabel.setText ("Your 14-day trial has ended", juce::dontSendNotification);
-            statusLabel.setColour (juce::Label::textColourId, juce::Colours::orangered);
-            statusLabel.setText ("Enter a license key to keep using Sixpack.", juce::dontSendNotification);
+            statusLabel.setColour (juce::Label::textColourId, juce::Colour (0xffd0402b));
+            statusLabel.setText ("Enter a license key to keep using Sevenpack Alpha.", juce::dontSendNotification);
         }
         else
         {
-            titleLabel.setText ("Activate Sixpack", juce::dontSendNotification);
+            titleLabel.setText ("Activate Sevenpack Alpha", juce::dontSendNotification);
             statusLabel.setText ({}, juce::dontSendNotification);
         }
 

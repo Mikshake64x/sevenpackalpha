@@ -2,7 +2,8 @@
 #include <JuceHeader.h>
 #include <array>
 #include "PluginProcessor.h"
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
+#include "AlphaSkin.h"
 
 /**
     CrossoverSpectrumEditor
@@ -16,10 +17,10 @@
     sous chaque ligne. Cliquer une zone de bande (ailleurs qu'une ligne ou
     le bandeau solo) la SELECTIONNE (voir onBandSelected) -- pilote quel
     panneau de bande unique est affiche en dessous (voir
-    SixpackEditorContent::selectedBand).
+    SevenpackEditorContent::selectedBand).
 
     CROSSOVER "ENTIEREMENT MODULABLE" (retour utilisateur) : un crossover
-    DESACTIVE (bande fusionnee, voir SixpackAudioProcessor::
+    DESACTIVE (bande fusionnee, voir SevenpackAudioProcessor::
     computeGroupOwners()) ne bloque JAMAIS le glissement d'un crossover
     ACTIF voisin -- voir computeActiveDragBounds() (qui ne regarde que les
     voisins actifs pour borner le drag) et pushDisabledNeighborsIntoOrder()
@@ -47,15 +48,19 @@ class CrossoverSpectrumEditor : public juce::Component,
                                  private juce::TextEditor::Listener
 {
 public:
-    explicit CrossoverSpectrumEditor (SixpackAudioProcessor& p) : processorRef (p)
+    explicit CrossoverSpectrumEditor (SevenpackAudioProcessor& p) : processorRef (p)
     {
-        for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
+        for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
         {
-            freqParam[(size_t) x]    = processorRef.apvts.getParameter (SixpackAudioProcessor::idCrossover[x]);
-            enabledParam[(size_t) x] = processorRef.apvts.getParameter (SixpackAudioProcessor::idCrossoverEnabled[x]);
+            freqParam[(size_t) x]    = processorRef.apvts.getParameter (SevenpackAudioProcessor::idCrossover[x]);
+            enabledParam[(size_t) x] = processorRef.apvts.getParameter (SevenpackAudioProcessor::idCrossoverEnabled[x]);
         }
-        for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
-            soloParam[(size_t) band] = processorRef.apvts.getParameter (SixpackAudioProcessor::idSolo[band]);
+        for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
+        {
+            soloParam[(size_t) band] = processorRef.apvts.getParameter (SevenpackAudioProcessor::idSolo[band]);
+            inputParam[(size_t) band] = processorRef.apvts.getParameter (
+                SevenpackAudioProcessor::bandParamId (SevenpackAudioProcessor::idInput, band));
+        }
 
         freqEditor.setJustification (juce::Justification::centred);
         freqEditor.setInputRestrictions (6, "0123456789.");
@@ -69,7 +74,7 @@ public:
     }
 
     // Appele au clic sur une zone de bande (pas sur une ligne de
-    // crossover ni un bouton solo) -- l'appelant (SixpackEditorContent)
+    // crossover ni un bouton solo) -- l'appelant (SevenpackEditorContent)
     // l'utilise pour decider quel panneau de bande afficher.
     std::function<void (int)> onBandSelected;
 
@@ -78,15 +83,43 @@ public:
         if (selectedBand != band) { selectedBand = band; repaint(); }
     }
 
+    // Sevenpack : les 7 tranches sont toujours visibles (voir BandStrip.h),
+    // plus de "bande selectionnee" -- desactive le clic de selection sur
+    // les zones de bande et la mise en avant de la zone choisie. Drag/
+    // activation des crossovers et rangee SOLO restent inchanges.
+    void setBandSelectionEnabled (bool shouldBeEnabled) noexcept
+    {
+        bandSelectionEnabled = shouldBeEnabled;
+        if (! shouldBeEnabled)
+            setSelectedBand (-1);
+    }
+
+    // Interface v2 "Sevenpack Alpha" (maquette 7PACK) : fond clair arrondi,
+    // zones de bande en pastel, plus de bandeau/rangee SOLO (le SOLO est
+    // sous l'aiguille de chaque tranche), 7 points IN par bande deplacables
+    // a la souris (glisser vertical = IN de la bande), animation des
+    // balayage lumineux pendant l'ecoute du bouton LEARN (LEARN lui-meme identique a Sixpack). Voir paintAlpha().
+    void setAlphaStyle (bool shouldUseAlpha)
+    {
+        alphaStyle = shouldUseAlpha;
+        repaint();
+    }
+
     void resized() override { commitFreqEditor(); }
 
     void paint (juce::Graphics& g) override
     {
+        if (alphaStyle)
+        {
+            paintAlpha (g);
+            return;
+        }
+
         auto bounds = getLocalBounds().toFloat();
         g.setColour (juce::Colour (0xff0a1620));
         g.fillRoundedRectangle (bounds, 4.0f);
 
-        const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
+        const auto* laf = dynamic_cast<SevenpackLookAndFeel*> (&getLookAndFeel());
         const bool powered = (laf == nullptr) || laf->isPowered();
         if (! powered)
         {
@@ -101,19 +134,19 @@ public:
         g.reduceClipRegion (clip);
 
         const auto owner = computeGroupOwners();
-        float boundaryHz[(size_t) SixpackAudioProcessor::NumBands + 1];
+        float boundaryHz[(size_t) SevenpackAudioProcessor::NumBands + 1];
         boundaryHz[0] = 20.0f;
-        boundaryHz[SixpackAudioProcessor::NumBands] = 20000.0f;
-        for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
+        boundaryHz[SevenpackAudioProcessor::NumBands] = 20000.0f;
+        for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
             boundaryHz[x + 1] = freqParam[(size_t) x]->convertFrom0to1 (freqParam[(size_t) x]->getValue());
 
         // --- Bandeau fin (groupes actifs) + rangee solo ---
-        for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
+        for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
         {
             if (owner[(size_t) band] != band)
                 continue;
             int groupEnd = band;
-            while (groupEnd + 1 < SixpackAudioProcessor::NumBands && owner[(size_t) (groupEnd + 1)] == band)
+            while (groupEnd + 1 < SevenpackAudioProcessor::NumBands && owner[(size_t) (groupEnd + 1)] == band)
                 ++groupEnd;
 
             const float x0 = lay.plot.getX() + freqToXFrac (boundaryHz[(size_t) band]) * lay.plot.getWidth();
@@ -164,7 +197,7 @@ public:
         // pas le trait/la poignee, toujours draggable) si elle chevauche la
         // derniere pastille reellement dessinee.
         float prevPillRight = -1.0e9f;
-        for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
+        for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
             drawCrossoverLine (g, lay, x, boundaryHz[(size_t) (x + 1)], prevPillRight);
 
         g.restoreState();
@@ -177,20 +210,32 @@ public:
         commitFreqEditor();
         const auto lay = computeLayout();
 
+        if (alphaStyle)
+        {
+            const int hit = hitInputPoint (e.position, lay.plot);
+            if (hit >= 0)
+            {
+                landStartMs = 0.0; // le glisser prend la main sur l'animation LEARN
+                draggingPoint = hit;
+                inputParam[(size_t) hit]->beginChangeGesture();
+                return;
+            }
+        }
+
         // 1. Rangee SOLO -- un bouton par groupe actif.
         if (lay.soloRow.contains (e.position))
         {
             const auto owner = computeGroupOwners();
-            float boundaryHz[(size_t) SixpackAudioProcessor::NumBands + 1];
-            boundaryHz[0] = 20.0f; boundaryHz[SixpackAudioProcessor::NumBands] = 20000.0f;
-            for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
+            float boundaryHz[(size_t) SevenpackAudioProcessor::NumBands + 1];
+            boundaryHz[0] = 20.0f; boundaryHz[SevenpackAudioProcessor::NumBands] = 20000.0f;
+            for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
                 boundaryHz[x + 1] = freqParam[(size_t) x]->convertFrom0to1 (freqParam[(size_t) x]->getValue());
 
-            for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
+            for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
             {
                 if (owner[(size_t) band] != band) continue;
                 int groupEnd = band;
-                while (groupEnd + 1 < SixpackAudioProcessor::NumBands && owner[(size_t) (groupEnd + 1)] == band) ++groupEnd;
+                while (groupEnd + 1 < SevenpackAudioProcessor::NumBands && owner[(size_t) (groupEnd + 1)] == band) ++groupEnd;
                 const float x0 = lay.plot.getX() + freqToXFrac (boundaryHz[(size_t) band]) * lay.plot.getWidth();
                 const float x1 = lay.plot.getX() + freqToXFrac (boundaryHz[(size_t) (groupEnd + 1)]) * lay.plot.getWidth();
                 if (e.position.x >= x0 && e.position.x < x1)
@@ -208,7 +253,7 @@ public:
         }
 
         // 2. Lignes de crossover -- poignee (toggle enabled) vs corps (drag).
-        for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
+        for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
         {
             const float freq = freqParam[(size_t) x]->convertFrom0to1 (freqParam[(size_t) x]->getValue());
             const float lineX = lay.plot.getX() + freqToXFrac (freq) * lay.plot.getWidth();
@@ -228,7 +273,7 @@ public:
         }
 
         // 3. Sinon : selectionne la bande dont la zone contient ce point X.
-        if (lay.plot.contains (e.position))
+        if (bandSelectionEnabled && lay.plot.contains (e.position))
         {
             const float freq = xFracToFreq (juce::jlimit (0.0f, 1.0f, (e.position.x - lay.plot.getX()) / lay.plot.getWidth()));
             selectBandAtFrequency (freq);
@@ -238,10 +283,21 @@ public:
     void mouseDrag (const juce::MouseEvent& e) override
     {
         if (draggingCrossover >= 0) { dragTo (draggingCrossover, e.position, computeLayout().plot); return; }
+        if (draggingPoint >= 0)
+        {
+            auto* p = inputParam[(size_t) draggingPoint];
+            p->setValueNotifyingHost (p->convertTo0to1 (yToInputDb (e.position.y, computeLayout().plot)));
+            repaint();
+        }
     }
 
     void mouseUp (const juce::MouseEvent&) override
     {
+        if (draggingPoint >= 0)
+        {
+            inputParam[(size_t) draggingPoint]->endChangeGesture();
+            draggingPoint = -1;
+        }
         if (draggingCrossover >= 0)
         {
             freqParam[(size_t) draggingCrossover]->endChangeGesture();
@@ -257,7 +313,12 @@ public:
     void mouseMove (const juce::MouseEvent& e) override
     {
         const auto lay = computeLayout();
-        for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
+        if (alphaStyle && hitInputPoint (e.position, lay.plot) >= 0)
+        {
+            setMouseCursor (juce::MouseCursor::UpDownResizeCursor);
+            return;
+        }
+        for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
         {
             const float freq = freqParam[(size_t) x]->convertFrom0to1 (freqParam[(size_t) x]->getValue());
             const float lineX = lay.plot.getX() + freqToXFrac (freq) * lay.plot.getWidth();
@@ -274,7 +335,7 @@ public:
     void mouseDoubleClick (const juce::MouseEvent& e) override
     {
         const auto lay = computeLayout();
-        for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
+        for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
         {
             const auto pill = freqPillBounds (lay, x);
             if (pill.contains (e.position))
@@ -300,6 +361,16 @@ private:
 
     Layout computeLayout() const noexcept
     {
+        if (alphaStyle)
+        {
+            // Pas de bandeau ni de rangee SOLO : le plot occupe tout, la
+            // frequence s'ecrit en haut de chaque ligne (freqRow).
+            Layout lay;
+            lay.plot = getLocalBounds().toFloat().reduced (3.0f);
+            lay.freqRow = lay.plot.withHeight (16.0f).translated (0.0f, 8.0f); // sous le bandeau pastel
+            return lay;
+        }
+
         auto content = getLocalBounds().toFloat().reduced (4.0f, 4.0f);
         Layout lay;
         lay.strip = content.removeFromTop (5.0f);
@@ -312,7 +383,41 @@ private:
         return lay;
     }
 
-    void timerCallback() override { repaint(); }
+    void timerCallback() override
+    {
+        // Enveloppe de l'animation LEARN (montee/descente douces, voir
+        // paintAlpha()) -- active pendant l'ecoute et l'analyse.
+        const auto st = processorRef.aiLearnAnalyzer.getState();
+        const bool learning = st == AiLearnAnalyzer::State::Capturing || st == AiLearnAnalyzer::State::Analyzing;
+        const double now = juce::Time::getMillisecondCounterHiRes();
+        if (learning && ! learningNow)
+        {
+            learnStartMs = now;
+            landStartMs = 0.0;
+        }
+        // Fin de l'ecoute : les points partent de leur position affichee
+        // (agitee) et glissent avec rebond vers la valeur reelle (2.6 s).
+        if (! learning && learningNow)
+        {
+            landStartMs = now;
+            landFromY = shownY;
+        }
+        if (landStartMs > 0.0 && now - landStartMs > kLandMs)
+            landStartMs = 0.0;
+        learningNow = learning;
+
+        learnEnv += ((learning ? 1.0f : 0.0f) - learnEnv) * (learning ? 0.12f : 0.25f);
+        if (! learning && learnEnv < 0.002f)
+            learnEnv = 0.0f;
+
+        const int wantedHz = (learning || landStartMs > 0.0) ? 60 : 30;
+        if (wantedHz != timerHz)
+        {
+            timerHz = wantedHz;
+            startTimerHz (wantedHz);
+        }
+        repaint();
+    }
 
     // Halo "neon glow" -- vrai flou (juce::DropShadow, meme classe que
     // l'ombre embossee de ToggleSwitch::paintButton()) plutot qu'une
@@ -346,13 +451,13 @@ private:
         return juce::jlimit (0.0f, 1.0f, (std::log10 (juce::jmax (20.0f, freq)) - kLogMin) / (kLogMax - kLogMin));
     }
 
-    // Meme calcul que SixpackAudioProcessor::computeGroupOwners() --
+    // Meme calcul que SevenpackAudioProcessor::computeGroupOwners() --
     // reimplemente ici cote UI (lecture des parametres uniquement).
-    std::array<int, (size_t) SixpackAudioProcessor::NumBands> computeGroupOwners() const noexcept
+    std::array<int, (size_t) SevenpackAudioProcessor::NumBands> computeGroupOwners() const noexcept
     {
-        std::array<int, (size_t) SixpackAudioProcessor::NumBands> owner {};
+        std::array<int, (size_t) SevenpackAudioProcessor::NumBands> owner {};
         owner[0] = 0;
-        for (int b = 1; b < SixpackAudioProcessor::NumBands; ++b)
+        for (int b = 1; b < SevenpackAudioProcessor::NumBands; ++b)
         {
             const bool enabled = enabledParam[(size_t) (b - 1)]->getValue() > 0.5f;
             owner[(size_t) b] = enabled ? b : owner[(size_t) (b - 1)];
@@ -363,7 +468,7 @@ private:
     void selectBandAtFrequency (float freq)
     {
         const auto owner = computeGroupOwners();
-        for (int band = SixpackAudioProcessor::NumBands - 1; band >= 0; --band)
+        for (int band = SevenpackAudioProcessor::NumBands - 1; band >= 0; --band)
         {
             const float lowerBound = (band == 0) ? 20.0f
                 : freqParam[(size_t) (band - 1)]->convertFrom0to1 (freqParam[(size_t) (band - 1)]->getValue());
@@ -391,7 +496,7 @@ private:
         for (int i = x - 1; i >= 0; --i)
             if (enabledParam[(size_t) i]->getValue() > 0.5f)
             { b.lo = freqParam[(size_t) i]->convertFrom0to1 (freqParam[(size_t) i]->getValue()) * kMinRatio; break; }
-        for (int i = x + 1; i < SixpackAudioProcessor::NumCrossovers; ++i)
+        for (int i = x + 1; i < SevenpackAudioProcessor::NumCrossovers; ++i)
             if (enabledParam[(size_t) i]->getValue() > 0.5f)
             { b.hi = freqParam[(size_t) i]->convertFrom0to1 (freqParam[(size_t) i]->getValue()) / kMinRatio; break; }
         return b;
@@ -405,7 +510,7 @@ private:
     void pushDisabledNeighborsIntoOrder (int movedIndex, float movedFreq)
     {
         float floor = movedFreq;
-        for (int i = movedIndex + 1; i < SixpackAudioProcessor::NumCrossovers; ++i)
+        for (int i = movedIndex + 1; i < SevenpackAudioProcessor::NumCrossovers; ++i)
         {
             if (enabledParam[(size_t) i]->getValue() > 0.5f) break;
             const float hz = freqParam[(size_t) i]->convertFrom0to1 (freqParam[(size_t) i]->getValue());
@@ -551,7 +656,7 @@ private:
         elastic.startNewSubPath (x0 + 2.0f, restY);
         elastic.quadraticTo (cx, bowY, x1 - 2.0f, restY);
 
-        const juce::Colour tint = compT >= expandT ? SixpackColours::ledGreen : SixpackColours::ledBlue;
+        const juce::Colour tint = compT >= expandT ? SevenpackColours::ledGreen : SevenpackColours::ledBlue;
         const juce::Colour colour = accent.interpolatedWith (tint, tension * 0.85f);
 
         if (tension > 0.02f)
@@ -572,9 +677,468 @@ private:
     // meme endroit, juste au-dessus des lignes elastiques, quel que soit
     // le contenu audio -- meme calcul utilise pour le dessin et le
     // hit-test (voir mouseDown()).
-    static float crossoverHandleY (juce::Rectangle<float> plot) noexcept
+    float crossoverHandleY (juce::Rectangle<float> plot) const noexcept
     {
-        return plot.getY() + 13.0f;
+        // Alpha : poignee en BAS de la ligne (le haut porte la frequence).
+        return alphaStyle ? plot.getBottom() - 11.0f : plot.getY() + 13.0f;
+    }
+
+    // --- Interface Alpha ---------------------------------------------------
+
+    static float inputDbToY (float db, juce::Rectangle<float> plot) noexcept
+    {
+        const float t = juce::jlimit (0.0f, 1.0f, (db + 30.0f) / 60.0f);
+        return plot.getY() + 24.0f + (1.0f - t) * (plot.getHeight() - 48.0f);
+    }
+
+    static float yToInputDb (float y, juce::Rectangle<float> plot) noexcept
+    {
+        const float t = 1.0f - (y - plot.getY() - 24.0f) / juce::jmax (1.0f, plot.getHeight() - 48.0f);
+        return juce::jlimit (-30.0f, 30.0f, -30.0f + 60.0f * t);
+    }
+
+    // Position (x = milieu de la zone de la bande, y = IN) des 7 points --
+    // un point par bande PROPRIETAIRE (une bande fusionnee n'en a pas).
+    std::array<juce::Point<float>, (size_t) SevenpackAudioProcessor::NumBands> inputPoints (juce::Rectangle<float> plot,
+                                                                                         const float* boundaryHz,
+                                                                                         const std::array<int, (size_t) SevenpackAudioProcessor::NumBands>& owner) const
+    {
+        std::array<juce::Point<float>, (size_t) SevenpackAudioProcessor::NumBands> pts {};
+        for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
+        {
+            if (owner[(size_t) band] != band) { pts[(size_t) band] = { -1000.0f, -1000.0f }; continue; }
+            int groupEnd = band;
+            while (groupEnd + 1 < SevenpackAudioProcessor::NumBands && owner[(size_t) (groupEnd + 1)] == band) ++groupEnd;
+            const float x0 = plot.getX() + freqToXFrac (boundaryHz[(size_t) band]) * plot.getWidth();
+            const float x1 = plot.getX() + freqToXFrac (boundaryHz[(size_t) (groupEnd + 1)]) * plot.getWidth();
+            const auto* p = inputParam[(size_t) band];
+            pts[(size_t) band] = { (x0 + x1) * 0.5f, inputDbToY (p->convertFrom0to1 (p->getValue()), plot) };
+        }
+        return pts;
+    }
+
+    // Les lignes affichent toujours les VRAIES frequences : LEARN reste
+    // strictement identique a Sixpack (demande explicite), seul un balayage
+    // lumineux signale l'ecoute (voir paintAlpha()).
+    void currentBoundaries (float* boundaryHz) const
+    {
+        boundaryHz[0] = 20.0f;
+        boundaryHz[SevenpackAudioProcessor::NumBands] = 20000.0f;
+        for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
+            boundaryHz[x + 1] = juce::jlimit (20.0f, 20000.0f, freqParam[(size_t) x]->convertFrom0to1 (freqParam[(size_t) x]->getValue()));
+    }
+
+    int hitInputPoint (juce::Point<float> pos, juce::Rectangle<float> plot) const
+    {
+        float boundaryHz[(size_t) SevenpackAudioProcessor::NumBands + 1];
+        currentBoundaries (boundaryHz);
+        const auto pts = inputPoints (plot, boundaryHz, computeGroupOwners());
+        for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
+            if (pts[(size_t) band].getDistanceFrom (pos) <= 9.0f)
+                return band;
+        return -1;
+    }
+
+    // Ecran LCD turquoise (demande explicite, d'apres l'image fournie par
+    // l'utilisateur) : fond #198d8b -> #128f91, 5 lignes horizontales a la
+    // couleur pastel de chaque zone, lignes de crossover a la couleur de
+    // leur bande, reflet triangulaire en haut a gauche. L'ecran est ENFONCE
+    // dans le rack : ombre interieure forte en haut ici, cuvette biseautee
+    // peinte autour par l'editeur (rebuildBackgroundCache()). Couleurs FIXES
+    // quel que soit le theme (c'est un ecran).
+    void paintAlpha (juce::Graphics& g)
+    {
+        const auto pal = AlphaPalette::get();
+        auto bounds = getLocalBounds().toFloat().reduced (0.75f);
+        constexpr float corner = 14.0f;
+        const auto* laf = dynamic_cast<SevenpackLookAndFeel*> (&getLookAndFeel());
+        const bool powered = (laf == nullptr) || laf->isPowered();
+        const juce::Colour screenInk (0xff0b4f4e); // contour sombre des pastilles
+
+        g.saveState();
+        juce::Path clip; clip.addRoundedRectangle (bounds, corner);
+        g.reduceClipRegion (clip);
+        {
+            juce::ColourGradient base (juce::Colour (0xff198d8b), bounds.getX(), 0.0f,
+                                       juce::Colour (0xff128f91), bounds.getRight(), 0.0f, false);
+            g.setGradientFill (base);
+            g.fillRect (bounds);
+        }
+
+        const auto lay = computeLayout();
+        const auto& plot = lay.plot;
+        const auto owner = computeGroupOwners();
+        float boundaryHz[(size_t) SevenpackAudioProcessor::NumBands + 1];
+        currentBoundaries (boundaryHz);
+        const int colourMode = juce::jlimit (0, 2, processorRef.bandColourMode.load());
+        auto pastelOf = [colourMode] (int band)
+        {
+            return colourMode == 2 ? juce::Colours::white : AlphaPalette::bandPastel (band);
+        };
+
+        // Zones de bande (groupes fusionnes compris) : x de debut/fin.
+        struct Zone { int band; float x0, x1; };
+        std::vector<Zone> zones;
+        for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
+        {
+            if (owner[(size_t) band] != band) continue;
+            int groupEnd = band;
+            while (groupEnd + 1 < SevenpackAudioProcessor::NumBands && owner[(size_t) (groupEnd + 1)] == band) ++groupEnd;
+            const float x0 = band == 0 ? bounds.getX() : plot.getX() + freqToXFrac (boundaryHz[(size_t) band]) * plot.getWidth();
+            const float x1 = groupEnd == SevenpackAudioProcessor::NumBands - 1
+                                 ? bounds.getRight() : plot.getX() + freqToXFrac (boundaryHz[(size_t) (groupEnd + 1)]) * plot.getWidth();
+            zones.push_back ({ band, x0, x1 });
+
+            auto zone = juce::Rectangle<float> (x0, bounds.getY(), juce::jmax (1.0f, x1 - x0), bounds.getHeight());
+            if (colourMode == 1) // TEINTE : voile pastel sur toute la zone
+            {
+                g.setColour (AlphaPalette::bandPastel (band).withAlpha (0.10f));
+                g.fillRect (zone);
+            }
+            if (selectedBand >= band && selectedBand <= groupEnd)
+            {
+                g.setColour (juce::Colours::white.withAlpha (0.05f));
+                g.fillRect (zone);
+            }
+        }
+
+        // Spectre d'entree. Style au choix (Options > Meters > Spectrum,
+        // apercu claude.ai/artifact/CQSz1SFTqHyx7Ggqb6PzCr, demande
+        // explicite : "la ligne qui dessine la musique ... pas tres
+        // visible", puis "dans le menu option avec la possibilite de
+        // desactiver") : 0 CLASSIC (d'origine : voile blanc translucide sous
+        // les lignes horizontales), 1 LINE, 2 GLOW, 3 BANDS, 4 FILLED
+        // (dessines PAR-DESSUS les lignes horizontales).
+        const int spectrumStyle = juce::jlimit (0, 4, processorRef.spectrumStyle.load());
+        const bool spectrumOn = powered && processorRef.spectrumAnalyzer.getSampleRate() > 0.0;
+        juce::Path specFill, specLine, peakLine;
+        if (spectrumOn)
+        {
+            constexpr int n = kSpectrumPoints;
+            std::array<float, n> raw {}, mag {};
+            for (int i = 0; i < n; ++i)
+                raw[(size_t) i] = processorRef.spectrumAnalyzer.getMagnitudeInterpolated (xFracToFreq ((float) i / (float) (n - 1)));
+            if (processorRef.spectrumSmooth.load() == 0)
+            {
+                // Lissage d'origine : 3 points (1-2-1) sur les magnitudes.
+                for (int i = 0; i < n; ++i)
+                {
+                    const int i0 = juce::jmax (0, i - 1), i2 = juce::jmin (n - 1, i + 1);
+                    mag[(size_t) i] = (raw[(size_t) i0] + 2.0f * raw[(size_t) i] + raw[(size_t) i2]) * 0.25f;
+                }
+            }
+            else
+            {
+                // Plus doux : gaussienne d'environ 1/6 d'octave (256 points
+                // sur 10 octaves).
+                static const auto weights = []
+                {
+                    std::array<float, 2 * kSmoothRadius + 1> w {};
+                    for (int k = -kSmoothRadius; k <= kSmoothRadius; ++k)
+                        w[(size_t) (k + kSmoothRadius)] = std::exp (-0.5f * (float) (k * k) / (2.6f * 2.6f));
+                    return w;
+                }();
+                for (int i = 0; i < n; ++i)
+                {
+                    float s = 0.0f, sw = 0.0f;
+                    for (int k = -kSmoothRadius; k <= kSmoothRadius; ++k)
+                    {
+                        const int j = i + k;
+                        if (j < 0 || j >= n) continue;
+                        const float w = weights[(size_t) (k + kSmoothRadius)];
+                        s += w * raw[(size_t) j];
+                        sw += w;
+                    }
+                    mag[(size_t) i] = s / sw;
+                }
+            }
+
+            const double now = juce::Time::getMillisecondCounterHiRes();
+            const float dt = lastSpectrumMs > 0.0 ? (float) juce::jlimit (0.0, 0.2, (now - lastSpectrumMs) / 1000.0) : 0.0f;
+            lastSpectrumMs = now;
+            const bool peakOn = processorRef.spectrumPeak.load();
+
+            specFill.startNewSubPath (plot.getX(), plot.getBottom());
+            for (int i = 0; i < n; ++i)
+            {
+                const float db = juce::Decibels::gainToDecibels (juce::jmax (0.0001f, mag[(size_t) i]), -54.0f);
+                const float x = plot.getX() + (float) i / (float) (n - 1) * plot.getWidth();
+                const float y = dbToSpectrumY (plot, db);
+                specFill.lineTo (x, y);
+                if (i == 0) specLine.startNewSubPath (x, y); else specLine.lineTo (x, y);
+
+                // Ligne des cretes : maintien 0,9 s puis retombee 9 dB/s.
+                auto& pk = peakDb[(size_t) i];
+                auto& hold = peakHold[(size_t) i];
+                if (db >= pk) { pk = db; hold = 0.9f; }
+                else if ((hold -= dt) < 0.0f) pk = juce::jmax (-54.0f, pk - 9.0f * dt);
+                if (peakOn)
+                {
+                    const float py = dbToSpectrumY (plot, pk);
+                    if (i == 0) peakLine.startNewSubPath (x, py); else peakLine.lineTo (x, py);
+                }
+            }
+            specFill.lineTo (plot.getRight(), plot.getBottom());
+            specFill.closeSubPath();
+
+            if (spectrumStyle == 0)
+            {
+                juce::ColourGradient sg (juce::Colours::white.withAlpha (0.20f), 0.0f, plot.getY(),
+                                         juce::Colours::white.withAlpha (0.02f), 0.0f, plot.getBottom(), false);
+                g.setGradientFill (sg);
+                g.fillPath (specFill);
+                g.setColour (juce::Colours::white.withAlpha (0.35f));
+                g.strokePath (specFill, juce::PathStrokeType (1.0f));
+            }
+        }
+
+        // 5 lignes horizontales, a la couleur de la zone traversee.
+        for (const auto& z : zones)
+        {
+            g.setColour (pastelOf (z.band).withAlpha (colourMode == 2 ? 0.35f : 0.72f));
+            for (int k = 1; k <= 5; ++k)
+            {
+                const float y = std::round (plot.getY() + plot.getHeight() * (float) k / 6.0f);
+                g.fillRect (z.x0, y, z.x1 - z.x0, 1.0f);
+            }
+        }
+
+        if (spectrumOn)
+        {
+            const auto vGrad = [&plot] (juce::Colour c, float a0, float a1)
+            {
+                return juce::ColourGradient (c.withAlpha (a0), 0.0f, plot.getY(), c.withAlpha (a1), 0.0f, plot.getBottom(), false);
+            };
+            const auto stroke = [&g, &specLine] (juce::Colour c, float w)
+            {
+                g.setColour (c);
+                g.strokePath (specLine, juce::PathStrokeType (w, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            };
+            const juce::Colour edgeShadow (0xff002628);
+            switch (spectrumStyle)
+            {
+                case 1: // LINE : trait blanc net + lisere sombre dessous
+                    g.setGradientFill (vGrad (juce::Colours::white, 0.24f, 0.03f));
+                    g.fillPath (specFill);
+                    stroke (edgeShadow.withAlpha (0.45f), 4.0f);
+                    stroke (juce::Colours::white.withAlpha (0.95f), 1.8f);
+                    break;
+                case 2: // GLOW : phosphore d'oscilloscope (halo en traits superposes)
+                    g.setGradientFill (vGrad (juce::Colour (0xffc8fff5), 0.16f, 0.0f));
+                    g.fillPath (specFill);
+                    stroke (juce::Colour (0xffbefff5).withAlpha (0.08f), 8.0f);
+                    stroke (juce::Colour (0xffbefff5).withAlpha (0.16f), 5.0f);
+                    stroke (juce::Colour (0xffd2fff8).withAlpha (0.38f), 2.8f);
+                    stroke (juce::Colour (0xfff0fffc), 1.4f);
+                    break;
+                case 3: // BANDS : couleur pastel de chaque zone
+                    for (const auto& z : zones)
+                    {
+                        juce::Graphics::ScopedSaveState zoneState (g);
+                        g.reduceClipRegion (juce::Rectangle<float> (z.x0, bounds.getY(), juce::jmax (1.0f, z.x1 - z.x0), bounds.getHeight())
+                                                .getSmallestIntegerContainer());
+                        const auto c = pastelOf (z.band);
+                        g.setGradientFill (vGrad (c, 0.30f, 0.04f));
+                        g.fillPath (specFill);
+                        stroke (edgeShadow.withAlpha (0.40f), 4.0f);
+                        stroke (c, 2.0f);
+                    }
+                    break;
+                case 4: // FILLED : montagne pleine claire + bord blanc
+                    g.setGradientFill (vGrad (juce::Colours::white, 0.46f, 0.10f));
+                    g.fillPath (specFill);
+                    stroke (juce::Colours::white.withAlpha (0.95f), 1.4f);
+                    break;
+                default: break;
+            }
+
+            if (! peakLine.isEmpty())
+            {
+                const float dashes[] = { 3.0f, 3.0f };
+                juce::Path dashed;
+                juce::PathStrokeType (1.0f).createDashedStroke (dashed, peakLine, dashes, 2);
+                g.setColour (juce::Colours::white.withAlpha (0.55f));
+                g.fillPath (dashed);
+            }
+        }
+
+        // Graduations du bas.
+        g.setFont (AlphaDraw::font (9.0f));
+        g.setColour (juce::Colours::white.withAlpha (0.5f));
+        for (float f : { 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
+        {
+            const float x = plot.getX() + freqToXFrac (f) * plot.getWidth();
+            g.drawText (f >= 1000.0f ? juce::String ((int) (f / 1000.0f)) + "K" : juce::String ((int) f),
+                        juce::Rectangle<float> (x + 3.0f, plot.getBottom() - 14.0f, 34.0f, 12.0f), juce::Justification::centredLeft, false);
+        }
+
+        // Lignes de crossover : couleur pastel de la bande a leur gauche.
+        g.setFont (AlphaDraw::lcdFont (AlphaType::value));
+        float prevLabelRight = -1.0e9f;
+        for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
+        {
+            const bool enabled = enabledParam[(size_t) x]->getValue() > 0.5f;
+            const float hz = boundaryHz[(size_t) (x + 1)];
+            const float lx = plot.getX() + freqToXFrac (hz) * plot.getWidth();
+            const auto lineColour = pastelOf (x);
+            if (enabled)
+            {
+                g.setColour (lineColour);
+                g.fillRect (lx - 1.0f, plot.getY(), 2.0f, plot.getHeight());
+            }
+            else
+            {
+                juce::Path dashed; dashed.startNewSubPath (lx, plot.getY()); dashed.lineTo (lx, plot.getBottom());
+                const float dashes[] = { 4.0f, 3.0f };
+                juce::Path stroked; juce::PathStrokeType (1.2f).createDashedStroke (stroked, dashed, dashes, 2);
+                g.setColour (lineColour.withAlpha (0.55f));
+                g.fillPath (stroked);
+            }
+
+            const float hy = crossoverHandleY (plot);
+            auto handle = juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ lx, hy });
+            g.setColour (enabled ? lineColour : juce::Colour (0xff198d8b));
+            g.fillEllipse (handle);
+            g.setColour (enabled ? screenInk : lineColour);
+            g.drawEllipse (handle, 1.5f);
+
+            const juce::String label = hz >= 1000.0f ? juce::String (hz / 1000.0f, hz >= 10000.0f ? 1 : 2) + "k"
+                                                     : juce::String (juce::roundToInt (hz));
+            const auto pill = freqPillBounds (lay, x);
+            if (pill.getX() >= prevLabelRight)
+            {
+                g.setColour (lineColour.withAlpha (enabled ? 1.0f : 0.55f));
+                g.drawText (label, juce::Rectangle<float> (lx + 5.0f, lay.freqRow.getY(), 50.0f, lay.freqRow.getHeight()),
+                            juce::Justification::centredLeft, false);
+                prevLabelRight = pill.getRight();
+            }
+        }
+
+        // Points IN par bande -- position AFFICHEE animee pendant LEARN comme
+        // dans la preview HTML Sevenpack (demande explicite : les points
+        // s'agitent pendant l'ecoute, puis glissent avec un rebond vers leur
+        // nouvelle valeur). Purement visuel : les valeurs reellement
+        // appliquees restent celles de Sixpack (etats : voir timerCallback()).
+        {
+            auto pts = inputPoints (plot, boundaryHz, owner);
+            const double now = juce::Time::getMillisecondCounterHiRes();
+            const double tw = (now - learnStartMs) / 1000.0;
+            for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
+            {
+                auto& p = pts[(size_t) band];
+                if (p.x < plot.getX()) continue;
+                const float wob = (float) std::sin (tw * 18.0 + band * 1.7) * kWobblePx;
+                float y = p.y;
+                if (learningNow)
+                    y = p.y + wob * learnEnv;
+                else if (landStartMs > 0.0)
+                {
+                    const float k = (float) juce::jlimit (0.0, 1.0, (now - landStartMs) / kLandMs);
+                    constexpr float c1 = 1.70158f, c3 = c1 + 1.0f;
+                    const float e = 1.0f + c3 * std::pow (k - 1.0f, 3.0f) + c1 * std::pow (k - 1.0f, 2.0f);
+                    y = landFromY[(size_t) band] + (p.y - landFromY[(size_t) band]) * e
+                        + (k < 0.7f ? wob * (1.0f - k / 0.7f) : 0.0f);
+                }
+                p.y = juce::jlimit (plot.getY() + 4.0f, plot.getBottom() - 4.0f, y);
+                shownY[(size_t) band] = p.y;
+            }
+
+            juce::Path line;
+            bool started = false;
+            for (const auto& p : pts)
+            {
+                if (p.x < plot.getX()) continue;
+                if (! started) { line.startNewSubPath (p); started = true; }
+                else line.lineTo (p);
+            }
+            g.setColour (juce::Colours::white.withAlpha (0.7f));
+            g.strokePath (line, juce::PathStrokeType (1.8f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded));
+            for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
+            {
+                const auto& p = pts[(size_t) band];
+                if (p.x < plot.getX()) continue;
+                const auto colour = pastelOf (band);
+                g.setColour (colour.withAlpha (0.3f));
+                g.fillEllipse (juce::Rectangle<float> (21.0f, 21.0f).withCentre (p));
+                auto dot = juce::Rectangle<float> (14.0f, 14.0f).withCentre (p);
+                g.setColour (colour);
+                g.fillEllipse (dot);
+                // Contour sombre (accent pendant le glisser).
+                g.setColour (draggingPoint == band ? pal.accent : screenInk);
+                g.drawEllipse (dot, draggingPoint == band ? 2.2f : 1.6f);
+            }
+        }
+
+        if (learnEnv > 0.05f)
+        {
+            auto tag = juce::Rectangle<float> (190.0f, 18.0f).withCentre ({ bounds.getCentreX(), bounds.getY() + 16.0f });
+            g.setColour (pal.accent.withAlpha (learnEnv));
+            g.fillRoundedRectangle (tag, 9.0f);
+            AlphaDraw::spacedText (g, "LEARNING", tag, juce::Colours::white.withAlpha (learnEnv), AlphaType::label, 0.35f);
+        }
+
+        // Encastrement : ombre interieure (forte en haut, sous le rebord du
+        // rack), arete sombre en haut, reflet discret sur l'arete basse.
+        {
+            const juce::Colour shade (0xff001416);
+            auto edge = [&g, shade] (juce::Rectangle<float> r, juce::Point<float> from, juce::Point<float> to, float alpha)
+            {
+                g.setGradientFill (juce::ColourGradient (shade.withAlpha (alpha), from, shade.withAlpha (0.0f), to, false));
+                g.fillRect (r);
+            };
+            const auto b = bounds;
+            edge (b.withHeight (24.0f), { 0.0f, b.getY() }, { 0.0f, b.getY() + 24.0f }, 0.72f);
+            edge (b.withTrimmedTop (b.getHeight() - 10.0f), { 0.0f, b.getBottom() }, { 0.0f, b.getBottom() - 10.0f }, 0.35f);
+            edge (b.withWidth (16.0f), { b.getX(), 0.0f }, { b.getX() + 16.0f, 0.0f }, 0.5f);
+            edge (b.withTrimmedLeft (b.getWidth() - 10.0f), { b.getRight(), 0.0f }, { b.getRight() - 10.0f, 0.0f }, 0.4f);
+
+            // Vitre bombee (variante 1 validee sur l'apercu, a la place du
+            // reflet triangulaire : "on voit qu'un rectangle a gauche, ca
+            // fait pas ecran") : coins legerement assombris...
+            {
+                g.saveState();
+                const auto c = b.getCentre();
+                const float outer = b.getWidth() * 0.56f, squash = b.getHeight() / b.getWidth() * 4.2f;
+                juce::ColourGradient vg (shade.withAlpha (0.0f), c, juce::Colour (0xff000f12).withAlpha (0.28f), c.translated (outer, 0.0f), true);
+                vg.addColour (juce::jlimit (0.0, 1.0, (double) (b.getHeight() * 0.6f / outer)), shade.withAlpha (0.0f));
+                g.addTransform (juce::AffineTransform::scale (1.0f, squash, c.x, c.y));
+                g.setGradientFill (vg);
+                g.fillRect (b.withSizeKeepingCentre (b.getWidth() * 1.2f, b.getHeight() / squash * 1.2f));
+                g.restoreState();
+            }
+            // ... reflet doux sur toute la largeur du haut, bord inferieur
+            // courbe, et fin liseret lumineux sous le bord.
+            {
+                juce::Path glass;
+                glass.startNewSubPath (b.getX(), b.getY());
+                glass.lineTo (b.getRight(), b.getY());
+                glass.lineTo (b.getRight(), b.getY() + b.getHeight() * 0.30f);
+                glass.cubicTo (b.getX() + b.getWidth() * 0.72f, b.getY() + b.getHeight() * 0.50f,
+                               b.getX() + b.getWidth() * 0.28f, b.getY() + b.getHeight() * 0.50f,
+                               b.getX(), b.getY() + b.getHeight() * 0.30f);
+                glass.closeSubPath();
+                g.setGradientFill (juce::ColourGradient (juce::Colours::white.withAlpha (0.16f), 0.0f, b.getY(),
+                                                         juce::Colours::white.withAlpha (0.0f), 0.0f, b.getY() + b.getHeight() * 0.48f, false));
+                g.fillPath (glass);
+                g.setColour (juce::Colours::white.withAlpha (0.28f));
+                g.fillRect (b.getX() + 18.0f, b.getY() + 3.5f, b.getWidth() - 36.0f, 1.0f);
+            }
+
+            g.setColour (juce::Colour (0x8c000f12));
+            g.fillRect (b.withHeight (1.5f));
+            g.setColour (juce::Colour (0x29befffa));
+            g.fillRect (b.withTrimmedTop (b.getHeight() - 1.5f));
+        }
+
+        if (! powered)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.35f));
+            g.fillRect (bounds);
+        }
+
+        g.restoreState();
+        g.setColour (juce::Colour (0xb3141c20));
+        g.drawRoundedRectangle (bounds, corner, 1.5f);
     }
 
     void drawCrossoverLine (juce::Graphics& g, const Layout& lay, int x, float freq, float& prevPillRight)
@@ -585,8 +1149,8 @@ private:
         // Fond FIXE (0xff0a1620, jamais retheme, voir paint()) -- texte
         // FIXE clair aussi (chipTextBright, pas textBright qui s'assombrit
         // en theme clair).
-        const juce::Colour colour = enabled ? SixpackColours::chipTextBright.withAlpha (0.85f)
-                                             : SixpackColours::chipTextBright.withAlpha (0.35f);
+        const juce::Colour colour = enabled ? SevenpackColours::chipTextBright.withAlpha (0.85f)
+                                             : SevenpackColours::chipTextBright.withAlpha (0.35f);
 
         // Style "Neon Glow" (direction B validee en preview) -- un trait
         // actif rayonne un halo lumineux plutot que le simple relief
@@ -644,7 +1208,7 @@ private:
     // drawCrossoverLine() pour poser les poignees SUR la courbe plutot
     // qu'a une hauteur fixe.
     std::array<float, kCurveSamples> drawSpectrum (juce::Graphics& g, juce::Rectangle<float> plot,
-                                                     const std::array<int, (size_t) SixpackAudioProcessor::NumBands>& owner,
+                                                     const std::array<int, (size_t) SevenpackAudioProcessor::NumBands>& owner,
                                                      const float* boundaryHz)
     {
         std::array<float, kCurveSamples> ys {};
@@ -700,16 +1264,16 @@ private:
         // Couche neutre (base), degrade transparent (bas) -> clair (haut).
         // chipTextBright (fixe) -- fond du plot toujours fonce (0xff0a1620),
         // voir paint().
-        juce::ColourGradient neutralGrad (SixpackColours::chipTextBright.withAlpha (0.0f), plot.getX(), plot.getBottom(),
-                                           SixpackColours::chipTextBright.withAlpha (0.16f), plot.getX(), plot.getY(), false);
+        juce::ColourGradient neutralGrad (SevenpackColours::chipTextBright.withAlpha (0.0f), plot.getX(), plot.getBottom(),
+                                           SevenpackColours::chipTextBright.withAlpha (0.16f), plot.getX(), plot.getY(), false);
         g.setGradientFill (neutralGrad);
         g.fillPath (fill);
         // Halo neon discret sur le contour meme hors compression/expansion
         // (style "B" valide en preview) -- reste sobre (alpha faible) pour
         // ne pas ecraser les couches vert/bleu ci-dessous quand actives.
-        g.setColour (SixpackColours::chipTextBright.withAlpha (0.06f));
+        g.setColour (SevenpackColours::chipTextBright.withAlpha (0.06f));
         g.strokePath (fill, juce::PathStrokeType (4.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        g.setColour (SixpackColours::chipTextBright.withAlpha (0.32f));
+        g.setColour (SevenpackColours::chipTextBright.withAlpha (0.32f));
         g.strokePath (fill, juce::PathStrokeType (1.1f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
         // --- Colorisation compression (vert) / expansion (bleu), PAR
@@ -721,12 +1285,12 @@ private:
         // colore dont l'intensite suit la reduction de gain/le boost
         // expand REELS de cette bande (deja lisses par le compresseur
         // lui-meme, voir FeedbackCompressor).
-        for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
+        for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
         {
             if (owner[(size_t) band] != band)
                 continue;
             int groupEnd = band;
-            while (groupEnd + 1 < SixpackAudioProcessor::NumBands && owner[(size_t) (groupEnd + 1)] == band)
+            while (groupEnd + 1 < SevenpackAudioProcessor::NumBands && owner[(size_t) (groupEnd + 1)] == band)
                 ++groupEnd;
 
             const float compT   = juce::jlimit (0.0f, 1.0f, processorRef.grMeterDb[(size_t) band].load() / 15.0f);
@@ -742,24 +1306,24 @@ private:
 
             if (compT > 0.02f)
             {
-                juce::ColourGradient grad (SixpackColours::ledGreen.withAlpha (0.0f), plot.getX(), plot.getBottom(),
-                                            SixpackColours::ledGreen.withAlpha (0.75f * compT), plot.getX(), plot.getY(), false);
+                juce::ColourGradient grad (SevenpackColours::ledGreen.withAlpha (0.0f), plot.getX(), plot.getBottom(),
+                                            SevenpackColours::ledGreen.withAlpha (0.75f * compT), plot.getX(), plot.getY(), false);
                 g.setGradientFill (grad);
                 g.fillPath (fill);
-                g.setColour (SixpackColours::ledGreen.withAlpha (0.18f * compT));
+                g.setColour (SevenpackColours::ledGreen.withAlpha (0.18f * compT));
                 g.strokePath (fill, juce::PathStrokeType (5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-                g.setColour (SixpackColours::ledGreen.withAlpha (0.5f + 0.4f * compT));
+                g.setColour (SevenpackColours::ledGreen.withAlpha (0.5f + 0.4f * compT));
                 g.strokePath (fill, juce::PathStrokeType (1.3f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             }
             if (expandT > 0.02f)
             {
-                juce::ColourGradient grad (SixpackColours::ledBlue.withAlpha (0.0f), plot.getX(), plot.getBottom(),
-                                            SixpackColours::ledBlue.withAlpha (0.75f * expandT), plot.getX(), plot.getY(), false);
+                juce::ColourGradient grad (SevenpackColours::ledBlue.withAlpha (0.0f), plot.getX(), plot.getBottom(),
+                                            SevenpackColours::ledBlue.withAlpha (0.75f * expandT), plot.getX(), plot.getY(), false);
                 g.setGradientFill (grad);
                 g.fillPath (fill);
-                g.setColour (SixpackColours::ledBlue.withAlpha (0.18f * expandT));
+                g.setColour (SevenpackColours::ledBlue.withAlpha (0.18f * expandT));
                 g.strokePath (fill, juce::PathStrokeType (5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-                g.setColour (SixpackColours::ledBlue.withAlpha (0.5f + 0.4f * expandT));
+                g.setColour (SevenpackColours::ledBlue.withAlpha (0.5f + 0.4f * expandT));
                 g.strokePath (fill, juce::PathStrokeType (1.3f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
             }
 
@@ -771,27 +1335,56 @@ private:
 
     // Fonction-locale STATIC (pas un membre statique de classe defini hors
     // ligne) -- evite tout risque d'ordre d'initialisation entre globales
-    // inline de 2 headers differents (voir SixpackColours::ledCyan etc.
-    // dans SixpackLookAndFeel.h) : garantie standard C++11, initialisee
+    // inline de 2 headers differents (voir SevenpackColours::ledCyan etc.
+    // dans SevenpackLookAndFeel.h) : garantie standard C++11, initialisee
     // au premier passage, apres coup, jamais avant que ses dependances ne
     // le soient deja.
     static juce::Colour bandAccent (int band) noexcept
     {
-        static const std::array<juce::Colour, (size_t) SixpackAudioProcessor::NumBands> colours =
-            { SixpackColours::ledCyan, SixpackColours::ledGreen, SixpackColours::ledAmber, SixpackColours::ledOrange, SixpackColours::ledPurple, SixpackColours::ledRed, SixpackColours::ledPink };
+        static const std::array<juce::Colour, (size_t) SevenpackAudioProcessor::NumBands> colours =
+            { SevenpackColours::ledCyan, SevenpackColours::ledGreen, SevenpackColours::ledAmber, SevenpackColours::ledOrange, SevenpackColours::ledPurple, SevenpackColours::ledRed, SevenpackColours::ledPink };
         return colours[(size_t) band];
     }
 
-    SixpackAudioProcessor& processorRef;
-    std::array<juce::RangedAudioParameter*, (size_t) SixpackAudioProcessor::NumCrossovers> freqParam {};
-    std::array<juce::RangedAudioParameter*, (size_t) SixpackAudioProcessor::NumCrossovers> enabledParam {};
-    std::array<juce::RangedAudioParameter*, (size_t) SixpackAudioProcessor::NumBands> soloParam {};
+    SevenpackAudioProcessor& processorRef;
+    std::array<juce::RangedAudioParameter*, (size_t) SevenpackAudioProcessor::NumCrossovers> freqParam {};
+    std::array<juce::RangedAudioParameter*, (size_t) SevenpackAudioProcessor::NumCrossovers> enabledParam {};
+    std::array<juce::RangedAudioParameter*, (size_t) SevenpackAudioProcessor::NumBands> soloParam {};
 
     juce::TextEditor freqEditor;
     int editingCrossover = -1;
 
-    int selectedBand = (int) SixpackAudioProcessor::Mid;
+    int selectedBand = (int) SevenpackAudioProcessor::Mid;
+    bool bandSelectionEnabled = true;
+
+    // Interface Alpha (voir setAlphaStyle()).
+    bool alphaStyle = false;
+    std::array<juce::RangedAudioParameter*, (size_t) SevenpackAudioProcessor::NumBands> inputParam {};
+    int draggingPoint = -1;
+    float learnEnv = 0.0f;
+    double learnStartMs = 0.0;
+    // Animation des points IN facon preview HTML (voir paintAlpha()).
+    static constexpr float kWobblePx = 12.0f;
+    static constexpr double kLandMs = 2600.0;
+    bool learningNow = false;
+    double landStartMs = 0.0;
+    std::array<float, (size_t) SevenpackAudioProcessor::NumBands> shownY {}, landFromY {};
+    int timerHz = 30;
     int draggingCrossover = -1;
+
+    // Spectre de l'interface Alpha (voir paintAlpha()) : 256 points, ligne
+    // des cretes (dB par point, maintien restant en s).
+    static constexpr int kSpectrumPoints = 256;
+    static constexpr int kSmoothRadius = 6;
+    std::array<float, kSpectrumPoints> peakDb = [] { std::array<float, kSpectrumPoints> a {}; a.fill (-54.0f); return a; }();
+    std::array<float, kSpectrumPoints> peakHold {};
+    double lastSpectrumMs = 0.0;
+
+    static float dbToSpectrumY (juce::Rectangle<float> plot, float db) noexcept
+    {
+        const float h = juce::jlimit (0.0f, 1.0f, (db + 54.0f) / 54.0f);
+        return plot.getBottom() - h * plot.getHeight() * 0.85f;
+    }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CrossoverSpectrumEditor)
 };

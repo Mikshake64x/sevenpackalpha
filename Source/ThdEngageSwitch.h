@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 
 /**
     ThdEngageSwitch
@@ -8,7 +8,7 @@
     Interrupteur ON/OFF du THD Valve (SOFTCLIP) -- refonte neumorphic
     "dark mono" (retour utilisateur : preview A/B, "alors le A" -- rond,
     extrusion 3D marquee), remplace l'ancien sprite Button-08-S-Filmstrip.
-    Meme recette que RackPushButton (SixpackLookAndFeel::
+    Meme recette que RackPushButton (SevenpackLookAndFeel::
     paintNeumorphicButton) mais en CERCLE et sans texte : souleve (halo
     clair haut-gauche/sombre bas-droite) au repos, creuse quand engage. Un
     point central reste visible en PERMANENCE (retour utilisateur : sur 3
@@ -36,7 +36,7 @@ public:
     }
 
     // Halo qui deborde REELLEMENT (retour utilisateur, reference visuelle
-    // "C -- extreme") -- voir SixpackLookAndFeel::paintNeumorphicButton()
+    // "C -- extreme") -- voir SevenpackLookAndFeel::paintNeumorphicButton()
     // pour le meme raisonnement/technique, adapte ici en cercle.
     void paintButton (juce::Graphics& g, bool /*isHighlighted*/, bool isDown) override
     {
@@ -46,8 +46,31 @@ public:
         const float r = juce::jmin (b.getWidth(), b.getHeight()) * 0.5f;
         const auto centre = b.getCentre();
 
-        const bool lightTheme = SixpackLookAndFeel::isLightThemeStatic();
-        const juce::Colour base = lightTheme ? SixpackColours::lightPanelGradTop : juce::Colour (0xff262422);
+        // DOS : cercle plat, contour cyan, point central plein/vide -- pas
+        // de degrade/ombre/relief quel que soit l'etat.
+        if (SevenpackLookAndFeel::isDosThemeStatic())
+        {
+            g.setColour (juce::Colours::black);
+            g.fillEllipse (b);
+            g.setColour (juce::Colour (0xff55ffff));
+            g.drawEllipse (b, 1.5f);
+
+            auto dosDot = juce::Rectangle<float> (r * 0.5f, r * 0.5f).withCentre (centre);
+            if (lit)
+            {
+                g.setColour (juce::Colour (0xffffff55));
+                g.fillEllipse (dosDot);
+            }
+            else
+            {
+                g.setColour (juce::Colour (0xff003333));
+                g.drawEllipse (dosDot, 1.0f);
+            }
+            return;
+        }
+
+        const bool lightTheme = SevenpackLookAndFeel::isLightThemeStatic();
+        const juce::Colour base = lightTheme ? SevenpackColours::lightPanelGradTop : juce::Colour (0xff262422);
 
         juce::Path shape;
         shape.addEllipse (b);
@@ -87,9 +110,9 @@ public:
         auto dot = juce::Rectangle<float> (r * 0.42f, r * 0.42f).withCentre (centre);
         if (lit)
         {
-            g.setColour (SixpackColours::ledCyan.withAlpha (0.9f));
+            g.setColour (SevenpackColours::ledCyan.withAlpha (0.9f));
             g.fillEllipse (dot);
-            g.setColour (SixpackColours::ledCyan.withAlpha (0.4f));
+            g.setColour (SevenpackColours::ledCyan.withAlpha (0.4f));
             g.drawEllipse (dot.expanded (2.0f), 2.0f);
         }
         else

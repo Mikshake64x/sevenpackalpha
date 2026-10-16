@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 #include "PushButton.h"
 
 /**
@@ -86,15 +86,15 @@ public:
 
             const float ledD = juce::jmin (11.0f, row.getHeight() * 0.85f);
             auto ledR = juce::Rectangle<float> (ledD, ledD).withCentre ({ row.getX() + ledD * 0.6f, row.getCentreY() });
-            SixpackLookAndFeel::drawGlossyDot (g, ledR, ledDefs[(size_t) i].colour, lit);
+            SevenpackLookAndFeel::drawGlossyDot (g, ledR, ledDefs[(size_t) i].colour, lit);
 
             auto textArea = row.withLeft (ledR.getRight() + 4.0f);
-            g.setColour (lit ? SixpackColours::textBright : SixpackColours::textDim);
+            g.setColour (lit ? SevenpackColours::textBright : SevenpackColours::textDim);
             g.setFont (juce::Font (juce::FontOptions (8.5f, juce::Font::bold)).withExtraKerningFactor (0.03f));
             g.drawFittedText (ledDefs[(size_t) i].label, textArea.toNearestInt(), juce::Justification::centredLeft, 1);
         }
 
-        g.setColour (SixpackColours::textBright);
+        g.setColour (SevenpackColours::textBright);
         g.setFont (juce::Font (juce::FontOptions (9.0f, juce::Font::bold)).withExtraKerningFactor (0.06f));
         g.drawFittedText (caption, captionArea.toNearestInt(), juce::Justification::centredLeft, 1);
     }

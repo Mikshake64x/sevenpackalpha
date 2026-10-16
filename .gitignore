@@ -15,3 +15,6 @@ Thumbs.db
 *.lib
 *.tlog
 *.log
+
+# Texture source du cadre bois (non utilisee par le build : voir bois_wood.jpg)
+Source/boissunny.png

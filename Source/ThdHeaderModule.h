@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 #include "ThdEngageSwitch.h"
 #include "RackPushButton.h"
 
@@ -11,23 +11,23 @@
     (retour utilisateur : "on va liberer le rack du bas ou il y a THD ...
     juste le on/off et les options du THD dans le header, a gauche de AI
     Learn et Analog/Linear") -- remplace l'ancien ThdValveModule (chassis
-    pleine largeur + 3 aiguilles par bande, voir SixpackEditorContent::
+    pleine largeur + 3 aiguilles par bande, voir SevenpackEditorContent::
     vuPlateBounds, desormais supprime). Garde uniquement l'actionneur ON/
     OFF (ThdEngageSwitch), le choix de mode SOFT/TAPE/IRON/AIR (4
     RackPushButton en radio exclusif -- meme style neumorphic "dark mono"
     que SOLO/SEL/LEARN, retour utilisateur : "on peut faire en
     neumorphic ... alors le A") et UNE mesure discrete (barre LED, dans un
     groove creuse, amplitude GLOBALE de saturation --
-    SixpackAudioProcessor::clipMeterAmount -- pas 3 mesures par bande).
+    SevenpackAudioProcessor::clipMeterAmount -- pas 3 mesures par bande).
 */
 class ThdHeaderModule : public juce::Component, private juce::Timer
 {
 public:
     explicit ThdHeaderModule (std::atomic<float>& softClipOnToWatch, std::atomic<float>& clipAmountToWatch)
-        : softToggle ("SOFT", SixpackColours::ledGreen, false, &softClipOnToWatch),
-          tapeToggle ("TAPE", SixpackColours::ledAmber, false, &softClipOnToWatch),
-          ironToggle ("IRON", SixpackColours::ledRed,   false, &softClipOnToWatch),
-          airToggle  ("AIR",  SixpackColours::ledCyan,  false, &softClipOnToWatch),
+        : softToggle ("SOFT", SevenpackColours::ledGreen, false, &softClipOnToWatch),
+          tapeToggle ("TAPE", SevenpackColours::ledAmber, false, &softClipOnToWatch),
+          ironToggle ("IRON", SevenpackColours::ledRed,   false, &softClipOnToWatch),
+          airToggle  ("AIR",  SevenpackColours::ledCyan,  false, &softClipOnToWatch),
           softClipOn (softClipOnToWatch),
           clipAmount (clipAmountToWatch)
     {
@@ -149,7 +149,7 @@ public:
         // "elle fait la meme taille et meme typo que power", voir
         // PluginEditor::paint()) via le meme helper drawEngravedText.
         g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)).withExtraKerningFactor (0.1f));
-        SixpackLookAndFeel::drawEngravedText (g, "THD", labelBounds.toNearestInt(), SixpackColours::textDim,
+        SevenpackLookAndFeel::drawEngravedText (g, "THD", labelBounds.toNearestInt(), SevenpackColours::textDim,
                                                 juce::Justification::centredLeft, 1);
 
         // Puits FIXE sombre (retour utilisateur : "c'est trop petit et il
@@ -172,7 +172,7 @@ public:
 
         // Rangee de LEDs -- amplitude GLOBALE de saturation (voir doc de
         // classe), degrade vert->ambre->rouge (meme helper que les autres
-        // mesures de GR du plugin, voir SixpackLookAndFeel::
+        // mesures de GR du plugin, voir SevenpackLookAndFeel::
         // ledGradientColour()). AUCUNE diode allumee si le THD est
         // desengage (retour utilisateur : "le VU metre du THD ne doit
         // avoir aucune led allumee lorsqu'il ne fonctionne pas") -- amt
@@ -187,7 +187,7 @@ public:
         {
             const float t = (float) i / (float) (numSegs - 1);
             const bool lit = amt * (float) numSegs > (float) i;
-            g.setColour (lit ? SixpackLookAndFeel::ledGradientColour (t) : SixpackColours::ledOff);
+            g.setColour (lit ? SevenpackLookAndFeel::ledGradientColour (t) : SevenpackColours::ledOff);
             g.fillRoundedRectangle (meterBounds.getX() + (float) i * (segW + 2.0f), meterBounds.getY(), segW, meterBounds.getHeight(), 1.0f);
         }
 
@@ -195,7 +195,7 @@ public:
         // seulement" -- cette barre s'eteint deja indirectement quand
         // POWER coupe (clipMeterAmount est remis a 0 cote processeur),
         // meme passe de flicker superposee que GRMeter/BandMetersRack.
-        const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
+        const auto* laf = dynamic_cast<SevenpackLookAndFeel*> (&getLookAndFeel());
         const bool powered = laf == nullptr || laf->isPowered();
         const float mix = laf != nullptr ? laf->getPowerTransitionMix() : 1.0f;
         if (! powered && mix > 0.001f)
@@ -204,7 +204,7 @@ public:
             for (int i = 0; i < numSegs; ++i)
             {
                 const float t = (float) i / (float) (numSegs - 1);
-                g.setColour (SixpackLookAndFeel::ledGradientColour (t));
+                g.setColour (SevenpackLookAndFeel::ledGradientColour (t));
                 g.fillRoundedRectangle (meterBounds.getX() + (float) i * (segW + 2.0f), meterBounds.getY(), segW, meterBounds.getHeight(), 1.0f);
             }
             g.endTransparencyLayer();
@@ -225,7 +225,7 @@ private:
     // continue d'etre appele ; si l'hote arrete completement de l'appeler
     // (transport stoppe...), clipAmount se fige a sa derniere valeur pour
     // de bon. Un filet de securite cote processeur existe deja
-    // (SixpackAudioProcessor::timerCallback(), 250ms de staleness ->
+    // (SevenpackAudioProcessor::timerCallback(), 250ms de staleness ->
     // remise a 0 des atomics), mais CE Timer-ci detecte aussi la staleness
     // LOCALEMENT (valeur brute inchangee >150ms) et decide alors seul
     // d'afficher 0 -- double filet, ne depend d'aucune hypothese sur le
@@ -257,8 +257,8 @@ private:
         displayAmt = backendStale ? 0.0f : raw;
 
         // Retour utilisateur : "clignotte comme un neon a l'extinction
-        // seulement" -- voir paint()/SixpackLookAndFeel::getPowerTransitionMix().
-        const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
+        // seulement" -- voir paint()/SevenpackLookAndFeel::getPowerTransitionMix().
+        const auto* laf = dynamic_cast<SevenpackLookAndFeel*> (&getLookAndFeel());
         const float flickerMix = laf != nullptr ? laf->getPowerTransitionMix() : 1.0f;
 
         if (std::abs (displayAmt - lastPaintedAmount) > 0.01f || engaged != lastPaintedEngaged

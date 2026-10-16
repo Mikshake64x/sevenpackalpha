@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 #include "PressAnimator.h"
 
 /**
@@ -8,7 +8,7 @@
     -----------
     Icone corbeille minimaliste (vecteur, pas d'image), pour supprimer un
     preset utilisateur. Se grise automatiquement quand desactive (preset
-    Side Key/usine selectionne -- voir SixpackEditorContent::refreshPresetDisplay()),
+    Side Key/usine selectionne -- voir SevenpackEditorContent::refreshPresetDisplay()),
     pour qu'on comprenne d'un coup d'oeil qu'on ne peut pas l'utiliser.
 */
 class TrashButton : public juce::Button, private PressAnimator
@@ -28,7 +28,7 @@ public:
         auto bounds = getLocalBounds().toFloat().reduced (4.0f);
         applyPressTransform (g, bounds);
         const bool active = isEnabled();
-        const juce::Colour colour = active ? SixpackColours::ledRed : SixpackColours::textDim.withAlpha (0.4f);
+        const juce::Colour colour = active ? SevenpackColours::ledRed : SevenpackColours::textDim.withAlpha (0.4f);
         const float alpha = active ? (isDown ? 0.65f : (isHighlighted ? 1.0f : 0.85f)) : 0.4f;
 
         g.setColour (colour.withAlpha (alpha));

@@ -1,7 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
-#include "RackButton.h"
+#include "SevenpackLookAndFeel.h"
+#include "AlphaSkin.h"
 
 /**
     PresetBrowserOverlay
@@ -9,7 +9,7 @@
     Navigateur de presets plein ecran (voile + panneau), avec barre de
     recherche, filtre par categorie (All / Factory / User) et liste
     scrollable -- meme mecanisme que Nuke Mext (PresetBrowserOverlay.h),
-    porte ici avec SixpackColours/SixpackLookAndFeel, PLUS le dossier
+    porte ici avec SevenpackColours/SevenpackLookAndFeel, PLUS le dossier
     depliable "Mastering" (regroupe tous les presets dont le nom commence
     par "Mastering", demande explicite -- reintroduit apres l'avoir
     initialement omis).
@@ -35,12 +35,12 @@ public:
     {
         // Ecran de recherche style LCD (meme fond que les knobs/ecran de
         // preset) au lieu du TextEditor blanc par defaut.
-        searchBox.setTextToShowWhenEmpty ("Search presets...", SixpackColours::textDim);
+        searchBox.setTextToShowWhenEmpty ("Search presets...", AlphaPalette::get().sheetTextSoft());
         searchBox.setFont (juce::Font (juce::FontOptions (16.0f)));
-        searchBox.setColour (juce::TextEditor::backgroundColourId, SixpackColours::lcdBg);
-        searchBox.setColour (juce::TextEditor::textColourId, SixpackColours::ledCyan);
+        searchBox.setColour (juce::TextEditor::backgroundColourId, SevenpackColours::lcdBg);
+        searchBox.setColour (juce::TextEditor::textColourId, SevenpackColours::ledCyan);
         searchBox.setColour (juce::TextEditor::outlineColourId, juce::Colours::black.withAlpha (0.7f));
-        searchBox.setColour (juce::TextEditor::focusedOutlineColourId, SixpackColours::ledAmber.withAlpha (0.6f));
+        searchBox.setColour (juce::TextEditor::focusedOutlineColourId, AlphaPalette::get().heading().withAlpha (0.6f));
         searchBox.onTextChange = [this] { rebuildFilteredList(); };
         addAndMakeVisible (searchBox);
 
@@ -87,6 +87,7 @@ public:
 
     void show()
     {
+        AlphaDraw::styleControls (*this); // palette Alpha (theme courant)
         setVisible (true);
         toFront (true);
         searchBox.grabKeyboardFocus();
@@ -94,21 +95,18 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        // Style Alpha (voile + panneau clair, accents bleus).
         auto bounds = getLocalBounds().toFloat();
-        g.setColour (juce::Colours::black.withAlpha (0.75f));
-        g.fillRect (bounds);
+        AlphaDraw::overlayVeil (g, bounds);
+        AlphaDraw::overlaySheet (g, panelBounds, 12.0f);
 
-        SixpackLookAndFeel::renderGlassPanel (g, panelBounds, 10.0f);
-        g.setColour (SixpackColours::ledAmber.withAlpha (0.4f));
-        g.drawRoundedRectangle (panelBounds.reduced (0.5f), 10.0f, 1.0f);
-
-        g.setColour (SixpackColours::ledAmber);
+        g.setColour (AlphaPalette::get().heading());
         g.setFont (juce::Font (juce::FontOptions (20.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
         g.drawFittedText ("PRESETS", titleArea.toNearestInt(), juce::Justification::centredLeft, 1);
 
         if (filteredIndices.isEmpty())
         {
-            g.setColour (SixpackColours::textDim);
+            g.setColour (AlphaPalette::get().sheetTextSoft());
             g.setFont (juce::Font (juce::FontOptions (15.0f)));
             g.drawFittedText ("No presets match your search.",
                                listBox.getBounds(), juce::Justification::centred, 1);
@@ -175,7 +173,7 @@ public:
         {
             if (rowIsSelected)
             {
-                g.setColour (juce::Colours::white.withAlpha (0.05f));
+                g.setColour (AlphaPalette::get().accent.withAlpha (0.08f));
                 g.fillRoundedRectangle (bounds, 4.0f);
             }
 
@@ -188,7 +186,7 @@ public:
                 chevron.addTriangle (c.x - 5.0f, c.y - 4.0f, c.x + 5.0f, c.y - 4.0f, c.x, c.y + 5.0f);
             else
                 chevron.addTriangle (c.x - 4.0f, c.y - 5.0f, c.x - 4.0f, c.y + 5.0f, c.x + 5.0f, c.y);
-            g.setColour (SixpackColours::ledAmber);
+            g.setColour (AlphaPalette::get().heading());
             g.fillPath (chevron);
 
             g.setFont (juce::Font (juce::FontOptions (15.5f, juce::Font::bold)).withExtraKerningFactor (0.04f));
@@ -202,12 +200,12 @@ public:
 
         if (isCurrent)
         {
-            g.setColour (SixpackColours::ledAmber.withAlpha (0.16f));
+            g.setColour (AlphaPalette::get().heading().withAlpha (0.16f));
             g.fillRoundedRectangle (bounds, 4.0f);
         }
         else if (rowIsSelected)
         {
-            g.setColour (juce::Colours::white.withAlpha (0.05f));
+            g.setColour (AlphaPalette::get().accent.withAlpha (0.08f));
             g.fillRoundedRectangle (bounds, 4.0f);
         }
 
@@ -216,11 +214,11 @@ public:
             textBounds.removeFromLeft (22.0f);
         auto authorArea = textBounds.removeFromRight (120.0f);
 
-        g.setColour (isCurrent ? SixpackColours::ledAmber : SixpackColours::textBright);
+        g.setColour (isCurrent ? AlphaPalette::get().heading() : AlphaPalette::get().sheetText());
         g.setFont (juce::Font (juce::FontOptions (16.0f, isCurrent ? juce::Font::bold : juce::Font::plain)));
         g.drawFittedText (e.name, textBounds.toNearestInt(), juce::Justification::centredLeft, 1);
 
-        g.setColour (e.isFactory ? SixpackColours::ledBlue.withAlpha (0.8f) : SixpackColours::textDim);
+        g.setColour (e.isFactory ? AlphaPalette::get().accent.withAlpha (0.8f) : AlphaPalette::get().sheetTextSoft());
         g.setFont (juce::Font (juce::FontOptions (12.5f, juce::Font::plain)).withExtraKerningFactor (0.04f));
         g.drawFittedText (e.author, authorArea.toNearestInt(), juce::Justification::centredRight, 1);
     }
@@ -319,9 +317,9 @@ private:
     bool masteringExpanded = true;
 
     juce::TextEditor searchBox;
-    std::array<RackButton, 3> categoryButtons;
+    std::array<juce::TextButton, 3> categoryButtons;
     juce::ListBox listBox;
-    RackButton closeButton { {}, SixpackColours::ledRed };
+    juce::TextButton closeButton;
 
     juce::Rectangle<float> panelBounds;
     juce::Rectangle<int> titleArea;

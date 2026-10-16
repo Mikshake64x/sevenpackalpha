@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 #include "PluginProcessor.h"
 
 /**
@@ -13,7 +13,7 @@
 
     Meme style neumorphic "dark mono" que SOLO/SEL (retour utilisateur :
     "il faut le meme type de bouton que solo et sel" -- voir
-    SixpackLookAndFeel::paintNeumorphicButton()), avec un "lit" qui
+    SevenpackLookAndFeel::paintNeumorphicButton()), avec un "lit" qui
     CLIGNOTE (BlinkTimer) tant que l'analyse tourne (Capturing/Analyzing,
     lu directement sur AiLearnAnalyzer::getState(), pas de parametre APVTS
     -- ce n'est pas automatisable/sauvegarde, comme Link In/Out) au lieu
@@ -23,7 +23,7 @@ class AiLearnButton : public juce::Button,
                        private juce::Timer
 {
 public:
-    explicit AiLearnButton (SixpackAudioProcessor& p)
+    explicit AiLearnButton (SevenpackAudioProcessor& p)
         : juce::Button ("AI Learn"), processor (p)
     {
         setClickingTogglesState (false);
@@ -46,8 +46,8 @@ public:
         const bool busy = state == AiLearnAnalyzer::State::Capturing || state == AiLearnAnalyzer::State::Analyzing;
         const bool lit = busy && blinkOn;
 
-        SixpackLookAndFeel::paintNeumorphicButton (g, getLocalBounds().toFloat(), lit, isDown,
-                                                     SixpackColours::ledCyan, "LEARN", 1.0f, haloMargin);
+        SevenpackLookAndFeel::paintNeumorphicButton (g, getLocalBounds().toFloat(), lit, isDown,
+                                                     SevenpackColours::ledCyan, "LEARN", 1.0f, haloMargin);
     }
 
 private:
@@ -69,7 +69,7 @@ private:
         }
     }
 
-    SixpackAudioProcessor& processor;
+    SevenpackAudioProcessor& processor;
     bool blinkOn = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AiLearnButton)

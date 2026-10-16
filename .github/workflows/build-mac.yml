@@ -1,4 +1,4 @@
-name: Build macOS VST3/AU
+name: Build macOS VST3 + Standalone (DMG)
 
 on:
   workflow_dispatch:
@@ -35,48 +35,76 @@ jobs:
           PROJUCER="../JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer"
           "$PROJUCER" --set-global-search-path osx defaultJuceModulePath "$(cd ../JUCE/modules && pwd)"
 
-      - name: Générer le projet Xcode depuis Sixpack.jucer
+      - name: Générer le projet Xcode depuis SevenpackAlpha.jucer
         run: |
-          ../JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer --resave "Sixpack.jucer"
+          ../JUCE/extras/Projucer/Builds/MacOSX/build/Release/Projucer.app/Contents/MacOS/Projucer --resave "SevenpackAlpha.jucer"
 
+      # Binaires universels (Apple Silicon + Intel).
       - name: Compiler le plugin (VST3)
         run: |
-          xcodebuild -project "Builds/MacOSX/Sixpack.xcodeproj" -target "Sixpack - VST3" -configuration Release
+          xcodebuild -project "Builds/MacOSX/SevenpackAlpha.xcodeproj" -target "SevenpackAlpha - VST3" \
+            -configuration Release ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO
+
+      - name: Compiler l'application (Standalone)
+        run: |
+          xcodebuild -project "Builds/MacOSX/SevenpackAlpha.xcodeproj" -target "SevenpackAlpha - Standalone Plugin" \
+            -configuration Release ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO
 
       - name: Uploader le VST3
         uses: actions/upload-artifact@v4
         with:
-          name: Sixpack-macOS-VST3
-          path: "Builds/MacOSX/build/Release/Sixpack.vst3"
+          name: SevenpackAlpha-macOS-VST3
+          path: "Builds/MacOSX/build/Release/SevenpackAlpha.vst3"
+
+      - name: Uploader le Standalone
+        uses: actions/upload-artifact@v4
+        with:
+          name: SevenpackAlpha-macOS-Standalone
+          path: "Builds/MacOSX/build/Release/SevenpackAlpha.app"
 
   build-dmg:
     needs: build-mac
     runs-on: macos-latest
 
     steps:
-      - name: Récupérer le code (pour le Readme)
+      - name: Récupérer le code (pour le Readme et la version)
         uses: actions/checkout@v4
 
       - name: Télécharger le VST3
         uses: actions/download-artifact@v4
         with:
-          name: Sixpack-macOS-VST3
-          path: staging/Sixpack.vst3
+          name: SevenpackAlpha-macOS-VST3
+          path: staging/SevenpackAlpha.vst3
 
+      - name: Télécharger le Standalone
+        uses: actions/download-artifact@v4
+        with:
+          name: SevenpackAlpha-macOS-Standalone
+          path: staging/SevenpackAlpha.app
+
+      # La version vient du .jucer (plus de numero a recopier ici).
       - name: Assembler le DMG
         run: |
           set -e
+          VERSION=$(grep -o 'version="[0-9.]*"' SevenpackAlpha.jucer | head -1 | cut -d'"' -f2)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+          # Les artefacts perdent le bit executable : on le remet.
+          chmod +x "staging/SevenpackAlpha.app/Contents/MacOS/"* || true
+          chmod +x "staging/SevenpackAlpha.vst3/Contents/MacOS/"* || true
+
           cp Readme-osx.txt "staging/Readme.txt"
 
-          # Raccourci glisser-déposer vers le dossier de plugins VST3 standard
+          # Raccourcis glisser-deposer : dossier VST3 standard et Applications.
           ln -s /Library/Audio/Plug-Ins/VST3 "staging/VST3 (drag plugin here)"
+          ln -s /Applications "staging/Applications (drag app here)"
 
-          hdiutil create -volname "Sixpack 1.18.0" \
+          hdiutil create -volname "Sevenpack Alpha $VERSION" \
             -srcfolder staging -ov -format UDZO \
-            "Sixpack-1.18.0.dmg"
+            "SevenpackAlpha-$VERSION.dmg"
 
       - name: Uploader le DMG
         uses: actions/upload-artifact@v4
         with:
-          name: Sixpack-1.18.0-DMG
-          path: "Sixpack-1.18.0.dmg"
+          name: SevenpackAlpha-${{ env.VERSION }}-DMG
+          path: "SevenpackAlpha-${{ env.VERSION }}.dmg"

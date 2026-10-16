@@ -1,12 +1,12 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 
 /**
-    SixpackLogoButton
+    SevenpackLogoButton
     ---------------------
-    Le logo (SIXPACK, sixpacklogo3.png -- retour utilisateur explicite :
-    "j'ai ajoute logosixpack3 ... sur le logo 2 dans le 6 de sixpack, les
+    Le logo (SEVENPACK, sevenpacklogo3.png -- retour utilisateur explicite :
+    "j'ai ajoute logosevenpack3 ... sur le logo 2 dans le 6 de sevenpack, les
     barres de couleurs etaient statiques ... je souhaite les rendre
     dynamique") EST le declencheur de la page About -- remplace le
     monogramme SK separe (retire, demande explicite anterieure). Meme
@@ -23,18 +23,18 @@
     laisse voir les barres. Animation decorative libre (retour utilisateur :
     pas liee au signal), un simple Timer pour la boucle.
 */
-class SixpackLogoButton : public juce::Component,
+class SevenpackLogoButton : public juce::Component,
                            private juce::Timer
 {
 public:
-    SixpackLogoButton()
+    SevenpackLogoButton()
     {
-        image = juce::ImageCache::getFromMemory (BinaryData::sixpacklogo3_png, BinaryData::sixpacklogo3_pngSize);
+        image = juce::ImageCache::getFromMemory (BinaryData::sevenpacklogo3_png, BinaryData::sevenpacklogo3_pngSize);
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
         startTimerHz (30);
     }
 
-    ~SixpackLogoButton() override { stopTimer(); }
+    ~SevenpackLogoButton() override { stopTimer(); }
 
     void resized() override { updateBounds(); }
 
@@ -120,8 +120,8 @@ private:
 
         static const juce::Colour barColours[] =
         {
-            SixpackColours::ledCyan, SixpackColours::ledGreen, SixpackColours::ledAmber,
-            SixpackColours::ledOrange, SixpackColours::ledPurple, SixpackColours::ledRed
+            SevenpackColours::ledCyan, SevenpackColours::ledGreen, SevenpackColours::ledAmber,
+            SevenpackColours::ledOrange, SevenpackColours::ledPurple, SevenpackColours::ledRed
         };
         // La forme reelle du "6" retrecit sur son bord droit (bbox mesuree
         // = rectangle englobant, pas le vrai contour) -- les 2 barres les
@@ -165,7 +165,7 @@ private:
     juce::Rectangle<int> drawBounds, clickBounds;
 
     // Fraction normalisee (x, y, largeur, hauteur) du trou transparent dans
-    // le "6" de sixpacklogo3.png -- mesure sur le canevas source 1774x887 :
+    // le "6" de sevenpacklogo3.png -- mesure sur le canevas source 1774x887 :
     // bbox reelle x[657,1345] y[283,730] (flood fill des pixels transparents
     // non atteignables depuis le bord, donc reellement ENCLAVES dans le
     // trait, pas le fond transparent autour du logo).

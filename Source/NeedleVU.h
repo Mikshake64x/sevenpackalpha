@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 #include "PluginProcessor.h"
 
 /**
@@ -55,9 +55,9 @@ public:
     // ballistique cible = rangeLo(), AUCUNE lecture de clipAmount()/inDb()/etc
     // tant que desactive) mais pilote par un atomic<float> LOCAL au lieu du
     // Power -- utilise par ThdValveModule pour ses 3 aiguilles (idSoftClip).
-    NeedleVU (SixpackAudioProcessor& p, Mode initialMode, Channel ch,
+    NeedleVU (SevenpackAudioProcessor& p, Mode initialMode, Channel ch,
               std::atomic<float>* externalAmountSource = nullptr,
-              juce::Colour accentOverride = SixpackColours::ledCyan,
+              juce::Colour accentOverride = SevenpackColours::ledCyan,
               juce::Colour needleColourOverride = juce::Colour (0xFFF4E9C8),
               std::atomic<float>* externalEnabledSource = nullptr)
         : processor (p), mode (initialMode), channel (ch),
@@ -100,7 +100,7 @@ public:
         const int W = getWidth(), H = getHeight();
         if (W < 10 || H < 10) return;
 
-        const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
+        const auto* laf = dynamic_cast<SevenpackLookAndFeel*> (&getLookAndFeel());
         const bool powered = ((laf == nullptr) || laf->isPowered())
                               && (externalEnabled == nullptr || externalEnabled->load() > 0.5f);
         if (staticCacheDirty || powered != cachedPowered)
@@ -215,7 +215,7 @@ private:
         g.fillRoundedRectangle (full, 6.0f);
         g.setColour (juce::Colours::white.withAlpha (0.08f));
         g.drawRoundedRectangle (full.reduced (0.75f), 6.0f, 1.0f);
-        SixpackLookAndFeel::renderCornerScrews (g, full, 8.0f, 2.4f);
+        SevenpackLookAndFeel::renderCornerScrews (g, full, 8.0f, 2.4f);
 
         auto inset = full.reduced ((float) frameMargin);
         g.setColour (juce::Colour (0xff0d0f11));
@@ -273,7 +273,7 @@ private:
             const bool hot = isHot (db);
             const auto p0 = pointOnArc (ang, radius * 0.86f);
             const auto p1 = pointOnArc (ang, radius * 1.0f);
-            g.setColour ((hot ? SixpackColours::ledRed : tickAccent).withAlpha (dim));
+            g.setColour ((hot ? SevenpackColours::ledRed : tickAccent).withAlpha (dim));
             g.drawLine (p0.x, p0.y, p1.x, p1.y, juce::approximatelyEqual (db, dbs[0]) ? 2.0f : 1.4f);
             const auto lp = pointOnArc (ang, radius * 1.16f);
             g.setColour (tickAccent.withAlpha (dim));
@@ -291,7 +291,7 @@ private:
                 const auto pt = pointOnArc (angleFor (db), radius * 1.0f);
                 if (i == 0) redArc.startNewSubPath (pt); else redArc.lineTo (pt);
             }
-            g.setColour (SixpackColours::ledRed.withAlpha (0.85f * dim));
+            g.setColour (SevenpackColours::ledRed.withAlpha (0.85f * dim));
             g.strokePath (redArc, juce::PathStrokeType (2.0f));
         }
 
@@ -321,7 +321,7 @@ private:
 
     void timerCallback() override
     {
-        const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
+        const auto* laf = dynamic_cast<SevenpackLookAndFeel*> (&getLookAndFeel());
         const bool powered = ((laf == nullptr) || laf->isPowered())
                               && (externalEnabled == nullptr || externalEnabled->load() > 0.5f);
 
@@ -413,7 +413,7 @@ private:
         return angles[n - 1];
     }
 
-    SixpackAudioProcessor& processor;
+    SevenpackAudioProcessor& processor;
     Mode mode;
     Channel channel;
 

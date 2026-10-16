@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 
 /**
     RackButton
@@ -19,7 +19,7 @@
 class RackButton : public juce::Button
 {
 public:
-    explicit RackButton (const juce::String& labelText = {}, juce::Colour accentColour = SixpackColours::ledAmber)
+    explicit RackButton (const juce::String& labelText = {}, juce::Colour accentColour = SevenpackColours::ledAmber)
         : juce::Button (labelText), accent (accentColour)
     {
         setButtonText (labelText);
@@ -36,7 +36,7 @@ public:
     void paintButton (juce::Graphics& g, bool /*isHighlighted*/, bool isDown) override
     {
         const bool on = getToggleState();
-        SixpackLookAndFeel::paintNeumorphicButton (g, getLocalBounds().toFloat(), on, isDown,
+        SevenpackLookAndFeel::paintNeumorphicButton (g, getLocalBounds().toFloat(), on, isDown,
                                                      accent, getButtonText().toUpperCase(),
                                                      isEnabled() ? 1.0f : 0.4f, haloMargin);
     }

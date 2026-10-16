@@ -8,7 +8,7 @@
     ---------
     Separe un signal mono en 7 bandes via 6 points de crossover (kNumSplits
     = 6, kNumBandsOut = 7) -- generalisation du crossover 3 bandes/2 points
-    de Tripressor (porte tel quel depuis Nuke Mext) a sixpack. Deux
+    de Tripressor (porte tel quel depuis Nuke Mext) a sevenpack. Deux
     modes, selecteur ANALOG / LINEAR cote UI (voir PluginEditor et
     XoverModeButton) :
 
@@ -114,13 +114,13 @@ public:
     // Les 4 bornes sont VOLONTAIREMENT identiques (20Hz-20kHz, la plage
     // audible complete) plutot que resserrees par "slot" comme dans une
     // premiere version -- retour utilisateur : quand une bande voisine est
-    // fusionnee (crossover desactive, voir SixpackAudioProcessor::
+    // fusionnee (crossover desactive, voir SevenpackAudioProcessor::
     // computeGroupOwners()), le crossover actif adjacent doit pouvoir
     // s'etendre librement sur toute la largeur ainsi liberee, pas rester
     // coince dans l'ancien intervalle etroit prevu pour 5 bandes actives.
     // L'ordre croissant entre les 4 (necessaire au DSP, voir Crossover::
     // processBlock()) reste applique dynamiquement cote UI/DSP (voir
-    // SixpackAudioProcessor::sanitizeCrossoverFrequencies() et
+    // SevenpackAudioProcessor::sanitizeCrossoverFrequencies() et
     // CrossoverSpectrumEditor -- un crossover desactive se laisse pousser
     // par ses voisins actifs plutot que de leur faire obstacle), pas par
     // des bornes de parametre distinctes par indice.

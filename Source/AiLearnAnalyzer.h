@@ -83,7 +83,7 @@ public:
     };
 
     // 7 bandes (Low/LowMid/Mid/HighMid/Presence/High/Air), 6 points de
-    // crossover -- memes indices que SixpackAudioProcessor::Band/NumBands/
+    // crossover -- memes indices que SevenpackAudioProcessor::Band/NumBands/
     // NumCrossovers (pas d'include croise possible, voir kRatioTable/
     // kKneeTable plus bas pour la meme contrainte).
     static constexpr int kNumBands = 7;
@@ -333,7 +333,7 @@ public:
     static constexpr float kExpandAmountRangeMinDb[kNumExpandAmountModes] = { 0.2f, 0.5f, 2.0f }; // Smooth/Mid/Hard
     static constexpr float kExpandAmountRangeMaxDb[kNumExpandAmountModes] = { 0.4f, 1.0f, 3.0f };
 
-    // Tables ratio/knee dupliquees depuis SixpackAudioProcessor (pas
+    // Tables ratio/knee dupliquees depuis SevenpackAudioProcessor (pas
     // d'include croise possible -- PluginProcessor.h inclut deja ce
     // fichier). Doivent rester synchronisees si la table change la-bas.
     static constexpr float kRatioTable[7] = { 2.0f, 3.0f, 4.0f, 6.0f, 8.0f, 10.0f, 20.0f };

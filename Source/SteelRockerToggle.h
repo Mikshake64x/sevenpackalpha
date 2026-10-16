@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 
 /**
     SteelRockerToggle
@@ -44,7 +44,7 @@ public:
 
         if (sprite.isNull())
         {
-            g.setColour (on ? SixpackColours::ledBlue.withAlpha (0.4f) : juce::Colours::black);
+            g.setColour (on ? SevenpackColours::ledBlue.withAlpha (0.4f) : juce::Colours::black);
             g.fillRoundedRectangle (switchArea.reduced (2.0f), 4.0f);
         }
         else
@@ -71,7 +71,7 @@ public:
         if (hasLabel)
         {
             auto labelArea = full.withTop (switchArea.getBottom());
-            g.setColour (on ? SixpackColours::ledBlue : SixpackColours::textDim);
+            g.setColour (on ? SevenpackColours::ledBlue : SevenpackColours::textDim);
             g.setFont (juce::Font (juce::FontOptions (juce::jmin (9.0f, labelArea.getHeight() * 0.42f), juce::Font::bold))
                            .withExtraKerningFactor (0.05f));
 

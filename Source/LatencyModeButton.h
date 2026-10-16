@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 
 /**
     LatencyModeButton
@@ -8,13 +8,13 @@
     Petite icone engrenage, collee au bouton XoverModeButton (WIDE/LINEAR) :
     ouvre au clic un menu (Low ~7ms / Medium ~25ms / High ~80ms) pour choisir
     le budget de latence du crossover en mode LINEAR (voir Crossover.h et
-    SixpackAudioProcessor::paramLinearLatencyMode). Sans effet en mode
+    SevenpackAudioProcessor::paramLinearLatencyMode). Sans effet en mode
     WIDE (toujours 0 latence).
 
-    Porte depuis Nuke Mext (couleurs adaptees a SixpackColours). Ce
+    Porte depuis Nuke Mext (couleurs adaptees a SevenpackColours). Ce
     composant ne dessine que l'icone et gere le clic (ouverture du menu) --
     le PopupMenu lui-meme et le cablage au parametre APVTS sont geres par
-    l'editeur (voir SixpackAudioProcessorEditor::showLatencyModeMenu()).
+    l'editeur (voir SevenpackAudioProcessorEditor::showLatencyModeMenu()).
 */
 class LatencyModeButton : public juce::Button
 {
@@ -30,7 +30,7 @@ public:
         const auto centre = bounds.getCentre();
         const float r = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
 
-        const juce::Colour colour = SixpackColours::textDim.withAlpha (isDown ? 0.55f : (isHighlighted ? 1.0f : 0.8f));
+        const juce::Colour colour = SevenpackColours::textDim.withAlpha (isDown ? 0.55f : (isHighlighted ? 1.0f : 0.8f));
         g.setColour (colour);
 
         constexpr int numTeeth = 8;
@@ -50,7 +50,7 @@ public:
 
         g.fillEllipse (juce::Rectangle<float> (innerR * 1.65f, innerR * 1.65f).withCentre (centre));
 
-        g.setColour (SixpackColours::bg);
+        g.setColour (SevenpackColours::bg);
         g.fillEllipse (juce::Rectangle<float> (innerR * 0.85f, innerR * 0.85f).withCentre (centre));
         g.setColour (colour);
         g.drawEllipse (juce::Rectangle<float> (innerR * 0.85f, innerR * 0.85f).withCentre (centre), 1.1f);

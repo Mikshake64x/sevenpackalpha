@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 
 /**
     ConsoleFader
@@ -235,7 +235,7 @@ public:
     }
 
 private:
-    juce::Colour accentColour = SixpackColours::ledCyan;
+    juce::Colour accentColour = SevenpackColours::ledCyan;
     float majorStep = 10.0f, minorStep = 2.0f;
     bool showTicks = true;
     float edgePaddingX = 0.0f, edgePaddingTop = 0.0f, edgePaddingBottom = 0.0f;

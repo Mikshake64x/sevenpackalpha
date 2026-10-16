@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 
 /**
     RatioSelector
@@ -14,7 +14,7 @@
     maintenant sur les bandes derriere les knob et bouton. je veux pas ca"
     -- l'ancien style "plastique carre en relief" (fond mat + bordure
     TOUJOURS visible, voir git blame) tranchait avec SOLO/SEL/LEARN/etc,
-    deja convertis) : coque neumorphic (SixpackLookAndFeel::
+    deja convertis) : coque neumorphic (SevenpackLookAndFeel::
     paintNeumorphicButton(), texte vide -- le libelle est dessine
     separement ci-dessous, sous la diode) + diode de couleur (degrade
     cyan->rouge, ratios doux->durs) au-dessus, INCHANGEE.
@@ -49,15 +49,34 @@ public:
 
         void paintButton (juce::Graphics& g, bool /*isHighlighted*/, bool isDown) override
         {
-            const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
+            const auto* laf = dynamic_cast<SevenpackLookAndFeel*> (&getLookAndFeel());
             const bool powered = (laf == nullptr) || laf->isPowered();
             // Bouton physique : l'aspect (enfonce/sureleve) suit l'etat
             // mecanique, pas le courant. Seule la diode s'eteint.
             const bool on = getToggleState();
             const bool ledLit = powered && on;
 
-            SixpackLookAndFeel::paintNeumorphicButton (g, getLocalBounds().toFloat(), on, isDown, ledColour, juce::String(),
+            SevenpackLookAndFeel::paintNeumorphicButton (g, getLocalBounds().toFloat(), on, isDown, ledColour, juce::String(),
                                                          1.0f, haloMargin);
+
+            // Mode compact (tranches Sevenpack, voir RatioSelector::
+            // setCompact()) : chiffre seul ("4" pour 4:1), pas de diode --
+            // le chiffre du ratio actif prend la couleur d'accent (et
+            // s'eteint hors tension, comme la diode).
+            if (compact)
+            {
+                auto b = getLocalBounds().toFloat().reduced (haloMargin);
+                const bool lightTheme = SevenpackLookAndFeel::isLightThemeStatic();
+                const auto litColour = lightTheme ? ledColour.darker (0.45f) : ledColour;
+                if (SevenpackLookAndFeel::isDosThemeStatic() && on)
+                    g.setColour (juce::Colours::black); // DOS : bouton actif rempli de la couleur d'accent
+                else
+                    g.setColour (ledLit ? litColour
+                                        : (lightTheme ? juce::Colour (0xff1a1a1a) : juce::Colours::white).withAlpha (on ? 0.5f : 0.8f));
+                g.setFont (juce::Font (juce::FontOptions (juce::jmin (12.5f, b.getHeight() * 0.56f), juce::Font::bold)));
+                g.drawFittedText (text.upToFirstOccurrenceOf (":", false, false), b.toNearestInt(), juce::Justification::centred, 1);
+                return;
+            }
 
             auto bounds = getLocalBounds().toFloat().reduced (haloMargin);
             const float ledDiameter = juce::jmin (7.0f, bounds.getWidth() * 0.22f);
@@ -72,7 +91,7 @@ public:
             // d'accent (degrade cyan->rouge), pas juste la diode au-dessus.
             // ledColour.darker(0.2f) en theme clair rendait ca trop pres du
             // noir sur certains ratios pour se distinguer clairement.
-            const bool lightTheme = SixpackLookAndFeel::isLightThemeStatic();
+            const bool lightTheme = SevenpackLookAndFeel::isLightThemeStatic();
             g.setColour (on ? ledColour
                             : (lightTheme ? juce::Colour (0xff1a1a1a) : juce::Colours::white).withAlpha (0.88f));
             g.setFont (juce::Font (juce::FontOptions (juce::jmin (12.5f, bounds.getWidth() * 0.34f), juce::Font::bold)));
@@ -83,6 +102,7 @@ public:
         juce::String text;
         juce::Colour ledColour;
         float haloMargin = 4.0f;
+        bool compact = false;
     };
 
     RatioSelector()
@@ -92,7 +112,7 @@ public:
         for (int i = 0; i < numRatios; ++i)
         {
             // Degrade cyan (2:1, le plus doux) -> rouge (20:1, le plus dur).
-            const juce::Colour ledColour = SixpackLookAndFeel::ratioLedColour ((float) i / (float) (numRatios - 1));
+            const juce::Colour ledColour = SevenpackLookAndFeel::ratioLedColour ((float) i / (float) (numRatios - 1));
             buttons[i] = std::make_unique<RatioButton> (names[i], ledColour);
             buttons[i]->setRadioGroupId (1001, juce::dontSendNotification);
             addAndMakeVisible (*buttons[i]);
@@ -131,27 +151,45 @@ public:
     // segmentMargin/ConsoleFader::edgePadding) -- l'appelant EXTERIEUR
     // (PluginEditor.cpp) doit agrandir les bounds de CE composant d'autant.
     static constexpr float buttonMargin = 4.0f;
+    // Marge de halo du mode compact -- meme contrat que buttonMargin
+    // ci-dessus (l'appelant agrandit les bounds d'autant).
+    static constexpr float compactButtonMargin = 1.5f;
+
+    // Rangee etroite des tranches Sevenpack (~170px pour 7 boutons, voir
+    // BandStrip.h) : chiffre seul, pas de diode, halo et gap reduits.
+    void setCompact (bool shouldBeCompact)
+    {
+        compact = shouldBeCompact;
+        for (auto& b : buttons)
+        {
+            b->compact = shouldBeCompact;
+            b->setHaloMargin (shouldBeCompact ? compactButtonMargin : 4.0f);
+        }
+        resized();
+    }
 
     void resized() override
     {
-        auto bounds = getLocalBounds().toFloat().reduced (buttonMargin);
+        const float margin = compact ? compactButtonMargin : buttonMargin;
+        auto bounds = getLocalBounds().toFloat().reduced (margin);
         // Gap agrandi (4 -> 9, retour utilisateur : reference visuelle
         // "C -- extreme") : reserve un peu d'air entre les 7 boutons pour
         // que le halo (voir RatioButton::haloMargin) reste lisible comme
         // un vrai relief individuel plutot que de fusionner visuellement
-        // avec le voisin.
-        constexpr float gap = 9.0f;
+        // avec le voisin. 3px seulement en mode compact (manque de place).
+        const float gap = compact ? 3.0f : 9.0f;
         const float w = (bounds.getWidth() - gap * (float) (numRatios - 1)) / (float) numRatios;
         for (int i = 0; i < numRatios; ++i)
         {
             juce::Rectangle<float> nominal (bounds.getX() + (float) i * (w + gap), bounds.getY(), w, bounds.getHeight());
-            buttons[i]->setBounds (nominal.expanded (buttonMargin).toNearestInt());
+            buttons[i]->setBounds (nominal.expanded (margin).toNearestInt());
         }
     }
 
     void paint (juce::Graphics&) override {}
 
 private:
+    bool compact = false;
     int selected = 3; // 6:1 par defaut
     std::unique_ptr<RatioButton> buttons[numRatios];
 

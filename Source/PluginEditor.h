@@ -1,34 +1,20 @@
 #pragma once
 #include <JuceHeader.h>
 #include "PluginProcessor.h"
-#include "SixpackLookAndFeel.h"
-#include "GRMeter.h"
-#include "RatioSelector.h"
-#include "PowerRocker.h"
+#include "SevenpackLookAndFeel.h"
+// Interface Alpha : seuls les en-tetes reellement utilises sont inclus
+// (audit -- les 17 en-tetes de l'ancienne interface Sixpack ont ete retires).
 #include "ToggleSwitch.h"
-#include "RackPushButton.h"
 #include "DetectorFilterGraph.h"
-#include "NeedleVU.h"
-#include "NeedleModeSelector.h"
-#include "ThdHeaderModule.h"
-#include "BandMetersRack.h"
-#include "SixpackLogoButton.h"
 #include "AboutOverlay.h"
 #include "OptionsOverlay.h"
-#include "KnobSlider.h"
-#include "XoverModeButton.h"
-#include "LatencyModeButton.h"
-#include "AiLearnButton.h"
-#include "FaderControl.h"
-#include "SoloSwitch.h"
-#include "ABSwitch.h"
-#include "TrashButton.h"
-#include "RackButton.h"
-#include "PresetNameButton.h"
 #include "PresetBrowserOverlay.h"
 #include "ParamRamper.h"
 #include "LicenseOverlay.h"
 #include "CrossoverSpectrumEditor.h"
+#include "AlphaSkin.h"
+#include "AlphaMeters.h"
+#include "AlphaStrip.h"
 
 #if JUCE_WINDOWS
  #include <windows.h>
@@ -36,104 +22,45 @@
  #include <set>
 #endif
 
-struct KnobControl
-{
-    KnobSlider   slider;
-    juce::Label  label;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
-};
-
 /**
-    BandPanel
-    ---------
-    Une rangee de compression complete pour UNE bande -- GR meter/Ratio,
-    Compresseur (Input/Attack/Release/Output) ET Expandeur (Range/Attack/
-    Output) cote a cote, Optical/Overkill/Sidechain. Detector/Color/XY
-    (DetectorFilterGraph) restent CABLES (attachements/DSP intacts) mais
-    NE SONT PLUS AFFICHES (voir buildBandPanel() -- addChildComponent au
-    lieu de addAndMakeVisible) -- retour utilisateur explicite : "je
-    souhaite retirer detector, color et le XY. laisse dans le code mais
-    retire du visuel si un jour je veux remettre". Dry/Wet et Spread ont
-    demenage dans BandMetersRack (rack du bas). MOINS le Power rocker
-    (devenu global, voir barre de controle). Les 5 instances existent
-    TOUJOURS (attachements crees une fois, voir buildBandPanel()), mais
-    UNE SEULE est visible a la fois -- celle choisie en cliquant une zone
-    de bande dans CrossoverSpectrumEditor (voir SixpackEditorContent::
-    selectedBand/refreshBandPanelVisibility()).
+    HiddenBandControls
+    ------------------
+    Detector (HP/LP, Bell, Bell 2, Link), Audio HP et Color (TUBE/FUZZ) +
+    graphe XY (DetectorFilterGraph) d'UNE bande -- CABLES (attachements
+    intacts) mais JAMAIS AFFICHES (addChildComponent, voir
+    SevenpackEditorContent::buildHiddenBandControls()) -- retour utilisateur
+    explicite (Sixpack) : "je souhaite retirer detector, color et le XY.
+    laisse dans le code mais retire du visuel si un jour je veux remettre".
+    Tout le reste de la bande (ratio, knobs, metres, Dry/Wet, Spread, SOLO)
+    vit desormais dans sa tranche, voir BandStrip.h.
 */
-struct BandPanel
+struct HiddenBandControls
 {
-    ToggleSwitch opticalButton { "OPTICAL", SixpackColours::ledAmber };
-    ToggleSwitch britishButton { "OVERKILL", SixpackColours::ledRed };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> opticalAttachment, britishAttachment;
-
-    // Ancien bouton Comp/Expand -- RETIRE DU VISUEL (addChildComponent,
-    // jamais addAndMakeVisible, voir buildBandPanel()) : Compresseur et
-    // Expandeur ont maintenant chacun leurs propres knobs permanents, plus
-    // besoin de choisir un mode. Le composant reste instancie (idAboveBelow
-    // reste dans l'APVTS pour la compat des presets/automations
-    // existants), mais plus aucun ParameterAttachment ne le pilote.
-    ToggleSwitch aboveBelowButton { "COMP", SixpackColours::ledBlue };
-
-    ToggleSwitch sidechainToggle { "SC", SixpackColours::ledCyan };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> sidechainAttachment;
-
-    // Solo -- a gauche de la rangee, sous le tag LOW/MID/HIGH (voir
-    // SoloSwitch.h). Exclut les 2 autres bandes du mix tant qu'actif.
-    std::unique_ptr<SoloSwitch> soloSwitch;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> soloAttachment;
-
-    std::unique_ptr<GRMeter> grMeter;
-
-    RatioSelector ratioSelector;
-    std::unique_ptr<juce::ParameterAttachment> ratioAttachment;
-
-    ToggleSwitch detectorHpToggle   { "HP",   SixpackColours::ledGreen };
-    ToggleSwitch detectorBellToggle { "BELL", SixpackColours::ledYellow };
-    // BANDES INTERMEDIAIRES (LowMid/Mid/HighMid, remplace detectorHpToggle,
-    // cache pour ces bandes -- deja bornees par les crossovers voisins, un
-    // HP y est redondant) : 2e point Bell independant sur le detecteur,
+    ToggleSwitch detectorHpToggle   { "HP",   SevenpackColours::ledGreen };
+    ToggleSwitch detectorBellToggle { "BELL", SevenpackColours::ledYellow };
+    // BANDES INTERMEDIAIRES : 2e point Bell independant sur le detecteur,
     // voir DetectorFilterGraph.
-    ToggleSwitch detectorBell2Toggle { "BELL 2", SixpackColours::ledBlue };
-    ToggleSwitch detectorLinkToggle { "LINK", SixpackColours::ledRed };
-    ToggleSwitch audioHpToggle      { "HP",     SixpackColours::ledBlue };
-    // Libelles "TUBE"/"FUZZ" (demande explicite) -- idAudioDist2/idAudioDist3
-    // et les noms de membre restent inchanges (IDs de parametre APVTS, ne
-    // pas casser les sessions/presets existants), seul le texte affiche change.
-    ToggleSwitch audioDist2Toggle   { "TUBE", SixpackColours::ledAmber };
-    ToggleSwitch audioDist3Toggle   { "FUZZ", SixpackColours::ledAmber };
+    ToggleSwitch detectorBell2Toggle { "BELL 2", SevenpackColours::ledBlue };
+    ToggleSwitch detectorLinkToggle { "LINK", SevenpackColours::ledRed };
+    ToggleSwitch audioHpToggle      { "HP",     SevenpackColours::ledBlue };
+    // Libelles "TUBE"/"FUZZ" -- idAudioDist2/idAudioDist3 inchanges (IDs de
+    // parametre APVTS, ne pas casser les sessions/presets existants).
+    ToggleSwitch audioDist2Toggle   { "TUBE", SevenpackColours::ledAmber };
+    ToggleSwitch audioDist3Toggle   { "FUZZ", SevenpackColours::ledAmber };
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>
         detectorHpAttachment, detectorBellAttachment, detectorBell2Attachment, detectorLinkAttachment,
         audioHpAttachment, audioDist2Attachment, audioDist3Attachment;
 
     std::unique_ptr<DetectorFilterGraph> filterGraph;
-
-    KnobControl inputKnob, attackKnob, releaseKnob, outputKnob;
-
-    // Expandeur, a droite du compresseur au-dela de la ligne de separation
-    // (retour utilisateur explicite : "dans les bandes avec le gain de
-    // place qu'on vient de faire, on va faire apparaitre les expandeurs.
-    // pas besoin du reglage release sur les expandeurs. on garde le cote
-    // violet des expandeurs") -- RANGE = idInputExpand (c'est LE MEME
-    // parametre que la ligne RANGE de CrossoverSpectrumEditor, juste une
-    // 2e poignee sur la meme valeur), pas de knob Release expose (le
-    // parametre idReleaseExpand reste cable cote DSP avec sa valeur par
-    // defaut). Teinte violette via SixpackLookAndFeel::
-    // setKnobAccentGradient (voir buildBandPanel()).
-    KnobControl expandRangeKnob, expandAttackKnob, expandOutputKnob;
-
-    // Tag "LOW"/"MID"/"HIGH" desormais un LOGO image (LogoLow/Mid/High_png,
-    // voir SixpackEditorContent::paint()) -- plus de Label texte.
-    juce::Colour accentColour;
 };
 
 /**
-    SixpackEditorContent
+    SevenpackEditorContent
     ------------------------
     TOUT le contenu visuel du plugin (barre de controle, plaque VU/THD, 3
     bandes), a TAILLE LOGIQUE FIXE (1400x750, jamais modifiee). C'est un
     juce::Component ORDINAIRE (pas un AudioProcessorEditor) -- voir
-    SixpackAudioProcessorEditor plus bas, qui l'heberge comme UNIQUE
+    SevenpackAudioProcessorEditor plus bas, qui l'heberge comme UNIQUE
     enfant avec une transformation d'echelle (setTransform). Cette
     separation est necessaire car un AudioProcessorEditor qui possede son
     propre "peer" (fenetre native de l'hote) ignore/ne propage pas
@@ -148,11 +75,11 @@ struct BandPanel
     propre paint() et se rend lui-meme "eteint", comme une machine
     debranchee. Voir timerCallback().
 */
-class SixpackEditorContent : public juce::Component, private juce::Timer
+class SevenpackEditorContent : public juce::Component, private juce::Timer
 {
 public:
-    explicit SixpackEditorContent (SixpackAudioProcessor&);
-    ~SixpackEditorContent() override;
+    explicit SevenpackEditorContent (SevenpackAudioProcessor&);
+    ~SevenpackEditorContent() override;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -181,15 +108,18 @@ public:
     // -20 (808, etait 828) -- 2 ecarts de 10px supprimes (retour
     // utilisateur : "il reste une bande grise en haut et en bas du
     // compresseur"), voir resized().
+    // Sevenpack : taille INCHANGEE -- l'ancien panneau de detail (144px) +
+    // le rack du bas (328px) sont remplaces a surface egale par les 7
+    // tranches (stripsPlateBounds, 472px, voir resized()).
     static constexpr int baseWidth = 1400, baseHeight = 808;
 
     // Appele quand l'utilisateur choisit une taille dans OptionsOverlay --
-    // branche par SixpackAudioProcessorEditor (le vrai proprietaire du
+    // branche par SevenpackAudioProcessorEditor (le vrai proprietaire du
     // redimensionnement hote, voir plus bas).
     std::function<void (float)> onScaleRequested;
 
     // Called when the user clicks "License" on the About screen — branched
-    // by SixpackAudioProcessorEditor to show its LicenseOverlay (which
+    // by SevenpackAudioProcessorEditor to show its LicenseOverlay (which
     // lives outside this scaled content, see PluginEditor's constructor).
     std::function<void()> onOpenLicenseRequested;
 
@@ -203,9 +133,9 @@ public:
     struct PresetData
     {
         juce::String name;
-        std::array<float, (size_t) SixpackAudioProcessor::NumCrossovers> crossoverHz
+        std::array<float, (size_t) SevenpackAudioProcessor::NumCrossovers> crossoverHz
             { { Crossover::kSplitDefaultHz[0], Crossover::kSplitDefaultHz[1], Crossover::kSplitDefaultHz[2], Crossover::kSplitDefaultHz[3], Crossover::kSplitDefaultHz[4] } };
-        std::array<bool, (size_t) SixpackAudioProcessor::NumCrossovers> crossoverEnabled { { true, true, true, true, true } };
+        std::array<bool, (size_t) SevenpackAudioProcessor::NumCrossovers> crossoverEnabled { { true, true, true, true, true } };
         bool linearMode = false; // WIDE (false) / LINEAR (true)
         bool softClipOn = true;  // THD Valve (global, engage par defaut)
         int thdMode = 0;         // 0=Soft 1=Tape 2=Iron 3=Air (voir SoftClipper::SatMode)
@@ -214,8 +144,8 @@ public:
         {
             float input = 0.0f;
             int ratioIndex = 3;
-            float attack = SixpackAudioProcessor::defaultAttackMs;
-            float release = SixpackAudioProcessor::defaultReleaseMs;
+            float attack = SevenpackAudioProcessor::defaultAttackMs;
+            float release = SevenpackAudioProcessor::defaultReleaseMs;
             float output = 0.0f;
 
             // Above/Below/Both + jeu de reglages Expand DEDIE (demande
@@ -227,8 +157,8 @@ public:
             int aboveBelow = 0; // 0=Comp (voir FeedbackCompressor::AboveBelowMode)
             float rangeExpand = 0.0f; // Range (dB), PAS un "Input" -- voir idInputExpand
             int ratioIndexExpand = 0; // 2:1
-            float attackExpand = SixpackAudioProcessor::defaultAttackMs;
-            float releaseExpand = SixpackAudioProcessor::defaultReleaseMs;
+            float attackExpand = SevenpackAudioProcessor::defaultAttackMs;
+            float releaseExpand = SevenpackAudioProcessor::defaultReleaseMs;
             float outputExpand = 0.0f;
 
             bool detectorHp = false;
@@ -250,36 +180,40 @@ public:
             float bandMix = 100.0f;
             float bandWidth = 100.0f;
         };
-        Band bands[(size_t) SixpackAudioProcessor::NumBands];
+        Band bands[(size_t) SevenpackAudioProcessor::NumBands];
 
         juce::String author;
         bool isFactory = false; // les presets usine ne peuvent pas etre supprimes
     };
 
 private:
-    void setupKnob (KnobControl& knob, const juce::String& paramID, const juce::String& labelText,
-                    const juce::String& unitSuffix, int decimalPlaces);
     void rebuildBackgroundCache();
     void refreshThemeReactiveColours();
     void timerCallback() override;
 
-    void buildBandPanel (int band, juce::Colour accent, const juce::String& tag);
-    void layoutBandRow (BandPanel& bp, juce::Rectangle<int> area);
+    // Detector/Color/XY caches (voir HiddenBandControls) -- les controles
+    // visibles de chaque bande vivent dans sa BandStrip.
+    void buildHiddenBandControls (int band);
 
-    // N'affiche que bandPanels[selectedBand] (masque les 4 autres) --
-    // appele au changement de selection (callback CrossoverSpectrumEditor::
-    // onBandSelected) et depuis resized(). isMid/audioHp/detectorLink
-    // suivent les memes regles de visibilite PAR BANDE que buildBandPanel()
-    // leur a donnees a la construction (pas de re-derivation ad-hoc).
-    void setBandPanelVisible (int band, bool visible);
-    void refreshBandPanelVisibility();
-
-    void wireInputLink();  // lien relatif entre les 3 knobs Input (voir linkInSwitch)
-    void wireOutputLink(); // lien relatif entre les 3 knobs Output (voir linkOutSwitch)
+    void wireInputLink();  // lien relatif entre les 7 knobs Input (voir linkInSwitch)
+    void wireOutputLink(); // lien relatif entre les 7 knobs Output (voir linkOutSwitch)
     void updateInputLinkVisuals();
     void updateOutputLinkVisuals();
+    void updateLinkVisuals();
 
     void showOptionsOverlay();
+
+    // --- Interface Alpha ---
+    // Applique un theme (0=Sombre, 1=Clair, 2=DOS) partout : interrupteur
+    // lune du header ET radio DESIGN des options passent par ici.
+    void applyUiTheme (int themeIndex);
+    // SEL d'une tranche ou clic dans une zone du graphe -- meme logique que
+    // Sixpack : clic simple = la bande devient la selection et le groupe lie
+    // est vide ; Ctrl/Cmd+clic = ajoute/retire la bande du groupe lie
+    // (faders OUT deplaces ensemble, delta relatif, voir wireOutputLink()).
+    void selectBand (int band, bool isMultiSelectModifier);
+    void refreshSelectionVisuals();
+    bool isInSelectionGroup (int band) const noexcept { return band == selectedBand || linkedBands[(size_t) band]; }
 
     // --- Presets (meme mecanisme que Nuke Mext, voir PresetData ci-dessus) ---
     void setParamValue (const juce::String& paramID, float rawValue);
@@ -298,6 +232,17 @@ private:
     void refreshPresetDisplay(); // met a jour nom/auteur affiches + l'etat actif/grise de la corbeille
     void promptSavePreset();   // ouvre la boite de dialogue "nom du preset" puis sauvegarde
     void promptDeletePreset(); // demande confirmation puis supprime le preset utilisateur courant
+    // --- Annuler / retablir (voir undoHistory) ---
+    std::vector<float> captureParamValues() const;
+    void pushUndoSnapshotIfChanged();
+    void restoreUndoSnapshot (int index);
+    void undo();
+    void redo();
+    void refreshUndoButtons();
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    bool keyPressed (const juce::KeyPress&) override;
+
     void copyStateToClipboard();
     void pasteStateFromClipboard();
 
@@ -307,128 +252,121 @@ private:
     // des que processorRef.aiLearnAnalyzer.getState() == Done.
     void applyAiLearnResult (const AiLearnAnalyzer::Result& result);
 
-    SixpackAudioProcessor& processorRef;
-    SixpackLookAndFeel lookAndFeel;
+    SevenpackAudioProcessor& processorRef;
+    SevenpackLookAndFeel lookAndFeel;
 
-    std::array<BandPanel, (size_t) SixpackAudioProcessor::NumBands> bandPanels;
+    // Detector/Color/XY caches par bande (voir HiddenBandControls).
+    std::array<HiddenBandControls, (size_t) SevenpackAudioProcessor::NumBands> hiddenBandControls;
+    // --- Interface v2 "Sevenpack Alpha" (maquette 7PACK, voir AlphaSkin.h) ---
 
-    // Bande actuellement affichee dans le panneau de detail unique (voir
-    // BandPanel/setBandPanelVisible()) -- etat purement visuel, PAS un
-    // parametre APVTS (pas automatisable, pas sauvegarde en preset/session
-    // -- redemarre sur MID a chaque ouverture, comme les onglets d'un menu).
-    int selectedBand = (int) SixpackAudioProcessor::Mid;
+    // Les 7 tranches (voir AlphaStrip.h) -- aiguille THD, SOLO/SEL, carte.
+    std::array<std::unique_ptr<AlphaStrip>, (size_t) SevenpackAudioProcessor::NumBands> bandStrips;
+    // Selection (comme Sixpack : MID au depart, pas un parametre APVTS) +
+    // bandes liees par Ctrl/Cmd+clic SEL (selectedBand n'y figure jamais,
+    // il est membre implicite du groupe).
+    int selectedBand = (int) SevenpackAudioProcessor::Mid;
+    std::array<bool, (size_t) SevenpackAudioProcessor::NumBands> linkedBands {};
 
-    // Bandes "liees" en edition (Ctrl/Cmd+clic sur SEL, retour utilisateur :
-    // "en appuyant sur control (cmd mac) on peut selectionner plusieurs
-    // bandes avec Sel ... je veux le meme systeme que le pairage d'une
-    // console") -- transmis a BandMetersRack (setSelectedBand()) qui gere
-    // le "pairage" reel des faders Output visibles (voir
-    // BandMetersRack::wireOutputSelectionLink()) : bouger le fader de
-    // N'IMPORTE QUELLE bande du groupe (selectedBand OU une bande liee)
-    // deplace toutes les autres du meme delta, symetrique comme sur une
-    // vraie console. Un clic SIMPLE (sans Ctrl) sur SEL vide cette
-    // selection et change juste selectedBand.
-    std::array<bool, (size_t) SixpackAudioProcessor::NumBands> linkedBands {};
-
-    // --- Barre de controle globale (haut) ---
-    PowerRocker powerButton;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> powerAttachment;
-
-    // A/B -- pilule encastree, cote actif colore (voir ABSwitch.h et
-    // SixpackAudioProcessor::toggleABCompare()/selectABSlot()).
-    ABSwitch abButton;
-
-    // Remplace les anciens knobs XLO/XHI (Tripressor) -- spectre + 4
-    // lignes de crossover draggables/activables + selection de bande, voir
-    // CrossoverSpectrumEditor.h et selectedBand ci-dessous.
+    // Spectre + 6 crossovers + 7 points IN (style Alpha, voir
+    // CrossoverSpectrumEditor::paintAlpha()).
     CrossoverSpectrumEditor crossoverSpectrum { processorRef };
 
-    // processorRef est declare (donc initialise) AVANT ce membre -- l'ordre
-    // d'initialisation suit l'ordre de DECLARATION dans la classe, pas
-    // l'ordre du constructeur, cette reference est donc valide ici (meme
-    // pattern que needleVu1/2 et thdHeader plus bas).
-    XoverModeButton xoverModeButton { *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idDigitalCrossover) };
-    LatencyModeButton latencyModeButton;
+    // --- En-tete ---
+    AlphaPillToggle powerToggle { AlphaPillToggle::Icon::Power };
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> powerAttachment;
+    AlphaPillToggle abToggle    { AlphaPillToggle::Icon::Letter }; // A/B (voir SevenpackAudioProcessor::selectABSlot())
+    AlphaPillToggle themeToggle { AlphaPillToggle::Icon::Moon };   // theme sombre (demande explicite : "gestion du theme integre dans l'interface")
+    AlphaPillToggle contrastToggle { AlphaPillToggle::Icon::Contrast }; // contraste renforce, sous A/B ("pour les ecrans pourris")
+    void applyHighContrast (bool shouldBeOn);
 
-    // Bouton AI, juste au-dessus de xoverModeButton (demande explicite) --
-    // meme raisonnement d'ordre d'initialisation que ci-dessus.
-    AiLearnButton aiLearnButton { processorRef };
-
-    // Style neumorphic "dark mono" unifie avec SOLO/SEL/LEARN/THD (retour
-    // utilisateur : "on va mettre les memes boutons pour link in link out"),
-    // remplace l'ancien ToggleSwitch (sprite).
-    RackPushButton linkInSwitch  { "LINK IN",  SixpackColours::ledGreen };
-    RackPushButton linkOutSwitch { "LINK OUT", SixpackColours::ledRed };
+    AlphaButton learnButton { "LEARN" };
+    AlphaButton analogButton { "ANALOG" }, linearButton { "LINEAR" };
+    AlphaButton linkInSwitch  { "LINK", "IN" };
+    AlphaButton linkOutSwitch { "LINK", "OUT" };
     bool linkInGuard = false, linkOutGuard = false;
-    std::array<double, (size_t) SixpackAudioProcessor::NumBands> lastInputValue {};
-    std::array<double, (size_t) SixpackAudioProcessor::NumBands> lastOutputValue {};
+    std::array<double, (size_t) SevenpackAudioProcessor::NumBands> lastInputValue {};
+    std::array<double, (size_t) SevenpackAudioProcessor::NumBands> lastOutputValue {};
 
-    SixpackLogoButton suppressorLogoButton;
+    AlphaLogo logoButton;
+
+    // THD global (idSoftClip) + 4 modes radio (idThdMode : 0 SOFT, 1 TAPE,
+    // 2 IRON, 3 AIR).
+    AlphaButton thdButton { "THD" };
+    std::array<std::unique_ptr<AlphaButton>, 4> thdModeButtons;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> softClipAttachment;
+    std::unique_ptr<juce::ParameterAttachment> thdModeAttachment;
+
+    // Mode des aiguilles des 7 tranches (THD / GR / GONIO, boutons a gauche
+    // des tranches) -- processorRef.meterMode.
+    std::array<std::unique_ptr<AlphaButton>, 3> meterModeButtons;
+    void syncMeterModeButtons()
+    {
+        const int mode = processorRef.meterMode.load();
+        for (int i = 0; i < 3; ++i)
+            if (meterModeButtons[(size_t) i] != nullptr)
+                meterModeButtons[(size_t) i]->setToggleState (mode == i, juce::dontSendNotification);
+    }
+
+    // Menu "3 points" -- remplace l'engrenage (demande explicite), ouvre
+    // OptionsOverlay.
+    AlphaKebab optionsButton;
+
     AboutOverlay aboutOverlay;
     OptionsOverlay optionsOverlay;
 
-    // --- Plaque VU globale (inchangee dans son contenu, juste deplacee
-    // plus bas dans resized()) ---
-    NeedleVU needleVu1 { processorRef, NeedleVU::modeForIndex (processorRef.needleModeIndex1), NeedleVU::Channel::Left };
-    NeedleVU needleVu2 { processorRef, NeedleVU::modeForIndex (processorRef.needleModeIndex2), NeedleVU::Channel::Right };
-    NeedleModeSelector needleVu1Modes { "L", processorRef.needleModeIndex1 };
-    NeedleModeSelector needleVu2Modes { "R", processorRef.needleModeIndex2 };
+    // Animation globale pendant LEARN (calque au-dessus du graphe et des
+    // tranches, voir AlphaMeters.h).
+    AlphaLearnFx learnFx { processorRef };
 
-    // THD compact, dans la barre de controle (remplace l'ancien rack
-    // pleine largeur ThdValveModule -- retour utilisateur : "on va
-    // liberer le rack du bas", voir ThdHeaderModule.h).
-    ThdHeaderModule thdHeader { *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idSoftClip),
-                                 processorRef.clipMeterAmount };
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> softClipAttachment;
-    std::unique_ptr<juce::ParameterAttachment> thdModeAttachment; // voir ThdHeaderModule (TAPE/IRON/AIR/CLIP)
-
-    // Rack du bas -- occupe desormais par un mini vu-metre GR/Expand par
-    // bande (retour utilisateur, voir BandMetersRack.h) ; la plaque restait
-    // vide depuis le deplacement du module THD dans la barre de controle.
-    BandMetersRack bandMetersRack { processorRef };
-
-    juce::Rectangle<float> controlBarBounds; // barre globale (haut)
-    juce::Rectangle<float> vuPlateBounds;
-    // UNE SEULE zone de detail (plus un tableau par bande) -- voir doc de
-    // classe BandPanel/selectedBand ci-dessus.
-    juce::Rectangle<float> bandPanelBounds;
-    juce::Rectangle<float> crossoverEditorBounds;
+    juce::Rectangle<float> panelBounds, headerBounds, crossoverEditorBounds, stripsBounds, footerBounds;
+    // Filets verticaux entre les groupes de l'en-tete (demande explicite :
+    // "bien separer dans le header les fonctions" -- ON/OFF A/B THEME |
+    // LEARN | ANALOG LINEAR | LINK IN/OUT).
+    // 3 a gauche (ON/OFF A/B THEME | LEARN | ANALOG LINEAR | LINK) + 2 a
+    // droite (avant le groupe THD et avant le bouton options -- audit).
+    std::array<float, 6> headerSeparatorX {};
+    juce::Rectangle<float> learnProgressBounds;
     juce::Image backgroundCache;
+    juce::Image woodImage;
 
-    // --- Presets rapides : barre dediee en bas de fenetre (Preset / < >
-    // nom / Copy / Paste / Save / Corbeille), meme mecanisme que Nuke Mext. ---
+    // --- Presets rapides (barre du bas, meme mecanisme que Nuke Mext). ---
     std::vector<PresetData> presets;
     ParamRamper knobRamper; // voir rampParamTo() -- anime les knobs au changement de preset
     int currentPresetIndex = -1;
 
-    juce::Label presetSectionLabel;
-    RackButton prevPresetButton { "<" };
-    RackButton nextPresetButton { ">" };
-    PresetNameButton presetNameButton; // ecran LCD cliquable -- ouvre le navigateur plein ecran (PresetBrowserOverlay)
-    juce::Label presetAuthorLabel;     // "Side Key" / nom de l'utilisateur, juste apres le nom
-    RackButton copyButton { "COPY", SixpackColours::ledBlue };
-    RackButton pasteButton { "PASTE", SixpackColours::ledBlue };
-    RackButton saveButton { "SAVE", SixpackColours::ledGreen };
-    TrashButton deletePresetButton; // supprime le preset utilisateur courant -- desactivee pour les presets Side Key
+    // Annuler / retablir (maquette + audit). Historique par instantanes de
+    // tous les parametres, voir pushUndoSnapshotIfChanged().
+    AlphaIconButton undoButton { AlphaIconButton::Icon::Undo, "Undo (Ctrl+Z)" };
+    AlphaIconButton redoButton { AlphaIconButton::Icon::Redo, "Redo (Ctrl+Y)" };
+    std::vector<std::vector<float>> undoHistory; // valeurs normalisees de processorRef.getParameters()
+    int undoIndex = -1;                          // instantane courant dans undoHistory
+    bool userTouchedParams = false;              // un geste/preset/LEARN depuis le dernier instantane
+    juce::uint32 lastParamChangeMs = 0;
+    std::vector<float> lastSeenParams;
 
-    // Plafond de sortie du THD Valve, loge a droite de la barre de presets
-    // (retour utilisateur : "je souhaite quand meme pouvoir gerer le niveau
-    // de sortie apres le THD ... de -0.5 a -3"). Slider LinearBar compact
-    // pour tenir dans la rangee de 26px.
-    juce::Label  thdCeilingLabel;
-    juce::Slider thdCeilingSlider;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> thdCeilingAttachment;
+    AlphaIconButton prevPresetButton { AlphaIconButton::Icon::Prev, "Previous preset" };
+    AlphaIconButton nextPresetButton { AlphaIconButton::Icon::Next, "Next preset" };
+    AlphaPresetPill presetNameButton; // ouvre le navigateur plein ecran (PresetBrowserOverlay)
+    juce::Label presetAuthorLabel;    // garde pour refreshPresetDisplay() -- non affiche dans l'interface Alpha
+    AlphaIconButton copyButton  { AlphaIconButton::Icon::Copy,  "Copy settings" };
+    AlphaIconButton pasteButton { AlphaIconButton::Icon::Paste, "Paste settings" };
+    AlphaIconButton saveButton  { AlphaIconButton::Icon::Save,  "Save preset" };
+    AlphaIconButton deletePresetButton { AlphaIconButton::Icon::Trash, "Delete preset" }; // desactive pour les presets Side Key
+
+    // Plafond de sortie du THD (-0.5 a -3 dB) : fleches + afficheur.
+    std::unique_ptr<AlphaCeilControl> thdCeiling;
+
 
     PresetBrowserOverlay presetBrowser;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SixpackEditorContent)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SevenpackEditorContent)
 };
 
 /**
-    SixpackAudioProcessorEditor
+    SevenpackAudioProcessorEditor
     -------------------------------
     Coquille MINCE -- le VRAI AudioProcessorEditor enregistre aupres de
-    l'hote. Possede un unique enfant, SixpackEditorContent (taille
+    l'hote. Possede un unique enfant, SevenpackEditorContent (taille
     logique FIXE, jamais modifiee), auquel elle applique une
     transformation d'echelle (voir applyUiScale()). C'est CETTE classe --
     et non le contenu -- qui appelle setSize() avec la taille MISE A
@@ -436,10 +374,10 @@ private:
     de facon fiable pour redimensionner reellement la fenetre du plugin
     (75/85/100%, voir OptionsOverlay).
 */
-class SixpackAudioProcessorEditor : public juce::AudioProcessorEditor
+class SevenpackAudioProcessorEditor : public juce::AudioProcessorEditor
 {
 public:
-    explicit SixpackAudioProcessorEditor (SixpackAudioProcessor& p)
+    explicit SevenpackAudioProcessorEditor (SevenpackAudioProcessor& p)
         : juce::AudioProcessorEditor (&p), processorRef (p), content (p), licenseOverlay (p.licenseManager)
     {
         // Opaque (retour utilisateur : "quand je change la taille du VST
@@ -452,7 +390,7 @@ public:
         // cette etape d'effacement intermediaire.
         setOpaque (true);
         addAndMakeVisible (content);
-        content.setBounds (0, 0, SixpackEditorContent::baseWidth, SixpackEditorContent::baseHeight);
+        content.setBounds (0, 0, SevenpackEditorContent::baseWidth, SevenpackEditorContent::baseHeight);
         content.onScaleRequested = [this] (float scale) { applyUiScale (scale); };
         content.onOpenLicenseRequested = [this] { licenseOverlay.showManually(); };
 
@@ -478,8 +416,8 @@ public:
         // meme avec ce flag a false, car c'est le PLUGIN qui demande sa
         // taille, pas un drag utilisateur (chemin different cote hote).
         setResizable (false, false);
-        setResizeLimits ((int) (SixpackEditorContent::baseWidth  * 0.75f), (int) (SixpackEditorContent::baseHeight * 0.75f),
-                          SixpackEditorContent::baseWidth,                 SixpackEditorContent::baseHeight);
+        setResizeLimits ((int) (SevenpackEditorContent::baseWidth  * 0.75f), (int) (SevenpackEditorContent::baseHeight * 0.75f),
+                          SevenpackEditorContent::baseWidth,                 SevenpackEditorContent::baseHeight);
 
         // Re-applique une seconde fois des que la fenetre a un vrai peer
         // natif -- voir parentHierarchyChanged() ci-dessous (retour
@@ -491,7 +429,7 @@ public:
         applyUiScale (processorRef.uiScale.load());
     }
 
-    ~SixpackAudioProcessorEditor() override
+    ~SevenpackAudioProcessorEditor() override
     {
        #if JUCE_WINDOWS
         unhookTitleBarDoubleClick();
@@ -502,15 +440,15 @@ public:
     {
         processorRef.uiScale.store (scale);
         content.setTransform (juce::AffineTransform::scale (scale));
-        setSize (juce::roundToInt (SixpackEditorContent::baseWidth  * scale),
-                 juce::roundToInt (SixpackEditorContent::baseHeight * scale));
+        setSize (juce::roundToInt (SevenpackEditorContent::baseWidth  * scale),
+                 juce::roundToInt (SevenpackEditorContent::baseHeight * scale));
     }
 
     // Remplit tout le fond (voir setOpaque(true) au constructeur) -- sinon
     // le rectangle expose par un changement d'echelle resterait blanc
     // jusqu'a ce que `content` (plus petit ou plus grand selon le sens du
     // resize) le recouvre a son tour.
-    void paint (juce::Graphics& g) override { g.fillAll (SixpackColours::bg); }
+    void paint (juce::Graphics& g) override { g.fillAll (SevenpackColours::bg); }
 
     void resized() override
     {
@@ -538,7 +476,7 @@ public:
         // 7 tentatives basees sur "il faut redeclencher un repaint au bon
         // moment/a la bonne echelle" ont toutes echoue (retour
         // utilisateur repete). Analyse revisee : ce n'est PROBABLEMENT PAS
-        // un bug de timing/repaint du tout -- voir SixpackLookAndFeel.cpp,
+        // un bug de timing/repaint du tout -- voir SevenpackLookAndFeel.cpp,
         // paintNeumorphicButton() : l'etat SOULEVE (bouton eteint, au
         // repos) utilise un relief EXTERIEUR discret (double DropShadow),
         // volontairement adouci lors d'un tour precedent pour eliminer un
@@ -565,7 +503,7 @@ public:
 
         // Notre PROPRE HWND (retour utilisateur : "clignotement blanc ...
         // quand je change la taille" -- persistant meme apres setOpaque()
-        // + paint() de fond, voir SixpackAudioProcessorEditor::paint()
+        // + paint() de fond, voir SevenpackAudioProcessorEditor::paint()
         // ci-dessus) : Windows envoie WM_ERASEBKGND avant WM_PAINT a chaque
         // resize, qui efface la zone avec le pinceau de fond PAR DEFAUT de
         // la classe de fenetre (blanc) -- un frame visible avant que notre
@@ -716,18 +654,18 @@ public:
    #endif
 
 private:
-    SixpackAudioProcessor& processorRef;
+    SevenpackAudioProcessor& processorRef;
 
     // Sentinelle : applique le theme sauvegarde aux globales
-    // SixpackColours AVANT que `content` (juste apres) ne commence a se
-    // construire -- voir SixpackLookAndFeel::applyGlobalTheme() pour le
+    // SevenpackColours AVANT que `content` (juste apres) ne commence a se
+    // construire -- voir SevenpackLookAndFeel::applyGlobalTheme() pour le
     // detail du probleme d'ordre d'initialisation que ce membre corrige.
     // L'ordre d'initialisation suit l'ordre de DECLARATION (pas l'ordre
     // dans la liste d'init du constructeur), d'ou ce placement precis juste
     // avant `content`.
-    bool themeAppliedBeforeContent = (SixpackLookAndFeel::applyGlobalTheme (processorRef.lightTheme.load() > 0.5f), true);
+    bool themeAppliedBeforeContent = (SevenpackLookAndFeel::applyGlobalTheme (processorRef.uiTheme.load()), true);
 
-    SixpackEditorContent content;
+    SevenpackEditorContent content;
     LicenseOverlay licenseOverlay;
 
     // Rendu OpenGL TENTE puis RETIRE (retour utilisateur : "oula le plug in
@@ -743,5 +681,5 @@ private:
     HWND ownHwndHooked = nullptr;
    #endif
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SixpackAudioProcessorEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SevenpackAudioProcessorEditor)
 };

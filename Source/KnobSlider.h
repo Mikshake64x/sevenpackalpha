@@ -12,7 +12,7 @@
       setDoubleClickReturnValue, applique par l'appelant dans setupKnob()).
 
     La zone LCD est calculee avec EXACTEMENT la meme formule geometrique
-    que SixpackLookAndFeel::drawRotarySlider (bounds reduits de 2,
+    que SevenpackLookAndFeel::drawRotarySlider (bounds reduits de 2,
     R = rayon*0.92, lcdR = R*0.62*0.62) -- a garder synchronisee si ce
     dessin change.
 */
@@ -31,6 +31,20 @@ public:
         addChildComponent (editor);
     }
 
+    // Mode COMPACT (tranches Sevenpack, voir BandStrip.h) : plus d'ecran
+    // LCD au centre (illisible a ~46px de diametre) -- la valeur est
+    // ecrite SOUS le knob par le parent. SevenpackLookAndFeel::
+    // drawRotarySlider lit la propriete "compactKnob" ; ici, lcdRadius=0
+    // desactive la saisie au double-clic sur le centre (le double-clic
+    // revient alors partout a la valeur par defaut).
+    void setCompact (bool shouldBeCompact)
+    {
+        compact = shouldBeCompact;
+        getProperties().set ("compactKnob", shouldBeCompact);
+        resized();
+        repaint();
+    }
+
     void resized() override
     {
         juce::Slider::resized();
@@ -40,7 +54,7 @@ public:
         const float R = diameter * 0.5f * 0.92f;
 
         lcdCentre = bounds.getCentre();
-        lcdRadius = R * 0.62f * 0.62f;
+        lcdRadius = compact ? 0.0f : R * 0.62f * 0.62f;
 
         editor.setBounds (juce::Rectangle<float> (lcdRadius * 1.7f, lcdRadius * 1.2f)
                                .withCentre (lcdCentre).toNearestInt());
@@ -48,7 +62,7 @@ public:
 
     void mouseDoubleClick (const juce::MouseEvent& e) override
     {
-        if (lcdCentre.getDistanceFrom (e.position) <= lcdRadius)
+        if (lcdRadius > 0.0f && lcdCentre.getDistanceFrom (e.position) <= lcdRadius)
         {
             editor.setText (juce::String (getValue(), getNumDecimalPlacesToDisplay()), juce::dontSendNotification);
             editor.setVisible (true);
@@ -119,6 +133,7 @@ private:
     juce::TextEditor editor;
     juce::Point<float> lcdCentre;
     float lcdRadius = 0.0f;
+    bool compact = false;
 
     double dragStartProportion = 0.0;
     float dragStartY = 0.0f;

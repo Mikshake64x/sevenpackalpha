@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 
 /**
     DetectorFilterGraph
@@ -33,7 +33,7 @@ public:
     // FeedbackCompressor::setDetectorHpIsLowPass()).
     // viewMinHzParam/viewMaxHzParam : bornes de l'axe X, ADAPTEES EN TEMPS
     // REEL a la bande (LOW: 20->XLO, MID: XLO->XHI, HIGH: XHI->20000) --
-    // voir SixpackAudioProcessorEditor::buildBandPanel(). Ce sont les
+    // voir SevenpackAudioProcessorEditor::buildBandPanel(). Ce sont les
     // memes atomics que les knobs XLO/XHI de la barre de controle, pas une
     // copie -- suit donc les Xover en direct, meme quand ils bougent via
     // automation hote.
@@ -53,8 +53,18 @@ public:
           bell2OnParam (bell2OnParamToWatch), bell2FreqParam (bell2FreqP), bell2GainParam (bell2GainP)
     {
         updateViewRange();
-        startTimerHz (30);
+        // Timer demarre seulement quand le graphe est reellement affiche
+        // (audit : les 7 graphes caches de l'interface Alpha tournaient a
+        // 30 Hz dans le vide) -- voir visibilityChanged().
     }
+
+    void visibilityChanged() override
+    {
+        if (isShowing()) startTimerHz (30);
+        else             stopTimer();
+    }
+
+    void parentHierarchyChanged() override { visibilityChanged(); }
 
     void paint (juce::Graphics& g) override
     {
@@ -62,7 +72,7 @@ public:
         g.setColour (juce::Colour (0xff0a1620));
         g.fillRoundedRectangle (bounds, 3.0f);
 
-        const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
+        const auto* laf = dynamic_cast<SevenpackLookAndFeel*> (&getLookAndFeel());
         const bool powered = (laf == nullptr) || laf->isPowered();
         if (! powered)
         {
@@ -85,21 +95,21 @@ public:
         {
             drawHpCorrectionCurve (g, plot);
             hpNodeCentre = hpNodeScreenPos (plot);
-            drawCrosshairNode (g, plot, hpNodeCentre, SixpackColours::ledGreen, hpPulse);
+            drawCrosshairNode (g, plot, hpNodeCentre, SevenpackColours::ledGreen, hpPulse);
         }
 
         if (bellOn)
         {
             drawBellCorrectionCurve (g, plot, bellFreqParam, bellGainParam);
             bellNodeCentre = bellNodeScreenPos (plot, bellFreqParam, bellGainParam);
-            drawCrosshairNode (g, plot, bellNodeCentre, SixpackColours::ledAmber, bellPulse);
+            drawCrosshairNode (g, plot, bellNodeCentre, SevenpackColours::ledAmber, bellPulse);
         }
 
         if (bell2On)
         {
             drawBellCorrectionCurve (g, plot, *bell2FreqParam, *bell2GainParam);
             bell2NodeCentre = bellNodeScreenPos (plot, *bell2FreqParam, *bell2GainParam);
-            drawCrosshairNode (g, plot, bell2NodeCentre, SixpackColours::ledBlue, bell2Pulse);
+            drawCrosshairNode (g, plot, bell2NodeCentre, SevenpackColours::ledBlue, bell2Pulse);
         }
 
         g.restoreState();
@@ -109,7 +119,7 @@ public:
 
         if (! hpOn && ! bellOn && ! bell2On)
         {
-            g.setColour (SixpackColours::chipTextBright.withAlpha (0.5f));
+            g.setColour (SevenpackColours::chipTextBright.withAlpha (0.5f));
             g.setFont (juce::Font (juce::FontOptions (9.0f)));
             g.drawFittedText (hasBell2() ? "BELL / BELL 2" : (isLowPass ? "LP / BELL" : "HP / BELL"),
                                bounds.toNearestInt(), juce::Justification::centred, 1);
@@ -242,7 +252,7 @@ private:
             else curve.lineTo (x, y);
         }
 
-        g.setColour (SixpackColours::chipTextBright.withAlpha (0.85f));
+        g.setColour (SevenpackColours::chipTextBright.withAlpha (0.85f));
         g.strokePath (curve, juce::PathStrokeType (1.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
@@ -270,7 +280,7 @@ private:
         }
 
         const bool isSecondBell = (&freqP == bell2FreqParam);
-        g.setColour ((isSecondBell ? SixpackColours::ledBlue : SixpackColours::ledAmber).withAlpha (0.6f));
+        g.setColour ((isSecondBell ? SevenpackColours::ledBlue : SevenpackColours::ledAmber).withAlpha (0.6f));
         g.strokePath (curve, juce::PathStrokeType (1.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 

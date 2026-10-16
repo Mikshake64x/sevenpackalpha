@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 
 /**
     GRMeter
@@ -56,7 +56,7 @@ private:
     std::atomic<float>& aboveBelowParam;
     bool powered = true;
     // Retour utilisateur : "clignotte comme un neon a l'extinction" -- voir
-    // SixpackLookAndFeel::getPowerTransitionMix(), GRMeter.cpp::paint().
+    // SevenpackLookAndFeel::getPowerTransitionMix(), GRMeter.cpp::paint().
     float powerFlickerMix = 1.0f;
     float lastPaintedMix = 1.0f;
     bool isExpandMode = false; // true seulement en Expand PUR (1) -- Comp(0)/Both(2) gardent l'affichage normal

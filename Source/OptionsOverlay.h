@@ -1,213 +1,1005 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
+#include "AlphaSkin.h"
 
 /**
     OptionsOverlay
     --------------
     Voile plein ecran affiche au clic sur l'engrenage (latencyModeButton).
-    Meme langage visuel que AboutOverlay (voile noir + panneau vitre
-    encadre ambre). Deux parties :
-      - Haut FIXE (non-scrollable) : taille de fenetre, budget CPU du mode
-        Linear -- les 2 reglages "coeur", toujours courts.
-      - Section "AI" SCROLLABLE (juce::Viewport, meme pattern que
-        AboutOverlay) : tout ce qui regle le comportement du bouton AI
-        (barre de controle). Cette liste grandit au fil des demandes --
-        passer par un Viewport des maintenant evite de redevoir rejouer un
-        Tetris de hauteurs a chaque nouvelle option.
-          - AI MASTERING TARGET : cible de loudness (LUFS) par plateforme,
-            radio ("OFF" = comportement d'origine) -- "SIDE KEY" (dernier
-            choix, -6 LUFS) est le repere le plus agressif de la liste.
-          - AI COMPRESSION MODE : intensite generale (Off/Soft/Medium/Hard).
-          - AI ATTACK/RELEASE CHARACTER : forme (Off/Smooth/Medium/Punchy).
-          - AI GAIN REDUCTION : combien de compression au total
-            (Off/Smooth/Mid/Hard) -- axe supplementaire pour calmer/pousser
-            l'ensemble Ratio+Input d'un cran, independamment des 2 axes
-            ci-dessus (demande explicite suite a "ca compresse beaucoup").
-            Chacun de ces 3 axes a son propre "Off" (demande explicite :
-            "on doit pouvoir agir que sur les points AI qui ne vont pas") --
-            Off n'ecrit QUE sa propre cible (Input/Ratio/Attack+Release),
-            le reste continue d'etre pousse normalement.
-          - AI SCOPE : 2 interrupteurs INDEPENDANTS (Crossover/Compression)
-            -- "Detecteurs" retire (retour utilisateur : "tu peux supprimer
-            detector car ils n'y sont plus" -- les controles Detector/Color
-            sont deja masques du visuel ailleurs, voir buildBandPanel(),
-            ce toggle n'avait donc plus rien a piloter de visible). Le
+    Style "Reglages" d'Apple (demande explicite : "le menu option ... plus
+    style, dans l'esprit OS Apple dans les parametres ou Android, avec des
+    pictogrammes, par categorie" -- apercu Options, variante Apple retenue,
+    celle affichee par defaut) :
+      - barre laterale a gauche : une categorie par ligne (pastille de
+        couleur + pictogramme, nom, nombre de reglages) ;
+      - page de la categorie a droite (juce::Viewport, scrollable) : groupes
+        en cartes, une ligne par reglage (pastille + pictogramme, titre,
+        sous-titre, controle cale a droite : selecteur segmente,
+        interrupteur, curseur ou menu).
+    Suit le theme du plugin : variante claire en theme clair, sombre en
+    theme sombre (et DOS).
+
+    Categories :
+      - General    : taille de fenetre, theme, budget CPU du mode Linear.
+      - Appearance : finition, couleurs des bandes, faders, pictogrammes
+                     animes ATT / REL (voir AlphaAttRel.h).
+      - Meters     : rebond/retour des aiguilles, vitre, bout des aiguilles,
+                     goniometre (points/lignes, hors phase en rouge), spectre
+                     de l'ecran des crossovers (style, lissage, cretes).
+      - Outputs    : sorties separees (mix principal en standalone + une
+                     ligne par bande).
+      - AI Learn   : tout ce qui regle le bouton LEARN.
+          - Cible de loudness par plateforme ("Off" = comportement
+            d'origine ; "Side Key" = repere le plus agressif, -6 LUFS),
+            style musical, fidelite (reprend la balance du mix apres
+            compression).
+          - Compression / Attack-release / Gain reduction : chacun a son
+            propre "Off" (demande explicite : "on doit pouvoir agir que sur
+            les points AI qui ne vont pas") -- Off n'ecrit QUE sa propre
+            cible, le reste continue d'etre pousse normalement.
+          - Expandeur : meme triade, segment choisi en violet comme la diode
+            Expand (demande explicite).
+          - Portee : 2 interrupteurs independants (Crossovers/Compression).
+            "Detecteurs" retire (plus rien de visible a piloter) -- le
             parametre idAiScopeDetectors et le code AiLearnAnalyzer associe
-            restent en place (meme logique que Detector/Color : garde pour
-            une eventuelle reactivation future), juste plus expose ici.
-    Se ferme au clic hors du panneau, ou via le bouton CLOSE.
+            restent en place, juste plus exposes ici.
+      - License    : version + gestionnaire de licence.
+    Se ferme au clic hors du panneau, ou via la croix.
 */
+namespace OptionsUi
+{
+    //==============================================================================
+    // Couleurs "Reglages" Apple (clair / sombre), reprises de l'apercu.
+    struct Theme
+    {
+        bool dark = false;
+        juce::Colour bg, side, group, fg, muted, sep, edge, field, hover, accent, segOn, segOnFg, popupBg;
+
+        static Theme current()
+        {
+            Theme t;
+            t.dark = ! AlphaPalette::get().light;
+            t.accent = juce::Colour (0xff0a84ff);
+            if (t.dark)
+            {
+                t.bg      = juce::Colour (0xff1e1e20);
+                t.side    = juce::Colour (0xff262628);
+                t.group   = juce::Colour (0xff2c2c2e);
+                t.fg      = juce::Colour (0xfff5f5f7);
+                t.muted   = juce::Colour (0xff98989d);
+                t.sep     = juce::Colours::white.withAlpha (0.09f);
+                t.edge    = juce::Colours::white.withAlpha (0.12f);
+                t.field   = juce::Colour (0xff3a3a3c);
+                t.hover   = juce::Colours::white.withAlpha (0.06f);
+                t.segOn   = juce::Colour (0xff636366);
+                t.segOnFg = juce::Colours::white;
+                t.popupBg = juce::Colour (0xff2c2c2e);
+            }
+            else
+            {
+                t.bg      = juce::Colour (0xfff5f5f7);
+                t.side    = juce::Colour (0xffececee);
+                t.group   = juce::Colours::white;
+                t.fg      = juce::Colour (0xff1d1d1f);
+                t.muted   = juce::Colour (0xff86868b);
+                t.sep     = juce::Colours::black.withAlpha (0.09f);
+                t.edge    = juce::Colours::black.withAlpha (0.20f);
+                t.field   = juce::Colour (0xffe3e3e8);
+                t.hover   = juce::Colours::black.withAlpha (0.05f);
+                t.segOn   = juce::Colours::white;
+                t.segOnFg = juce::Colour (0xff1d1d1f);
+                t.popupBg = juce::Colours::white;
+            }
+            return t;
+        }
+    };
+
+    // weight : 0 regular, 1 semibold, 2 bold. Segoe UI sous Windows (police
+    // systeme, la plus proche de SF), police sans-serif par defaut ailleurs.
+    inline juce::Font font (float pointHeight, int weight = 0)
+    {
+        static const char* const styles[] = { "Regular", "Semibold", "Bold" };
+       #if JUCE_WINDOWS
+        const juce::String name ("Segoe UI");
+       #else
+        const juce::String name (juce::Font::getDefaultSansSerifFontName());
+       #endif
+        return juce::Font (juce::FontOptions().withName (name)
+                                              .withStyle (styles[juce::jlimit (0, 2, weight)])
+                                              .withPointHeight (pointHeight));
+    }
+
+    //==============================================================================
+    enum class Icon
+    {
+        gear, brush, gauge, split, spark, key, window, theme, cpu, finish, palette, fader,
+        spring, back, glass, needle, gonio, phase, out, target, comp, timer, stack, scope,
+        music, fidelity, expand, amount, info, close, check, spectrum, count
+    };
+
+    // Pictogrammes de l'apercu (traits simples, viewBox 24), construits une
+    // fois et partages par tous les composants (SharedResourcePointer).
+    struct IconSet
+    {
+        struct Glyph { juce::Path stroke, fill; };
+
+        IconSet()
+        {
+            for (int i = 0; i < (int) Icon::count; ++i)
+                glyphs[(size_t) i] = make ((Icon) i);
+        }
+
+        const Glyph& operator[] (Icon icon) const   { return glyphs[(size_t) icon]; }
+
+    private:
+        static Glyph make (Icon icon)
+        {
+            Glyph g;
+            const auto d = [&g] (const char* svg) { g.stroke.addPath (juce::Drawable::parseSVGPath (svg)); };
+            const auto circle = [&g] (float cx, float cy, float r) { g.stroke.addEllipse (cx - r, cy - r, r * 2.0f, r * 2.0f); };
+            const auto rect = [&g] (float x, float y, float w, float h, float rx)
+            {
+                if (rx > 0.0f) g.stroke.addRoundedRectangle (x, y, w, h, rx);
+                else           g.stroke.addRectangle (x, y, w, h);
+            };
+
+            switch (icon)
+            {
+                case Icon::gear:     circle (12, 12, 3.2f); circle (12, 12, 6.6f);
+                                     d ("M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"); break;
+                case Icon::brush:    d ("M14.5 4.5l5 5-8 8-5-5z"); d ("M6.5 12.5c-2 .5-3 2-3 4 0 1.5-.8 2.5-1.5 3 3 .5 6-.5 7-3"); break;
+                case Icon::gauge:    d ("M4 16a8 8 0 1 1 16 0"); d ("M12 16l4-5"); circle (12, 16, 1.4f); break;
+                case Icon::split:    d ("M4 12h6l4-5h6M14 17h6M10 12l4 5"); d ("M17 4l3 3-3 3M17 14l3 3-3 3"); break;
+                case Icon::spark:    d ("M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z");
+                                     d ("M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"); break;
+                case Icon::key:      circle (8, 12, 3.5f); d ("M11.5 12H21M17 12v3M20 12v2.5"); break;
+                case Icon::window:   rect (3, 5, 18, 14, 2); d ("M3 9h18M14 13l3 3M17 13v3h-3"); break;
+                case Icon::theme:    circle (12, 12, 8); g.fill = juce::Drawable::parseSVGPath ("M12 4a8 8 0 0 0 0 16z"); break;
+                case Icon::cpu:      rect (6.5f, 6.5f, 11, 11, 1.5f);
+                                     d ("M9.5 3v3.5M14.5 3v3.5M9.5 17.5V21M14.5 17.5V21M3 9.5h3.5M3 14.5h3.5M17.5 9.5H21M17.5 14.5H21"); break;
+                case Icon::finish:   d ("M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"); d ("M9 14.5a3 3 0 0 0 3 3"); break;
+                case Icon::palette:  d ("M12 3a9 9 0 1 0 0 18c1 0 1.6-.8 1.6-1.6 0-1-.8-1.5-.8-2.4 0-.9.8-1.6 1.7-1.6H17a4 4 0 0 0 4-4C21 6.8 17 3 12 3z");
+                                     circle (7.5f, 11, 1); circle (10, 7, 1); circle (14.5f, 7, 1); break;
+                case Icon::fader:    d ("M8 3v18M16 3v18"); rect (5, 7, 6, 4, 1); rect (13, 13, 6, 4, 1); break;
+                case Icon::spring:   d ("M6 4h12M6 20h12M8 6.5l8 2.5-8 2.5 8 2.5-8 2.5"); break;
+                case Icon::back:     d ("M9 7l-5 5 5 5"); d ("M4 12h9a6 6 0 0 1 6 6"); break;
+                case Icon::glass:    rect (3, 6, 18, 12, 3); d ("M6 10.5c3-2 9-2 12 0"); break;
+                case Icon::needle:   d ("M4 17a8 8 0 0 1 16 0"); d ("M12 17l5-8"); break;
+                case Icon::gonio:    d ("M3 18a9 9 0 0 1 18 0z"); d ("M12 18l-6.3-6.3M12 18l6.3-6.3M12 18V9"); break;
+                case Icon::phase:    d ("M2 12c2.5-6 5-6 7.5 0s5 6 7.5 0 3.5-4 5-3"); break;
+                case Icon::out:      d ("M4 9h4l5-4v14l-5-4H4z"); d ("M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"); break;
+                case Icon::target:   circle (12, 12, 8.5f); circle (12, 12, 4.5f); circle (12, 12, 1); break;
+                case Icon::comp:     d ("M3 17l6-6 4 4 8-8"); d ("M15 7h6v6"); break;
+                case Icon::timer:    circle (12, 13, 7.5f); d ("M12 9v4l2.5 2M9.5 3h5"); break;
+                case Icon::stack:    d ("M4 7h16M7 12h10M10 17h4"); break;
+                case Icon::scope:    rect (4, 4, 16, 16, 3); d ("M9 12l2 2 4-4"); break;
+                case Icon::music:    d ("M9 18V6l11-2v12"); circle (6.5f, 18, 2.5f); circle (17.5f, 16, 2.5f); break;
+                case Icon::fidelity: d ("M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"); d ("M9 12l2 2 4-4"); break;
+                case Icon::expand:   d ("M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4"); break;
+                case Icon::amount:   d ("M4 18h16"); rect (6, 11, 3, 7, 0); rect (11, 7, 3, 11, 0); rect (16, 4, 3, 14, 0); break;
+                case Icon::info:     circle (12, 12, 8.5f); d ("M12 11v5.5M12 7.6v.2"); break;
+                case Icon::close:    d ("M6 6l12 12M18 6L6 18"); break;
+                case Icon::check:    d ("M5 12.5l4.5 4.5L19 7.5"); break;
+                case Icon::spectrum: d ("M3 19h18"); d ("M3 16l3-6 3 3 3-8 3 6 3-3 3 4"); break;
+                case Icon::count:    break;
+            }
+            return g;
+        }
+
+        std::array<Glyph, (size_t) Icon::count> glyphs;
+    };
+
+    // Pictogramme centre dans `area` ; strokeUnits = epaisseur du trait dans
+    // la grille 24 (1.9 comme l'apercu).
+    inline void drawGlyph (juce::Graphics& g, const IconSet& set, Icon icon, juce::Rectangle<float> area,
+                           juce::Colour colour, float strokeUnits = 1.9f)
+    {
+        const auto& glyph = set[icon];
+        const float s = juce::jmin (area.getWidth(), area.getHeight()) / 24.0f;
+        const auto t = juce::AffineTransform::scale (s).translated (area.getCentreX() - 12.0f * s,
+                                                                   area.getCentreY() - 12.0f * s);
+        g.setColour (colour);
+        if (! glyph.fill.isEmpty())
+            g.fillPath (glyph.fill, t);
+        g.strokePath (glyph.stroke, juce::PathStrokeType (strokeUnits * s, juce::PathStrokeType::curved,
+                                                          juce::PathStrokeType::rounded), t);
+    }
+
+    // Pastille arrondie de couleur + pictogramme blanc (Reglages macOS).
+    inline void drawBadge (juce::Graphics& g, const IconSet& set, Icon icon, juce::Rectangle<float> area, juce::Colour colour)
+    {
+        g.setColour (colour);
+        g.fillRoundedRectangle (area, area.getWidth() * 0.25f);
+        drawGlyph (g, set, icon, area.withSizeKeepingCentre (area.getWidth() * 0.62f, area.getHeight() * 0.62f),
+                   juce::Colours::white);
+    }
+
+    //==============================================================================
+    // LookAndFeel des menus deroulants, curseurs et ascenseur de la page.
+    // Les autres controles (segments, interrupteurs, boutons) se dessinent
+    // eux-memes.
+    class LookAndFeel : public juce::LookAndFeel_V4
+    {
+    public:
+        LookAndFeel() { refresh(); }
+
+        // Relit le theme -- appele a chaque ouverture / changement de theme.
+        void refresh()
+        {
+            const auto th = Theme::current();
+            // Fond de ComboBox TRANSPARENT : sinon JUCE rend le composant
+            // opaque et les coins arrondis dessines ici laisseraient des
+            // residus.
+            setColour (juce::ComboBox::backgroundColourId, juce::Colours::transparentBlack);
+            setColour (juce::ComboBox::textColourId, th.fg);
+            setColour (juce::ComboBox::outlineColourId, juce::Colours::transparentBlack);
+            setColour (juce::ComboBox::arrowColourId, th.muted);
+            setColour (juce::PopupMenu::backgroundColourId, th.popupBg);
+            setColour (juce::PopupMenu::textColourId, th.fg);
+            setColour (juce::PopupMenu::highlightedBackgroundColourId, th.accent);
+            setColour (juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
+            setColour (juce::Label::textColourId, th.fg);
+        }
+
+        void drawComboBox (juce::Graphics& g, int width, int height, bool isButtonDown,
+                           int, int, int, int, juce::ComboBox& box) override
+        {
+            const auto th = Theme::current();
+            auto bg = th.field;
+            if (isButtonDown)               bg = bg.contrasting (0.08f);
+            else if (box.isMouseOver (true)) bg = bg.contrasting (0.04f);
+            g.setColour (bg);
+            g.fillRoundedRectangle (juce::Rectangle<float> ((float) width, (float) height), 7.0f);
+
+            // Double chevron des menus pop-up macOS, cale a droite.
+            const float cx = (float) width - 15.0f, cy = (float) height * 0.5f;
+            juce::Path p;
+            p.startNewSubPath (cx - 3.5f, cy - 2.0f); p.lineTo (cx, cy - 5.5f); p.lineTo (cx + 3.5f, cy - 2.0f);
+            p.startNewSubPath (cx - 3.5f, cy + 2.0f); p.lineTo (cx, cy + 5.5f); p.lineTo (cx + 3.5f, cy + 2.0f);
+            g.setColour (th.muted);
+            g.strokePath (p, juce::PathStrokeType (1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+
+        juce::Font getComboBoxFont (juce::ComboBox&) override   { return font (13.0f); }
+
+        void positionComboBoxText (juce::ComboBox& box, juce::Label& label) override
+        {
+            label.setBounds (4, 0, box.getWidth() - 30, box.getHeight());
+            label.setFont (getComboBoxFont (box));
+        }
+
+        juce::Font getPopupMenuFont() override   { return font (13.0f); }
+        int getPopupMenuBorderSize() override    { return 5; }
+
+        void drawPopupMenuBackground (juce::Graphics& g, int width, int height) override
+        {
+            const auto th = Theme::current();
+            g.fillAll (th.popupBg);
+            g.setColour (th.edge);
+            g.drawRect (0, 0, width, height, 1);
+        }
+
+        void getIdealPopupMenuItemSize (const juce::String& text, bool isSeparator, int,
+                                        int& idealWidth, int& idealHeight) override
+        {
+            if (isSeparator) { idealWidth = 50; idealHeight = 9; return; }
+            idealHeight = 26;
+            idealWidth = (int) juce::GlyphArrangement::getStringWidth (getPopupMenuFont(), text) + 52;
+        }
+
+        void drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& area,
+                                bool isSeparator, bool isActive, bool isHighlighted, bool isTicked, bool,
+                                const juce::String& text, const juce::String&, const juce::Drawable*,
+                                const juce::Colour*) override
+        {
+            const auto th = Theme::current();
+            if (isSeparator)
+            {
+                g.setColour (th.sep);
+                g.fillRect (area.reduced (10, 0).withSizeKeepingCentre (area.getWidth() - 20, 1));
+                return;
+            }
+
+            const auto r = area.toFloat().reduced (5.0f, 1.0f);
+            const bool hot = isHighlighted && isActive;
+            if (hot)
+            {
+                g.setColour (th.accent);
+                g.fillRoundedRectangle (r, 5.0f);
+            }
+            const auto ink = hot ? juce::Colours::white : th.fg.withAlpha (isActive ? 1.0f : 0.4f);
+            if (isTicked)
+                drawGlyph (g, *icons, Icon::check, r.withWidth (26.0f).withSizeKeepingCentre (13.0f, 13.0f), ink, 2.6f);
+            g.setColour (ink);
+            g.setFont (getPopupMenuFont());
+            g.drawText (text, r.withTrimmedLeft (26.0f).withTrimmedRight (8.0f), juce::Justification::centredLeft, true);
+        }
+
+        void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height, float sliderPos,
+                               float, float, juce::Slider::SliderStyle, juce::Slider&) override
+        {
+            const auto th = Theme::current();
+            const float cy = (float) y + (float) height * 0.5f;
+            const auto track = juce::Rectangle<float> ((float) x, cy - 2.0f, (float) width, 4.0f);
+            g.setColour (th.field);
+            g.fillRoundedRectangle (track, 2.0f);
+            g.setColour (th.accent);
+            g.fillRoundedRectangle (track.withRight (sliderPos), 2.0f);
+
+            juce::Path thumb;
+            thumb.addEllipse (juce::Rectangle<float> (20.0f, 20.0f).withCentre ({ sliderPos, cy }));
+            juce::DropShadow (juce::Colours::black.withAlpha (0.28f), 4, { 0, 1 }).drawForPath (g, thumb);
+            g.setColour (juce::Colours::white);
+            g.fillPath (thumb);
+            g.setColour (juce::Colours::black.withAlpha (0.08f));
+            g.strokePath (thumb, juce::PathStrokeType (0.5f));
+        }
+
+        int getSliderThumbRadius (juce::Slider&) override   { return 10; }
+
+        void drawScrollbar (juce::Graphics& g, juce::ScrollBar&, int x, int y, int width, int height,
+                            bool isVertical, int thumbStart, int thumbSize, bool isMouseOver, bool isMouseDown) override
+        {
+            const auto th = Theme::current();
+            auto thumb = isVertical ? juce::Rectangle<float> ((float) x, (float) thumbStart, (float) width, (float) thumbSize)
+                                    : juce::Rectangle<float> ((float) thumbStart, (float) y, (float) thumbSize, (float) height);
+            thumb = thumb.reduced (isVertical ? 1.5f : 2.0f, isVertical ? 2.0f : 1.5f);
+            g.setColour (th.fg.withAlpha (isMouseOver || isMouseDown ? 0.35f : 0.2f));
+            g.fillRoundedRectangle (thumb, juce::jmin (thumb.getWidth(), thumb.getHeight()) * 0.5f);
+        }
+
+        int getDefaultScrollbarWidth() override   { return 8; }
+
+    private:
+        juce::SharedResourcePointer<IconSet> icons;
+    };
+
+    //==============================================================================
+    // Selecteur segmente (NSSegmentedControl) : piste grise, pastille blanche
+    // sous le choix courant (gris clair en sombre).
+    class Segmented : public juce::Component
+    {
+    public:
+        explicit Segmented (juce::StringArray labelsIn) : labels (std::move (labelsIn))
+        {
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
+            for (auto& l : labels)
+                idealWidths.push_back (juce::GlyphArrangement::getStringWidth (font (12.5f, 1), l) + 22.0f);
+        }
+
+        std::function<void (int)> onChange;
+
+        // Teinte du segment choisi (transparente = pastille Apple). Sert a
+        // garder le violet de l'expandeur.
+        void setTint (juce::Colour c)   { tint = c; repaint(); }
+
+        void setSelected (int index)
+        {
+            if (index != selected)
+            {
+                selected = index;
+                repaint();
+            }
+        }
+
+        int getIdealWidth() const
+        {
+            float w = 4.0f;
+            for (auto iw : idealWidths)
+                w += iw;
+            return (int) std::ceil (w);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            const auto th = Theme::current();
+            g.setColour (th.field);
+            g.fillRoundedRectangle (getLocalBounds().toFloat(), 8.0f);
+
+            const auto segs = segmentBounds();
+            for (int i = 0; i < labels.size(); ++i)
+            {
+                const auto& s = segs[(size_t) i];
+                const bool on = (i == selected);
+                if (on)
+                {
+                    juce::Path p;
+                    p.addRoundedRectangle (s, 6.0f);
+                    juce::DropShadow (juce::Colours::black.withAlpha (th.dark ? 0.4f : 0.18f), 3, { 0, 1 }).drawForPath (g, p);
+                    g.setColour (tint.isTransparent() ? th.segOn : tint);
+                    g.fillPath (p);
+                }
+                else
+                {
+                    if (i == hovered)
+                    {
+                        g.setColour (th.hover);
+                        g.fillRoundedRectangle (s, 6.0f);
+                    }
+                    // Fin separateur entre deux segments non choisis.
+                    if (i > 0 && i - 1 != selected && i != hovered && i - 1 != hovered)
+                    {
+                        g.setColour (th.fg.withAlpha (0.14f));
+                        g.fillRect (juce::Rectangle<float> (s.getX() - 0.5f, s.getY() + s.getHeight() * 0.25f,
+                                                            1.0f, s.getHeight() * 0.5f));
+                    }
+                }
+                g.setColour (on ? (tint.isTransparent() ? th.segOnFg : juce::Colours::white) : th.fg);
+                g.setFont (font (12.5f, on ? 1 : 0));
+                g.drawText (labels[i], s, juce::Justification::centred, false);
+            }
+        }
+
+        void mouseMove (const juce::MouseEvent& e) override   { setHovered (indexAt (e.position.x)); }
+        void mouseExit (const juce::MouseEvent&) override      { setHovered (-1); }
+
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            const int i = indexAt (e.position.x);
+            if (i >= 0 && i != selected)
+            {
+                selected = i;
+                repaint();
+                if (onChange)
+                    onChange (i);
+            }
+        }
+
+    private:
+        std::vector<juce::Rectangle<float>> segmentBounds() const
+        {
+            const auto inner = getLocalBounds().toFloat().reduced (2.0f);
+            float total = 0.0f;
+            for (auto iw : idealWidths)
+                total += iw;
+            const float k = total > 0.0f ? inner.getWidth() / total : 1.0f;
+
+            std::vector<juce::Rectangle<float>> out;
+            float x = inner.getX();
+            for (auto iw : idealWidths)
+            {
+                out.push_back ({ x, inner.getY(), iw * k, inner.getHeight() });
+                x += iw * k;
+            }
+            return out;
+        }
+
+        int indexAt (float x) const
+        {
+            const auto segs = segmentBounds();
+            for (int i = 0; i < (int) segs.size(); ++i)
+                if (x >= segs[(size_t) i].getX() && x < segs[(size_t) i].getRight())
+                    return i;
+            return -1;
+        }
+
+        void setHovered (int i)
+        {
+            if (i != hovered)
+            {
+                hovered = i;
+                repaint();
+            }
+        }
+
+        juce::StringArray labels;
+        std::vector<float> idealWidths;
+        int selected = -1, hovered = -1;
+        juce::Colour tint; // transparente par defaut
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Segmented)
+    };
+
+    //==============================================================================
+    // Interrupteur iOS 38x22, vert quand actif, pastille animee.
+    class Switch : public juce::Component, private juce::Timer
+    {
+    public:
+        Switch()   { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+
+        std::function<void (bool)> onChange;
+
+        void setOn (bool shouldBeOn)
+        {
+            on = shouldBeOn;
+            pos = on ? 1.0f : 0.0f;
+            stopTimer();
+            repaint();
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            const auto th = Theme::current();
+            const auto track = getLocalBounds().toFloat().withSizeKeepingCentre (38.0f, 22.0f);
+            g.setColour (th.field.interpolatedWith (juce::Colour (0xff34c759), pos));
+            g.fillRoundedRectangle (track, 11.0f);
+
+            const float k = 18.0f;
+            const float cx = track.getX() + 2.0f + k * 0.5f + pos * (track.getWidth() - 4.0f - k);
+            juce::Path knob;
+            knob.addEllipse (juce::Rectangle<float> (k, k).withCentre ({ cx, track.getCentreY() }));
+            juce::DropShadow (juce::Colours::black.withAlpha (0.3f), 3, { 0, 1 }).drawForPath (g, knob);
+            g.setColour (juce::Colours::white);
+            g.fillPath (knob);
+        }
+
+        void mouseUp (const juce::MouseEvent& e) override
+        {
+            if (! e.mouseWasClicked() || ! getLocalBounds().contains (e.getPosition()))
+                return;
+            on = ! on;
+            startTimerHz (60);
+            if (onChange)
+                onChange (on);
+        }
+
+    private:
+        void timerCallback() override
+        {
+            const float target = on ? 1.0f : 0.0f;
+            pos += (target - pos) * 0.35f;
+            if (std::abs (target - pos) < 0.02f)
+            {
+                pos = target;
+                stopTimer();
+            }
+            repaint();
+        }
+
+        bool on = false;
+        float pos = 0.0f;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Switch)
+    };
+
+    //==============================================================================
+    // Curseur 0..100 + valeur affichee a droite.
+    class ValueSlider : public juce::Component
+    {
+    public:
+        ValueSlider()
+        {
+            addAndMakeVisible (slider);
+            slider.setSliderStyle (juce::Slider::LinearHorizontal);
+            slider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+            slider.setRange (0.0, 100.0, 1.0);
+            // La molette fait defiler la page, pas le curseur.
+            slider.setScrollWheelEnabled (false);
+            slider.setMouseCursor (juce::MouseCursor::PointingHandCursor);
+            slider.onValueChange = [this]
+            {
+                repaint();
+                if (onValueChange)
+                    onValueChange();
+            };
+        }
+
+        std::function<void()> onValueChange;
+
+        double getValue() const        { return slider.getValue(); }
+        void setValue (double v)       { slider.setValue (v, juce::dontSendNotification); repaint(); }
+        void setDefault (double v)     { slider.setDoubleClickReturnValue (true, v); }
+
+        void resized() override
+        {
+            auto r = getLocalBounds();
+            r.removeFromRight (40);
+            slider.setBounds (r);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.setColour (Theme::current().muted);
+            g.setFont (font (13.0f));
+            g.drawText (juce::String (juce::roundToInt (slider.getValue())), getLocalBounds().removeFromRight (32),
+                        juce::Justification::centredRight, false);
+        }
+
+    private:
+        juce::Slider slider;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ValueSlider)
+    };
+
+    //==============================================================================
+    // Bouton gris a texte bleu ("Open").
+    class PillButton : public juce::Button
+    {
+    public:
+        explicit PillButton (const juce::String& text) : juce::Button (text)
+        {
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        }
+
+        void paintButton (juce::Graphics& g, bool over, bool down) override
+        {
+            const auto th = Theme::current();
+            g.setColour (down ? th.field.contrasting (0.1f) : over ? th.field.contrasting (0.05f) : th.field);
+            g.fillRoundedRectangle (getLocalBounds().toFloat(), 7.0f);
+            g.setColour (th.accent);
+            g.setFont (font (13.0f, 1));
+            g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred, false);
+        }
+    };
+
+    // Croix de fermeture ronde.
+    class CloseButton : public juce::Button
+    {
+    public:
+        CloseButton() : juce::Button ("Close")
+        {
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        }
+
+        void paintButton (juce::Graphics& g, bool over, bool down) override
+        {
+            const auto th = Theme::current();
+            const auto r = getLocalBounds().toFloat();
+            g.setColour (down ? th.field.contrasting (0.1f) : over ? th.field.contrasting (0.05f) : th.field);
+            g.fillEllipse (r);
+            drawGlyph (g, *icons, Icon::close, r.withSizeKeepingCentre (14.0f, 14.0f), th.fg, 2.4f);
+        }
+
+    private:
+        juce::SharedResourcePointer<IconSet> icons;
+    };
+
+    //==============================================================================
+    // Ligne de la barre laterale : pastille + nom + nombre de reglages.
+    class CategoryItem : public juce::Button
+    {
+    public:
+        CategoryItem (const juce::String& name, Icon iconIn, juce::Colour colourIn)
+            : juce::Button (name), icon (iconIn), colour (colourIn)
+        {
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        }
+
+        void setCount (int n)   { count = n; repaint(); }
+
+        void paintButton (juce::Graphics& g, bool over, bool) override
+        {
+            const auto th = Theme::current();
+            const auto r = getLocalBounds().toFloat();
+            const bool sel = getToggleState();
+            if (sel || over)
+            {
+                g.setColour (sel ? th.accent : th.hover);
+                g.fillRoundedRectangle (r, 8.0f);
+            }
+
+            const auto badge = juce::Rectangle<float> (24.0f, 24.0f).withPosition (r.getX() + 8.0f, r.getCentreY() - 12.0f);
+            drawBadge (g, *icons, icon, badge, colour);
+
+            const auto textArea = r.withLeft (badge.getRight() + 10.0f).withTrimmedRight (10.0f);
+            g.setColour (sel ? juce::Colours::white.withAlpha (0.8f) : th.muted);
+            g.setFont (font (12.0f));
+            g.drawText (juce::String (count), textArea, juce::Justification::centredRight, false);
+            g.setColour (sel ? juce::Colours::white : th.fg);
+            g.setFont (font (14.0f));
+            g.drawText (getButtonText(), textArea.withTrimmedRight (24.0f), juce::Justification::centredLeft, true);
+        }
+
+    private:
+        Icon icon;
+        juce::Colour colour;
+        int count = 0;
+        juce::SharedResourcePointer<IconSet> icons;
+    };
+
+    //==============================================================================
+    // Page d'une categorie : groupes (titre, carte de lignes, note de bas de
+    // groupe). Calcule sa propre hauteur via layout(width), le Viewport
+    // parent s'en sert pour savoir jusqu'ou defiler.
+    class Page : public juce::Component
+    {
+    public:
+        void addGroup (const juce::String& title, const juce::String& footer = {})
+        {
+            Group grp;
+            grp.title = title;
+            grp.footer = footer;
+            groups.push_back (grp);
+        }
+
+        // control peut etre nul (ligne d'information seule).
+        void addRow (Icon icon, juce::Colour colour, const juce::String& title, const juce::String& subtitle,
+                     juce::Component* control = nullptr, int controlWidth = 0, int controlHeight = 28)
+        {
+            Row r;
+            r.icon = icon;
+            r.colour = colour;
+            r.title = title;
+            r.subtitle = subtitle;
+            r.control = control;
+            r.controlWidth = controlWidth;
+            r.controlHeight = controlHeight;
+            groups.back().rows.push_back (r);
+            if (control != nullptr)
+                addAndMakeVisible (*control);
+        }
+
+        void setRowVisible (juce::Component& control, bool shouldBeVisible)
+        {
+            for (auto& grp : groups)
+                for (auto& r : grp.rows)
+                    if (r.control == &control)
+                        r.visible = shouldBeVisible;
+            control.setVisible (shouldBeVisible);
+        }
+
+        void setFooter (size_t groupIndex, const juce::String& text)
+        {
+            if (groupIndex < groups.size())
+                groups[groupIndex].footer = text;
+        }
+
+        int getNumVisibleRows() const
+        {
+            int n = 0;
+            for (auto& grp : groups)
+                for (auto& r : grp.rows)
+                    n += r.visible ? 1 : 0;
+            return n;
+        }
+
+        void layout (int width)
+        {
+            if (width <= 0)
+                return;
+
+            constexpr float left = 28.0f, right = 20.0f, padX = 14.0f;
+            const float cardW = (float) width - left - right;
+            float y = 2.0f;
+
+            for (auto& grp : groups)
+            {
+                grp.card = {};
+                grp.titleArea = {};
+                grp.footerArea = {};
+                if (std::none_of (grp.rows.begin(), grp.rows.end(), [] (const Row& r) { return r.visible; }))
+                    continue;
+
+                if (grp.title.isNotEmpty())
+                {
+                    grp.titleArea = { left + 12.0f, y + 12.0f, cardW - 12.0f, 18.0f };
+                    y += 36.0f;
+                }
+                else
+                {
+                    y += 10.0f;
+                }
+
+                const float top = y;
+                for (auto& r : grp.rows)
+                {
+                    if (! r.visible)
+                        continue;
+                    const float h = r.subtitle.isNotEmpty() ? 54.0f : 44.0f;
+                    r.bounds = { left, y, cardW, h };
+                    if (r.control != nullptr)
+                    {
+                        const float cw = juce::jmin ((float) r.controlWidth, cardW - 260.0f);
+                        r.control->setBounds (juce::Rectangle<float> (left + cardW - padX - cw,
+                                                                      y + (h - (float) r.controlHeight) * 0.5f,
+                                                                      cw, (float) r.controlHeight).toNearestInt());
+                    }
+                    y += h;
+                }
+                grp.card = { left, top, cardW, y - top };
+
+                if (grp.footer.isNotEmpty())
+                {
+                    grp.footerArea = { left + 12.0f, y + 6.0f, cardW - 24.0f, 32.0f };
+                    y += 40.0f;
+                }
+                y += 8.0f;
+            }
+
+            setSize (width, juce::roundToInt (y + 16.0f));
+            repaint();
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            const auto th = Theme::current();
+            for (auto& grp : groups)
+            {
+                if (grp.card.isEmpty())
+                    continue;
+
+                if (! grp.titleArea.isEmpty())
+                {
+                    g.setColour (th.muted);
+                    g.setFont (font (12.0f, 1));
+                    g.drawText (grp.title, grp.titleArea, juce::Justification::centredLeft, true);
+                }
+
+                g.setColour (th.group);
+                g.fillRoundedRectangle (grp.card, 10.0f);
+                g.setColour (th.sep);
+                g.drawRoundedRectangle (grp.card.reduced (0.25f), 10.0f, 0.5f);
+
+                bool first = true;
+                for (auto& r : grp.rows)
+                {
+                    if (! r.visible)
+                        continue;
+
+                    const auto badge = juce::Rectangle<float> (28.0f, 28.0f).withPosition (r.bounds.getX() + 14.0f,
+                                                                                         r.bounds.getCentreY() - 14.0f);
+                    const float textX = badge.getRight() + 12.0f;
+                    if (! first)
+                    {
+                        // Separateur en retrait, aligne sur le texte (macOS).
+                        g.setColour (th.sep);
+                        g.fillRect (juce::Rectangle<float> (textX, r.bounds.getY(), r.bounds.getRight() - textX, 1.0f));
+                    }
+                    first = false;
+
+                    drawBadge (g, *icons, r.icon, badge, r.colour);
+
+                    const float textRight = r.control != nullptr ? (float) r.control->getX() - 12.0f
+                                                                 : r.bounds.getRight() - 14.0f;
+                    const float textW = juce::jmax (10.0f, textRight - textX);
+                    g.setColour (th.fg);
+                    g.setFont (font (14.0f));
+                    if (r.subtitle.isEmpty())
+                    {
+                        g.drawText (r.title, juce::Rectangle<float> (textX, r.bounds.getY(), textW, r.bounds.getHeight()),
+                                    juce::Justification::centredLeft, true);
+                    }
+                    else
+                    {
+                        g.drawText (r.title, juce::Rectangle<float> (textX, r.bounds.getY() + 8.0f, textW, 20.0f),
+                                    juce::Justification::centredLeft, true);
+                        g.setColour (th.muted);
+                        g.setFont (font (12.0f));
+                        g.drawText (r.subtitle, juce::Rectangle<float> (textX, r.bounds.getY() + 28.0f, textW, 17.0f),
+                                    juce::Justification::centredLeft, true);
+                    }
+                }
+
+                if (! grp.footerArea.isEmpty())
+                {
+                    g.setColour (th.muted);
+                    g.setFont (font (12.0f));
+                    g.drawFittedText (grp.footer, grp.footerArea.toNearestInt(), juce::Justification::topLeft, 2, 1.0f);
+                }
+            }
+        }
+
+    private:
+        struct Row
+        {
+            Icon icon = Icon::gear;
+            juce::Colour colour;
+            juce::String title, subtitle;
+            juce::Component* control = nullptr;
+            int controlWidth = 0, controlHeight = 28;
+            bool visible = true;
+            juce::Rectangle<float> bounds;
+        };
+
+        struct Group
+        {
+            juce::String title, footer;
+            std::vector<Row> rows;
+            juce::Rectangle<float> titleArea, card, footerArea;
+        };
+
+        std::vector<Group> groups;
+        juce::SharedResourcePointer<IconSet> icons;
+    };
+}
+
+//==============================================================================
 class OptionsOverlay : public juce::Component
 {
 public:
-    struct SectionItem
-    {
-        enum class Kind { Header, RadioRow, ToggleRow };
-        juce::String label;
-        Kind kind = Kind::Header;
-        int numButtons = 0;
-        int firstButtonIndex = 0; // index dans le tableau plat de boutons de la section
-    };
-
     OptionsOverlay()
     {
-        static const char* scaleLabels[kNumScales]     = { "75%", "80%", "85%", "90%", "95%", "100%" };
-        static const char* latencyLabels[kNumLatency]  = { "LOW CPU", "MEDIUM CPU", "HIGH CPU" };
+        setLookAndFeel (&laf);
 
-        for (int i = 0; i < kNumScales; ++i)
+        using OptionsUi::Icon;
+        struct CategoryDef { const char* name; Icon icon; juce::uint32 colour; };
+        static const CategoryDef cats[kNumCategories] =
         {
-            addAndMakeVisible (scaleButtons[i]);
-            scaleButtons[i].setButtonText (scaleLabels[i]);
-            scaleButtons[i].setClickingTogglesState (true);
-            scaleButtons[i].setRadioGroupId (9101, juce::dontSendNotification);
-            scaleButtons[i].onClick = [this, i]
-            {
-                if (scaleButtons[i].getToggleState() && onScaleSelected)
-                    onScaleSelected (kScaleValues[i]);
-            };
-            scaleButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-            scaleButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledAmber);
-            scaleButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
-            scaleButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-        }
-
-        for (int i = 0; i < kNumLatency; ++i)
-        {
-            addAndMakeVisible (latencyButtons[i]);
-            latencyButtons[i].setButtonText (latencyLabels[i]);
-            latencyButtons[i].setClickingTogglesState (true);
-            latencyButtons[i].setRadioGroupId (9102, juce::dontSendNotification);
-            latencyButtons[i].onClick = [this, i]
-            {
-                if (latencyButtons[i].getToggleState() && onLatencySelected)
-                    onLatencySelected (i);
-            };
-            latencyButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-            latencyButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledAmber);
-            latencyButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
-            latencyButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-        }
-
-        // Theme SOMBRE/CLAIR -- retour utilisateur explicite : "je souhaite
-        // faire un design plus clair qu'on peut change dans l'engrenage".
-        // Simple interrupteur ON/OFF (meme mecanique que AI FIDELITY plus
-        // bas) : ON = theme clair "metal brosse argente".
-        addAndMakeVisible (themeButton);
-        themeButton.setButtonText ("LIGHT THEME");
-        themeButton.setClickingTogglesState (true);
-        themeButton.onClick = [this] { if (onThemeToggled) onThemeToggled (themeButton.getToggleState()); };
-        themeButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-        themeButton.setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledAmber);
-        themeButton.setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
-        themeButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-
-        addAndMakeVisible (licenseButton);
-        licenseButton.setButtonText ("LICENSE MANAGER");
-        licenseButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-        licenseButton.setColour (juce::TextButton::textColourOffId, SixpackColours::ledAmber);
-        licenseButton.onClick = [this] { if (onOpenLicense) onOpenLicense(); };
-
-        // SEPARATE OUTPUTS -- routage multi-sorties par bande (voir
-        // idBandRouteOut / mainOutPairIndex / bandOutPairIndex). Un menu par
-        // bande : "MIX" = reste dans le mix principal (defaut) ; sinon la
-        // bande quitte le mix et part sur la paire de sortie choisie. Un
-        // menu supplementaire choisit la paire du mix principal lui-meme.
-        // En standalone les entrees sont les vraies paires de la carte son ;
-        // en VST3/AU un seul choix "BUS" (l'hote fait le routage des bus).
-        auto styleCombo = [] (juce::ComboBox& c)
-        {
-            c.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff2b2e33));
-            c.setColour (juce::ComboBox::textColourId, SixpackColours::chipTextBright);
-            c.setColour (juce::ComboBox::arrowColourId, SixpackColours::ledAmber);
-            c.setColour (juce::ComboBox::outlineColourId, juce::Colour (0xff3a3d42));
-            c.setJustificationType (juce::Justification::centred);
+            { "General",    Icon::gear,  0xff8e8e93 },
+            { "Appearance", Icon::brush, 0xff0a84ff },
+            { "Meters",     Icon::gauge, 0xffff9f0a },
+            { "Outputs",    Icon::split, 0xff30b158 },
+            { "AI Learn",   Icon::spark, 0xffbf5af2 },
+            { "License",    Icon::key,   0xffffcc00 },
         };
-
-        addAndMakeVisible (mainOutCombo);
-        styleCombo (mainOutCombo);
-        mainOutCombo.onChange = [this]
+        for (int i = 0; i < kNumCategories; ++i)
         {
-            if (onMainOutPairChanged && mainOutCombo.getSelectedId() > 0)
-                onMainOutPairChanged (mainOutCombo.getSelectedId() - 1);
-        };
-
-        for (int i = 0; i < kNumRouteBands; ++i)
-        {
-            addAndMakeVisible (bandOutCombos[i]);
-            styleCombo (bandOutCombos[i]);
-            bandOutCombos[i].onChange = [this, i]
-            {
-                if (onBandOutRoutingChanged && bandOutCombos[i].getSelectedId() > 0)
-                    onBandOutRoutingChanged (i, bandOutCombos[i].getSelectedId() - 1); // 0 = MIX, >=1 = paire+1
-            };
+            auto* item = categoryItems.add (new OptionsUi::CategoryItem (cats[i].name, cats[i].icon, juce::Colour (cats[i].colour)));
+            addAndMakeVisible (item);
+            item->onClick = [this, i] { showCategory (i); };
         }
-
-        addAndMakeVisible (aiViewport);
-        aiViewport.setScrollBarsShown (true, false);
-        aiViewport.setViewedComponent (&aiPanel, false);
-        aiPanel.build();
 
         addAndMakeVisible (closeButton);
-        closeButton.setButtonText ("CLOSE");
-        closeButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-        closeButton.setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextBright);
         closeButton.onClick = [this] { if (onDismiss) onDismiss(); };
 
-        // Croix de fermeture en haut a droite du panneau (demande explicite,
-        // en plus du bouton CLOSE en bas) -- meme action que CLOSE.
-        addAndMakeVisible (closeCrossButton);
-        closeCrossButton.setButtonText ("X");
-        closeCrossButton.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-        // Fond transparent (sur le panneau vitre, theme-reactif) -- garde
-        // textDim MUTABLE ici (pas chipTextDim), contrairement aux autres
-        // boutons ci-dessus qui ont un fond FIXE fonce.
-        closeCrossButton.setColour (juce::TextButton::textColourOffId, SixpackColours::textDim);
-        closeCrossButton.onClick = [this] { if (onDismiss) onDismiss(); };
+        addAndMakeVisible (viewport);
+        viewport.setScrollBarsShown (true, false);
+        viewport.setScrollBarThickness (8);
+
+        buildGeneralPage();
+        buildAppearancePage();
+        buildMetersPage();
+        buildOutputsPage();
+        buildAiPage();
+        buildLicensePage();
+        updateCategoryCounts();
+        showCategory (0);
     }
 
-    void setCurrentScaleIndex (int idx)
+    ~OptionsOverlay() override
     {
-        for (int i = 0; i < kNumScales; ++i)
-            scaleButtons[i].setToggleState (i == idx, juce::dontSendNotification);
+        setLookAndFeel (nullptr);
     }
 
-    void setCurrentLatencyIndex (int idx)
+    // Relit le theme (clair / sombre) -- appele a chaque ouverture et
+    // changement de theme par l'editeur.
+    void applyAlphaStyle()
     {
-        for (int i = 0; i < kNumLatency; ++i)
-            latencyButtons[i].setToggleState (i == idx, juce::dontSendNotification);
+        laf.refresh();
+        sendLookAndFeelChange();
+        repaint();
     }
 
-    void setLightThemeState (bool light)
+    // Ouvre une categorie (0 General, 1 Appearance, 2 Meters, 3 Outputs,
+    // 4 AI Learn, 5 License).
+    void showCategory (int index)
     {
-        themeButton.setToggleState (light, juce::dontSendNotification);
+        currentCategory = juce::jlimit (0, kNumCategories - 1, index);
+        for (int i = 0; i < kNumCategories; ++i)
+            categoryItems[i]->setToggleState (i == currentCategory, juce::dontSendNotification);
+        viewport.setViewedComponent (&pages[currentCategory], false);
+        // Une page detachee ne recoit pas les changements de LookAndFeel.
+        pages[currentCategory].sendLookAndFeelChange();
+        viewport.setViewPosition (0, 0);
+        repaint (titleArea);
     }
+
+    void setCurrentScaleIndex (int idx)      { scaleSeg.setSelected (idx); }
+    void setCurrentLatencyIndex (int idx)    { latencySeg.setSelected (idx); }
+    void setCurrentUiThemeIndex (int idx)    { themeSeg.setSelected (idx); }
 
     // Peuple les menus. standalone = true : `pairLabels` liste les paires de
     // sortie de la carte ("1-2", "3-4", ...). standalone = false : un seul
-    // choix de routage ("BUS") -- c'est l'hote qui route les bus nommes.
+    // choix de routage ("Own bus") -- c'est l'hote qui route les bus nommes.
     void setOutputRoutingOptions (bool standalone, const juce::StringArray& pairLabels)
     {
         outIsStandalone = standalone;
         outPairCount = standalone ? pairLabels.size() : 1;
 
         mainOutCombo.clear (juce::dontSendNotification);
-        mainOutCombo.setVisible (standalone);
         if (standalone)
             for (int p = 0; p < pairLabels.size(); ++p)
-                mainOutCombo.addItem (pairLabels[p], p + 1);
+                mainOutCombo.addItem ("Out " + pairLabels[p], p + 1);
 
         for (int i = 0; i < kNumRouteBands; ++i)
         {
             auto& c = bandOutCombos[i];
             c.clear (juce::dontSendNotification);
-            c.addItem ("MIX", 1); // id 1 => selectedId-1 == 0 => "dans le mix"
+            c.addItem ("In the mix", 1); // id 1 => selectedId-1 == 0 => "dans le mix"
             if (standalone)
                 for (int p = 0; p < pairLabels.size(); ++p)
-                    c.addItem (pairLabels[p], p + 2); // id p+2 => selectedId-1 == p+1
+                    c.addItem ("Out " + pairLabels[p], p + 2); // id p+2 => selectedId-1 == p+1
             else
-                c.addItem ("BUS", 2);
+                c.addItem ("Own bus", 2);
         }
+
+        auto& page = pages[kOutputsPage];
+        page.setRowVisible (mainOutCombo, standalone);
+        page.setFooter (0, standalone ? "A band set to an output pair leaves the main mix and plays on that pair of the sound card."
+                                      : "A band set to Own bus leaves the main mix; the host routes the bus.");
+        page.layout (pageWidth());
+        updateCategoryCounts();
     }
 
     void setMainOutPair (int pairIndex)
@@ -225,194 +1017,115 @@ public:
         bandOutCombos[band].setSelectedId (juce::jmax (0, comboIndex) + 1, juce::dontSendNotification);
     }
 
-    void setCurrentAiTargetIndex (int idx)          { aiPanel.setCurrentAiTargetIndex (idx); }
-    void setCurrentAiCompressionMode (int idx)       { aiPanel.setCurrentAiCompressionMode (idx); }
-    void setCurrentAiCharacter (int idx)             { aiPanel.setCurrentAiCharacter (idx); }
-    void setCurrentAiGainReduction (int idx)         { aiPanel.setCurrentAiGainReduction (idx); }
+    void setCurrentAiTargetIndex (int idx)       { aiTargetCombo.setSelectedId (idx + 1, juce::dontSendNotification); }
+    void setCurrentAiCompressionMode (int idx)   { compressionSeg.setSelected (idx); }
+    void setCurrentAiCharacter (int idx)         { characterSeg.setSelected (idx); }
+    void setCurrentAiGainReduction (int idx)     { gainReductionSeg.setSelected (idx); }
     void setAiScopeStates (bool crossoverOn, bool compressionOn)
     {
-        aiPanel.setAiScopeStates (crossoverOn, compressionOn);
+        scopeCrossoverSwitch.setOn (crossoverOn);
+        scopeCompressionSwitch.setOn (compressionOn);
     }
-    void setCurrentAiStyle (int idx)      { aiPanel.setCurrentAiStyle (idx); }
-    void setAiFidelityState (bool enabled) { aiPanel.setAiFidelityState (enabled); }
-    void setCurrentAiExpandMode (int idx)      { aiPanel.setCurrentAiExpandMode (idx); }
-    void setCurrentAiExpandCharacter (int idx) { aiPanel.setCurrentAiExpandCharacter (idx); }
-    void setCurrentAiExpandAmount (int idx)    { aiPanel.setCurrentAiExpandAmount (idx); }
+    void setCurrentAiStyle (int idx)             { aiStyleCombo.setSelectedId (idx + 1, juce::dontSendNotification); }
+    void setAiFidelityState (bool enabled)       { fidelitySwitch.setOn (enabled); }
+    void setCurrentAiExpandMode (int idx)        { expandModeSeg.setSelected (idx); }
+    void setCurrentAiExpandCharacter (int idx)   { expandCharacterSeg.setSelected (idx); }
+    void setCurrentAiExpandAmount (int idx)      { expandAmountSeg.setSelected (idx); }
+
+    void setNeedleSettings (float bounce, float ret)
+    {
+        bounceSlider.setValue (bounce);
+        returnSlider.setValue (ret);
+    }
+    void setBandColourMode (int mode)    { colourModeSeg.setSelected (mode); }
+    void setNeedleGlass (int glass)      { glassSeg.setSelected (glass); }
+    void setNeedleRedTip (bool red)      { tipSeg.setSelected (red ? 0 : 1); }
+    void setGonioLines (bool lines)      { gonioSeg.setSelected (lines ? 1 : 0); }
+    void setGonioRedPhase (bool red)     { phaseSwitch.setOn (red); }
+    void setFinish (int finish)          { finishSeg.setSelected (finish); }
+    void setFaderStyle (int styleIdx)    { faderSeg.setSelected (styleIdx); }
+    void setAttRelIcons (int style)      { attRelSeg.setSelected (style); }
+    void setSpectrumStyle (int style)    { spectrumStyleSeg.setSelected (style); }
+    void setSpectrumSmooth (int smooth)  { spectrumSmoothSeg.setSelected (smooth); }
+    void setSpectrumPeak (bool on)       { spectrumPeakSwitch.setOn (on); }
 
     void resized() override
     {
-        auto bounds = getLocalBounds().toFloat();
-        panelBounds = bounds.withSizeKeepingCentre (620.0f, juce::jmin (720.0f, bounds.getHeight() - 40.0f));
-        auto content = panelBounds.reduced (26.0f, 20.0f);
+        const auto bounds = getLocalBounds().toFloat();
+        sheetBounds = bounds.withSizeKeepingCentre (juce::jmin (1080.0f, bounds.getWidth() - 40.0f),
+                                                    juce::jmin (660.0f, bounds.getHeight() - 60.0f));
+        auto sheet = sheetBounds;
+        sidebarBounds = sheet.removeFromLeft (kSidebarWidth);
 
-        content.removeFromTop (38.0f);          // titre
-        content.removeFromTop (14.0f);           // ligne + marge
-
-        const float gap = 8.0f;
-
-        // En-tete "GENERAL" -- separe visuellement les reglages de base
-        // (taille de fenetre, budget CPU) de la section AI plus bas,
-        // demande explicite : "il faut bien separer les reglages dans les
-        // options de base et les reglages de l'ia".
-        generalHeaderBounds = content.removeFromTop (22.0f).toNearestInt();
-        content.removeFromTop (6.0f);
-
-        scaleLabelBounds = content.removeFromTop (18.0f).toNearestInt();
-        auto scaleRow = content.removeFromTop (36.0f);
-        const float bw = (scaleRow.getWidth() - gap * (kNumScales - 1)) / (float) kNumScales;
-        for (int i = 0; i < kNumScales; ++i)
+        auto side = sidebarBounds.reduced (10.0f, 14.0f);
+        brandBounds = side.removeFromTop (52.0f);
+        side.removeFromTop (8.0f);
+        for (auto* item : categoryItems)
         {
-            scaleButtons[i].setBounds (scaleRow.removeFromLeft ((int) bw).toNearestInt());
-            scaleRow.removeFromLeft ((int) gap);
+            item->setBounds (side.removeFromTop (36.0f).toNearestInt());
+            side.removeFromTop (2.0f);
         }
 
-        content.removeFromTop (18.0f);           // ligne + marge
-        latencyLabelBounds = content.removeFromTop (18.0f).toNearestInt();
-        auto latRow = content.removeFromTop (36.0f);
-        const float bw2 = (latRow.getWidth() - gap * (kNumLatency - 1)) / (float) kNumLatency;
-        for (int i = 0; i < kNumLatency; ++i)
-        {
-            latencyButtons[i].setBounds (latRow.removeFromLeft ((int) bw2).toNearestInt());
-            latRow.removeFromLeft ((int) gap);
-        }
+        titleArea = sheet.removeFromTop (64.0f).toNearestInt();
+        closeButton.setBounds (juce::Rectangle<int> (30, 30).withCentre ({ titleArea.getRight() - 32, titleArea.getCentreY() + 2 }));
+        sheet.removeFromBottom (12.0f);
+        viewport.setBounds (sheet.toNearestInt());
+        for (auto& p : pages)
+            p.layout (pageWidth());
 
-        content.removeFromTop (18.0f);           // ligne + marge
-        themeLabelBounds = content.removeFromTop (18.0f).toNearestInt();
-        themeButton.setBounds (content.removeFromTop (34.0f).toNearestInt());
-
-        content.removeFromTop (14.0f);           // ligne + marge
-        licenseButton.setBounds (content.removeFromTop (34.0f).toNearestInt());
-
-        // SEPARATE OUTPUTS : label + menu du mix principal sur la meme ligne,
-        // puis une rangee de 7 menus (un par bande), juste avant le
-        // separateur de la section AI.
-        content.removeFromTop (16.0f);
-        {
-            auto labelRow = content.removeFromTop (22.0f);
-            // Menu du mix principal cale a droite (seulement en standalone).
-            auto mainComboArea = labelRow.removeFromRight (150.0f);
-            mainOutMiniLabelBounds = mainComboArea.removeFromLeft (44.0f).toNearestInt();
-            mainOutCombo.setBounds (mainComboArea.reduced (0.0f, 1.0f).toNearestInt());
-            routeOutLabelBounds = labelRow.toNearestInt();
-        }
-        content.removeFromTop (4.0f);
-        bandOutInitialsBounds = content.removeFromTop (12.0f).toNearestInt();
-        auto routeRow = content.removeFromTop (26.0f);
-        const float bw3 = (routeRow.getWidth() - gap * (kNumRouteBands - 1)) / (float) kNumRouteBands;
-        for (int i = 0; i < kNumRouteBands; ++i)
-        {
-            bandOutCombos[i].setBounds (routeRow.removeFromLeft ((int) bw3).toNearestInt());
-            routeRow.removeFromLeft ((int) gap);
-        }
-
-        aiDividerY = content.getY() + 12.0f;
-        content.removeFromTop (20.0f);           // ligne + marge
-
-        // En-tete "AI" -- meme logique que GENERAL ci-dessus, mais pour
-        // toute la section scrollable (portee, cibles, style, fidelity...).
-        aiHeaderBounds = content.removeFromTop (22.0f).toNearestInt();
-        content.removeFromTop (4.0f);
-
-        closeButton.setBounds (juce::Rectangle<int> (110, 30)
-            .withCentre ({ (int) panelBounds.getCentreX(), (int) panelBounds.getBottom() - 28 }));
-        content.removeFromBottom (10.0f); // marge avant le bouton CLOSE
-
-        aiViewport.setBounds (content.toNearestInt());
-        const int scrollBarW = aiViewport.getScrollBarThickness();
-        aiPanel.layout (juce::jmax (10, (int) content.getWidth() - scrollBarW));
-
-        closeCrossButton.setBounds (juce::Rectangle<int> (28, 28)
-            .withCentre ({ (int) panelBounds.getRight() - 22, (int) panelBounds.getY() + 22 }));
+        rebuildShadow();
     }
 
     void paint (juce::Graphics& g) override
     {
-        auto bounds = getLocalBounds().toFloat();
-        g.setColour (juce::Colours::black.withAlpha (0.88f));
-        g.fillRect (bounds);
+        const auto th = OptionsUi::Theme::current();
+        AlphaDraw::overlayVeil (g, getLocalBounds().toFloat());
+        g.drawImageAt (shadowImage, shadowOrigin.x, shadowOrigin.y);
 
-        SixpackLookAndFeel::renderGlassPanel (g, panelBounds, 12.0f);
-        SixpackLookAndFeel::renderGlossySheen (g, panelBounds);
-        g.setColour (SixpackColours::ledAmber.withAlpha (0.5f));
-        g.drawRoundedRectangle (panelBounds.reduced (0.5f), 12.0f, 1.0f);
-
-        auto content = panelBounds.reduced (26.0f, 20.0f);
-        auto titleArea = content.removeFromTop (38.0f);
-        g.setColour (SixpackColours::ledAmber);
-        g.setFont (juce::Font (juce::FontOptions (20.0f, juce::Font::bold)).withExtraKerningFactor (0.1f));
-        g.drawFittedText ("OPTIONS", titleArea.toNearestInt(), juce::Justification::centredLeft, 1);
-
-        g.setColour (SixpackColours::gridLine);
-        g.drawLine (content.getX(), content.getY(), content.getRight(), content.getY(), 1.0f);
-
-        auto drawSectionLabel = [&] (const juce::Rectangle<int>& area, const juce::String& text)
+        juce::Path sheet;
+        sheet.addRoundedRectangle (sheetBounds, 14.0f);
+        g.setColour (th.bg);
+        g.fillPath (sheet);
         {
-            g.setColour (SixpackLookAndFeel::textAccentBlue());
-            g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
-            g.drawFittedText (text, area, juce::Justification::centredLeft, 1);
-        };
-
-        // En-tetes de GROUPE (GENERAL / AI) -- plus grands et en ambre, pour
-        // se distinguer clairement des labels de sous-section (bleus,
-        // drawSectionLabel ci-dessus) : demande explicite de bien separer
-        // les reglages de base des reglages IA.
-        auto drawGroupHeader = [&] (const juce::Rectangle<int>& area, const juce::String& text)
-        {
-            g.setColour (SixpackColours::ledAmber);
-            g.setFont (juce::Font (juce::FontOptions (14.5f, juce::Font::bold)).withExtraKerningFactor (0.16f));
-            g.drawFittedText (text, area, juce::Justification::centredLeft, 1);
-        };
-
-        drawGroupHeader (generalHeaderBounds, "GENERAL");
-        drawSectionLabel (scaleLabelBounds, "WINDOW SIZE");
-        drawSectionLabel (latencyLabelBounds, "LINEAR MODE CPU BUDGET");
-        drawSectionLabel (themeLabelBounds, "DESIGN");
-
-        // "SEPARATE OUTPUTS" + aide inline + "MAIN" au-dessus du menu du mix.
-        drawSectionLabel (routeOutLabelBounds, "SEPARATE OUTPUTS");
-        {
-            g.setColour (SixpackColours::textDim);
-            g.setFont (juce::Font (juce::FontOptions (10.0f)));
-            auto hint = routeOutLabelBounds;
-            hint.removeFromLeft (150);
-            g.drawFittedText (outIsStandalone ? "pick the sound card output pair per band"
-                                              : "MIX / BUS per band, host routes the buses",
-                              hint, juce::Justification::centredLeft, 1);
-
-            if (outIsStandalone)
-            {
-                g.setColour (SixpackColours::textDim);
-                g.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)));
-                g.drawFittedText ("MAIN", mainOutMiniLabelBounds, juce::Justification::centredRight, 1);
-            }
-
-            // Initiales des 7 bandes au-dessus de leur menu.
-            static const char* bandInitials[kNumRouteBands] = { "LOW", "L-MID", "MID", "H-MID", "PRES", "HIGH", "AIR" };
-            g.setColour (SixpackColours::textDim);
-            g.setFont (juce::Font (juce::FontOptions (9.0f, juce::Font::bold)).withExtraKerningFactor (0.05f));
-            for (int i = 0; i < kNumRouteBands; ++i)
-                g.drawFittedText (bandInitials[i], bandOutCombos[i].getBounds().withY (bandOutInitialsBounds.getY())
-                                                       .withHeight (bandOutInitialsBounds.getHeight()),
-                                  juce::Justification::centred, 1);
+            juce::Graphics::ScopedSaveState state (g);
+            g.reduceClipRegion (sheet);
+            g.setColour (th.side);
+            g.fillRect (sidebarBounds);
+            g.setColour (th.sep);
+            g.fillRect (sidebarBounds.withLeft (sidebarBounds.getRight() - 1.0f));
         }
+        g.setColour (th.edge);
+        g.strokePath (sheet, juce::PathStrokeType (1.0f));
 
-        g.setColour (SixpackColours::gridLine);
-        g.drawLine (content.getX(), latencyLabelBounds.getY() - 18.0f, content.getRight(), latencyLabelBounds.getY() - 18.0f, 1.0f);
-        g.drawLine (content.getX(), themeLabelBounds.getY() - 18.0f, content.getRight(), themeLabelBounds.getY() - 18.0f, 1.0f);
-        g.drawLine (content.getX(), routeOutLabelBounds.getY() - 8.0f, content.getRight(), routeOutLabelBounds.getY() - 8.0f, 1.0f);
-        g.drawLine (content.getX(), aiDividerY, content.getRight(), aiDividerY, 1.0f);
-        drawGroupHeader (aiHeaderBounds, "AI");
+        // Marque : pastille engrenage, "Options", version.
+        auto brand = brandBounds.reduced (8.0f, 6.0f);
+        const auto badge = brand.removeFromLeft (34.0f).withSizeKeepingCentre (34.0f, 34.0f);
+        OptionsUi::drawBadge (g, *icons, OptionsUi::Icon::gear, badge, juce::Colour (0xff3fa9f5));
+        brand.removeFromLeft (10.0f);
+        g.setColour (th.fg);
+        g.setFont (OptionsUi::font (15.0f, 2));
+        g.drawText ("Options", brand.removeFromTop (brand.getHeight() * 0.5f + 1.0f), juce::Justification::bottomLeft, true);
+        g.setColour (th.muted);
+        g.setFont (OptionsUi::font (11.5f));
+        g.drawText (juce::String ("Sevenpack Alpha ") + JucePlugin_VersionString, brand, juce::Justification::topLeft, true);
+
+        // Titre de la categorie courante.
+        g.setColour (th.fg);
+        g.setFont (OptionsUi::font (22.0f, 2));
+        g.drawText (categoryItems[currentCategory]->getButtonText(), titleArea.withTrimmedLeft (28).withTrimmedRight (70),
+                    juce::Justification::centredLeft, true);
     }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        if (! panelBounds.contains (e.position) && onDismiss)
+        if (! sheetBounds.contains (e.position) && onDismiss)
             onDismiss();
     }
 
     std::function<void()> onDismiss;
     std::function<void()> onOpenLicense;
-    std::function<void(bool)> onThemeToggled;
+    // 0=Dark, 1=Light, 2=DOS retro.
+    std::function<void(int)> onUiThemeSelected;
     std::function<void(float)> onScaleSelected;
     std::function<void(int)> onLatencySelected;
     std::function<void(int)> onAiTargetSelected;
@@ -431,442 +1144,287 @@ public:
     // band : 0=Low..6=Air. comboIndex : 0 = dans le mix ; >=1 = paire+1
     // (standalone) ou 1 = sur son bus (VST3).
     std::function<void(int band, int comboIndex)> onBandOutRoutingChanged;
+    // bounce/ret : 0..100.
+    std::function<void(float bounce, float ret)> onNeedleSettingsChanged;
+    // 0 = bandeau, 1 = teinte, 2 = aucune.
+    std::function<void(int)> onBandColourModeSelected;
+    // Vitre des aiguilles : 0 = ARC, 1 = SMOKED.
+    std::function<void(int)> onNeedleGlassSelected;
+    // Bout des aiguilles : true = rouge, false = blanc.
+    std::function<void(bool)> onNeedleTipSelected;
+    // Goniometre : true = lignes ; hors phase : true = rouge.
+    std::function<void(bool)> onGonioLinesSelected;
+    std::function<void(bool)> onGonioRedPhaseSelected;
+    // Finition : 0 MATTE, 1 SATIN, 2 GLOSS, 3 MOLDED.
+    std::function<void(int)> onFinishSelected;
+    // Fader : 0 BLACK, 1 VINTAGE, 2 ALU.
+    std::function<void(int)> onFaderStyleSelected;
+    // Pictogrammes ATT / REL : 0 OFF, 1 CURVE, 2 WAVE, 3 LEDS.
+    std::function<void(int)> onAttRelIconsSelected;
+    // Spectre de l'ecran des crossovers : style 0 CLASSIC, 1 LINE, 2 GLOW,
+    // 3 BANDS, 4 FILLED ; lissage 0 d'origine, 1 plus doux ; ligne des cretes.
+    std::function<void(int)> onSpectrumStyleSelected;
+    std::function<void(int)> onSpectrumSmoothSelected;
+    std::function<void(bool)> onSpectrumPeakChanged;
 
 private:
-    // Contenu SCROLLABLE de la section AI -- meme idiome que AboutOverlay::
-    // ParagraphColumn (calcule sa propre hauteur via layout(width), le
-    // Viewport parent s'en sert pour savoir jusqu'ou scroller).
-    class AiPanel : public juce::Component
-    {
-    public:
-        explicit AiPanel (OptionsOverlay& ownerIn) : owner (ownerIn) {}
-
-        void build()
-        {
-            static const char* aiTargetLabels[kNumAiTargets] =
-                { "OFF", "APPLE MUSIC", "YOUTUBE", "SPOTIFY", "DEEZER", "SOUNDCLOUD", "TV", "CD", "SIDE KEY", "MATCH" };
-            static const char* compressionLabels[kNumCompressionModes] = { "OFF", "SOFT", "MEDIUM", "HARD" };
-            static const char* characterLabels[kNumAttackReleaseCharacters] = { "OFF", "SMOOTH", "MEDIUM", "PUNCHY" };
-            static const char* grLabels[kNumGainReductionModes] = { "OFF", "SMOOTH", "MID", "HARD" };
-            static const char* scopeLabels[kNumScopes] = { "CROSSOVER", "COMPRESSION" };
-            static const char* styleLabels[kNumStyles] = { "OFF", "BASS", "LOUD", "ROCK", "POP", "ELECTRONIC" };
-            static const char* expandModeLabels[kNumExpandModes] = { "OFF", "SOFT", "MEDIUM", "HARD" };
-            static const char* expandCharacterLabels[kNumExpandCharacters] = { "OFF", "SMOOTH", "MEDIUM", "PUNCHY" };
-            static const char* expandAmountLabels[kNumExpandAmountModes] = { "OFF", "SMOOTH", "MID", "HARD" };
-
-            for (int i = 0; i < kNumAiTargets; ++i)
-            {
-                addAndMakeVisible (aiTargetButtons[i]);
-                aiTargetButtons[i].setButtonText (aiTargetLabels[i]);
-                aiTargetButtons[i].setClickingTogglesState (true);
-                aiTargetButtons[i].setRadioGroupId (9103, juce::dontSendNotification);
-                aiTargetButtons[i].onClick = [this, i]
-                {
-                    if (aiTargetButtons[i].getToggleState() && owner.onAiTargetSelected)
-                        owner.onAiTargetSelected (i);
-                };
-                aiTargetButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                aiTargetButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledCyan);
-                aiTargetButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
-                aiTargetButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-            }
-
-            for (int i = 0; i < kNumCompressionModes; ++i)
-            {
-                addAndMakeVisible (compressionModeButtons[i]);
-                compressionModeButtons[i].setButtonText (compressionLabels[i]);
-                compressionModeButtons[i].setClickingTogglesState (true);
-                compressionModeButtons[i].setRadioGroupId (9104, juce::dontSendNotification);
-                compressionModeButtons[i].onClick = [this, i]
-                {
-                    if (compressionModeButtons[i].getToggleState() && owner.onAiCompressionModeSelected)
-                        owner.onAiCompressionModeSelected (i);
-                };
-                compressionModeButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                compressionModeButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledCyan);
-                compressionModeButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
-                compressionModeButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-            }
-
-            for (int i = 0; i < kNumAttackReleaseCharacters; ++i)
-            {
-                addAndMakeVisible (characterButtons[i]);
-                characterButtons[i].setButtonText (characterLabels[i]);
-                characterButtons[i].setClickingTogglesState (true);
-                characterButtons[i].setRadioGroupId (9105, juce::dontSendNotification);
-                characterButtons[i].onClick = [this, i]
-                {
-                    if (characterButtons[i].getToggleState() && owner.onAiCharacterSelected)
-                        owner.onAiCharacterSelected (i);
-                };
-                characterButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                characterButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledCyan);
-                characterButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
-                characterButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-            }
-
-            // AI GAIN REDUCTION -- demande explicite (suite a "ca compresse
-            // beaucoup") : combien de gain reduction au total, Smooth/Mid/
-            // Hard, axe SUPPLEMENTAIRE independant du mode de compression
-            // et du caractere attack/release ci-dessus.
-            for (int i = 0; i < kNumGainReductionModes; ++i)
-            {
-                addAndMakeVisible (gainReductionButtons[i]);
-                gainReductionButtons[i].setButtonText (grLabels[i]);
-                gainReductionButtons[i].setClickingTogglesState (true);
-                gainReductionButtons[i].setRadioGroupId (9106, juce::dontSendNotification);
-                gainReductionButtons[i].onClick = [this, i]
-                {
-                    if (gainReductionButtons[i].getToggleState() && owner.onAiGainReductionSelected)
-                        owner.onAiGainReductionSelected (i);
-                };
-                gainReductionButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                gainReductionButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledCyan);
-                gainReductionButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
-                gainReductionButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-            }
-
-            for (int i = 0; i < kNumScopes; ++i)
-            {
-                addAndMakeVisible (scopeButtons[i]);
-                scopeButtons[i].setButtonText (scopeLabels[i]);
-                scopeButtons[i].setClickingTogglesState (true);
-                scopeButtons[i].onClick = [this, i]
-                {
-                    if (owner.onAiScopeChanged)
-                        owner.onAiScopeChanged (i, scopeButtons[i].getToggleState());
-                };
-                scopeButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                scopeButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledGreen);
-                scopeButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
-                scopeButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-            }
-
-            // AI STYLE -- demande explicite : "plusieurs styles musicaux
-            // qui vont changer la balance des outputs en fonction du
-            // style" -- radio, "OFF" = aucun offset (comportement d'origine).
-            for (int i = 0; i < kNumStyles; ++i)
-            {
-                addAndMakeVisible (styleButtons[i]);
-                styleButtons[i].setButtonText (styleLabels[i]);
-                styleButtons[i].setClickingTogglesState (true);
-                styleButtons[i].setRadioGroupId (9107, juce::dontSendNotification);
-                styleButtons[i].onClick = [this, i]
-                {
-                    if (styleButtons[i].getToggleState() && owner.onAiStyleSelected)
-                        owner.onAiStyleSelected (i);
-                };
-                styleButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                styleButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledCyan);
-                styleButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
-                styleButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-            }
-
-            // AI FIDELITY -- demande explicite : "une fonction qui reprend
-            // la balance bass mid aigue du mix pour la remettre pareil
-            // apres compression" -- interrupteur independant, meme style
-            // que les boutons AI SCOPE ci-dessus.
-            addAndMakeVisible (fidelityButton);
-            fidelityButton.setButtonText ("FIDELITY");
-            fidelityButton.setClickingTogglesState (true);
-            fidelityButton.onClick = [this]
-            {
-                if (owner.onAiFidelityChanged)
-                    owner.onAiFidelityChanged (fidelityButton.getToggleState());
-            };
-            fidelityButton.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-            fidelityButton.setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledGreen);
-            fidelityButton.setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
-            fidelityButton.setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-
-            // Triade AI EXPAND (demande explicite : "pour l'ia de expand,
-            // il faut des reglages comme pour l'ia comp") -- meme
-            // mecanique que les 3 radios Compression Mode/Character/Gain
-            // Reduction plus haut, mais dediee aux bandes en Expand/Both.
-            for (int i = 0; i < kNumExpandModes; ++i)
-            {
-                addAndMakeVisible (expandModeButtons[i]);
-                expandModeButtons[i].setButtonText (expandModeLabels[i]);
-                expandModeButtons[i].setClickingTogglesState (true);
-                expandModeButtons[i].setRadioGroupId (9109, juce::dontSendNotification);
-                expandModeButtons[i].onClick = [this, i]
-                {
-                    if (expandModeButtons[i].getToggleState() && owner.onAiExpandModeSelected)
-                        owner.onAiExpandModeSelected (i);
-                };
-                expandModeButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                // Violet -- coherent avec le reste du theme Expand (diode
-                // Comp/Expand, knobs teintes, rangee GR dediee), retour
-                // utilisateur : "il faut faire correspondre les couleurs
-                // pour les options de l'expandeur en violet comme la diode
-                // expand".
-                expandModeButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledPurple);
-                expandModeButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
-                expandModeButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-            }
-
-            for (int i = 0; i < kNumExpandCharacters; ++i)
-            {
-                addAndMakeVisible (expandCharacterButtons[i]);
-                expandCharacterButtons[i].setButtonText (expandCharacterLabels[i]);
-                expandCharacterButtons[i].setClickingTogglesState (true);
-                expandCharacterButtons[i].setRadioGroupId (9110, juce::dontSendNotification);
-                expandCharacterButtons[i].onClick = [this, i]
-                {
-                    if (expandCharacterButtons[i].getToggleState() && owner.onAiExpandCharacterSelected)
-                        owner.onAiExpandCharacterSelected (i);
-                };
-                expandCharacterButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                expandCharacterButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledPurple);
-                expandCharacterButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
-                expandCharacterButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-            }
-
-            for (int i = 0; i < kNumExpandAmountModes; ++i)
-            {
-                addAndMakeVisible (expandAmountButtons[i]);
-                expandAmountButtons[i].setButtonText (expandAmountLabels[i]);
-                expandAmountButtons[i].setClickingTogglesState (true);
-                expandAmountButtons[i].setRadioGroupId (9111, juce::dontSendNotification);
-                expandAmountButtons[i].onClick = [this, i]
-                {
-                    if (expandAmountButtons[i].getToggleState() && owner.onAiExpandAmountSelected)
-                        owner.onAiExpandAmountSelected (i);
-                };
-                expandAmountButtons[i].setColour (juce::TextButton::buttonColourId, juce::Colour (0xff2b2e33));
-                expandAmountButtons[i].setColour (juce::TextButton::buttonOnColourId, SixpackColours::ledPurple);
-                expandAmountButtons[i].setColour (juce::TextButton::textColourOffId, SixpackColours::chipTextDim);
-                expandAmountButtons[i].setColour (juce::TextButton::textColourOnId, juce::Colours::black);
-            }
-        }
-
-        void setCurrentAiTargetIndex (int idx)
-        {
-            for (int i = 0; i < kNumAiTargets; ++i)
-                aiTargetButtons[i].setToggleState (i == idx, juce::dontSendNotification);
-        }
-
-        void setCurrentAiCompressionMode (int idx)
-        {
-            for (int i = 0; i < kNumCompressionModes; ++i)
-                compressionModeButtons[i].setToggleState (i == idx, juce::dontSendNotification);
-        }
-
-        void setCurrentAiCharacter (int idx)
-        {
-            for (int i = 0; i < kNumAttackReleaseCharacters; ++i)
-                characterButtons[i].setToggleState (i == idx, juce::dontSendNotification);
-        }
-
-        void setCurrentAiGainReduction (int idx)
-        {
-            for (int i = 0; i < kNumGainReductionModes; ++i)
-                gainReductionButtons[i].setToggleState (i == idx, juce::dontSendNotification);
-        }
-
-        void setAiScopeStates (bool crossoverOn, bool compressionOn)
-        {
-            scopeButtons[0].setToggleState (crossoverOn,   juce::dontSendNotification);
-            scopeButtons[1].setToggleState (compressionOn, juce::dontSendNotification);
-        }
-
-        void setCurrentAiStyle (int idx)
-        {
-            for (int i = 0; i < kNumStyles; ++i)
-                styleButtons[i].setToggleState (i == idx, juce::dontSendNotification);
-        }
-
-        void setAiFidelityState (bool enabled)
-        {
-            fidelityButton.setToggleState (enabled, juce::dontSendNotification);
-        }
-
-        void setCurrentAiExpandMode (int idx)
-        {
-            for (int i = 0; i < kNumExpandModes; ++i)
-                expandModeButtons[i].setToggleState (i == idx, juce::dontSendNotification);
-        }
-
-        void setCurrentAiExpandCharacter (int idx)
-        {
-            for (int i = 0; i < kNumExpandCharacters; ++i)
-                expandCharacterButtons[i].setToggleState (i == idx, juce::dontSendNotification);
-        }
-
-        void setCurrentAiExpandAmount (int idx)
-        {
-            for (int i = 0; i < kNumExpandAmountModes; ++i)
-                expandAmountButtons[i].setToggleState (i == idx, juce::dontSendNotification);
-        }
-
-        // Calcule sa propre hauteur de contenu a partir de la largeur --
-        // le Viewport parent (OptionsOverlay::aiViewport) s'en sert pour
-        // savoir jusqu'ou scroller. Meme idiome que AboutOverlay::
-        // ParagraphColumn::layout().
-        void layout (int width)
-        {
-            const float gap = 8.0f;
-            float y = 0.0f;
-            auto row = [&] (juce::TextButton* buttons, int count, float h)
-            {
-                const float bw = (width - gap * (count - 1)) / (float) count;
-                float x = 0.0f;
-                for (int i = 0; i < count; ++i)
-                {
-                    buttons[i].setBounds (juce::Rectangle<float> (x, y, bw, h).toNearestInt());
-                    x += bw + gap;
-                }
-                y += h;
-            };
-
-            aiTargetLabelBounds = { 0, (int) y, width, 18 };
-            y += 22.0f;
-            // 10 boutons sur 2 rangees de 5 (Match ajoute en demande
-            // explicite : "une case Match pour volume match", 10e choix de
-            // la meme liste -- grille impaire 3x3 devenue 2x5).
-            constexpr int perRow = 5;
-            constexpr int numRows = 2;
-            for (int r = 0; r < numRows; ++r)
-            {
-                row (aiTargetButtons + r * perRow, perRow, 34.0f);
-                y += (r < numRows - 1 ? 6.0f : 0.0f);
-            }
-
-            y += 20.0f;
-            compressionModeLabelBounds = { 0, (int) y, width, 18 };
-            y += 22.0f;
-            row (compressionModeButtons, kNumCompressionModes, 36.0f);
-
-            y += 20.0f;
-            characterLabelBounds = { 0, (int) y, width, 18 };
-            y += 22.0f;
-            row (characterButtons, kNumAttackReleaseCharacters, 36.0f);
-
-            y += 20.0f;
-            gainReductionLabelBounds = { 0, (int) y, width, 18 };
-            y += 22.0f;
-            row (gainReductionButtons, kNumGainReductionModes, 36.0f);
-
-            y += 20.0f;
-            scopeLabelBounds = { 0, (int) y, width, 18 };
-            y += 22.0f;
-            row (scopeButtons, kNumScopes, 36.0f);
-
-            y += 20.0f;
-            styleLabelBounds = { 0, (int) y, width, 18 };
-            y += 22.0f;
-            row (styleButtons, kNumStyles, 34.0f);
-
-            y += 20.0f;
-            fidelityLabelBounds = { 0, (int) y, width, 18 };
-            y += 22.0f;
-            fidelityButton.setBounds (juce::Rectangle<float> (0.0f, y, (float) width, 36.0f).toNearestInt());
-            y += 36.0f;
-
-            y += 20.0f;
-            expandModeLabelBounds = { 0, (int) y, width, 18 };
-            y += 22.0f;
-            row (expandModeButtons, kNumExpandModes, 36.0f);
-
-            y += 20.0f;
-            expandCharacterLabelBounds = { 0, (int) y, width, 18 };
-            y += 22.0f;
-            row (expandCharacterButtons, kNumExpandCharacters, 36.0f);
-
-            y += 20.0f;
-            expandAmountLabelBounds = { 0, (int) y, width, 18 };
-            y += 22.0f;
-            row (expandAmountButtons, kNumExpandAmountModes, 36.0f);
-
-            y += 10.0f;
-            setSize (width, juce::roundToInt (y));
-        }
-
-        void paint (juce::Graphics& g) override
-        {
-            auto drawSectionLabel = [&] (const juce::Rectangle<int>& area, const juce::String& text)
-            {
-                g.setColour (SixpackLookAndFeel::textAccentBlue());
-                g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
-                g.drawFittedText (text, area, juce::Justification::centredLeft, 1);
-            };
-
-            drawSectionLabel (aiTargetLabelBounds, "AI MASTERING TARGET (LUFS)");
-            drawSectionLabel (compressionModeLabelBounds, "AI COMPRESSION MODE");
-            drawSectionLabel (characterLabelBounds, "AI ATTACK / RELEASE CHARACTER");
-            drawSectionLabel (gainReductionLabelBounds, "AI GAIN REDUCTION");
-            drawSectionLabel (scopeLabelBounds, "AI SCOPE (WHAT THE AI BUTTON IS ALLOWED TO TOUCH)");
-            drawSectionLabel (styleLabelBounds, "AI STYLE (OUTPUT BALANCE)");
-            drawSectionLabel (fidelityLabelBounds, "AI FIDELITY (RESTORE ORIGINAL TONAL BALANCE)");
-            drawSectionLabel (expandModeLabelBounds, "AI EXPAND MODE");
-            drawSectionLabel (expandCharacterLabelBounds, "AI EXPAND ATTACK / RELEASE CHARACTER");
-            drawSectionLabel (expandAmountLabelBounds, "AI EXPAND AMOUNT");
-
-            g.setColour (SixpackColours::gridLine);
-            g.drawLine (0.0f, compressionModeLabelBounds.getY() - 12.0f, (float) getWidth(), compressionModeLabelBounds.getY() - 12.0f, 1.0f);
-            g.drawLine (0.0f, characterLabelBounds.getY() - 12.0f, (float) getWidth(), characterLabelBounds.getY() - 12.0f, 1.0f);
-            g.drawLine (0.0f, gainReductionLabelBounds.getY() - 12.0f, (float) getWidth(), gainReductionLabelBounds.getY() - 12.0f, 1.0f);
-            g.drawLine (0.0f, scopeLabelBounds.getY() - 12.0f, (float) getWidth(), scopeLabelBounds.getY() - 12.0f, 1.0f);
-            g.drawLine (0.0f, styleLabelBounds.getY() - 12.0f, (float) getWidth(), styleLabelBounds.getY() - 12.0f, 1.0f);
-            g.drawLine (0.0f, fidelityLabelBounds.getY() - 12.0f, (float) getWidth(), fidelityLabelBounds.getY() - 12.0f, 1.0f);
-            g.drawLine (0.0f, expandModeLabelBounds.getY() - 12.0f, (float) getWidth(), expandModeLabelBounds.getY() - 12.0f, 1.0f);
-            g.drawLine (0.0f, expandCharacterLabelBounds.getY() - 12.0f, (float) getWidth(), expandCharacterLabelBounds.getY() - 12.0f, 1.0f);
-            g.drawLine (0.0f, expandAmountLabelBounds.getY() - 12.0f, (float) getWidth(), expandAmountLabelBounds.getY() - 12.0f, 1.0f);
-        }
-
-    private:
-        static constexpr int kNumAiTargets = 10;
-        static constexpr int kNumCompressionModes = 4;
-        static constexpr int kNumAttackReleaseCharacters = 4;
-        static constexpr int kNumGainReductionModes = 4;
-        static constexpr int kNumScopes = 2;
-        static constexpr int kNumStyles = 6;
-        static constexpr int kNumExpandModes = 4;
-        static constexpr int kNumExpandCharacters = 4;
-        static constexpr int kNumExpandAmountModes = 4;
-
-        OptionsOverlay& owner;
-
-        juce::TextButton aiTargetButtons[kNumAiTargets];
-        juce::TextButton compressionModeButtons[kNumCompressionModes];
-        juce::TextButton characterButtons[kNumAttackReleaseCharacters];
-        juce::TextButton gainReductionButtons[kNumGainReductionModes];
-        juce::TextButton scopeButtons[kNumScopes];
-        juce::TextButton styleButtons[kNumStyles];
-        juce::TextButton fidelityButton;
-        juce::TextButton expandModeButtons[kNumExpandModes];
-        juce::TextButton expandCharacterButtons[kNumExpandCharacters];
-        juce::TextButton expandAmountButtons[kNumExpandAmountModes];
-
-        juce::Rectangle<int> aiTargetLabelBounds, compressionModeLabelBounds, characterLabelBounds, gainReductionLabelBounds, scopeLabelBounds;
-        juce::Rectangle<int> styleLabelBounds, fidelityLabelBounds;
-        juce::Rectangle<int> expandModeLabelBounds, expandCharacterLabelBounds, expandAmountLabelBounds;
-    };
-
+    static constexpr int kNumCategories = 6;
+    enum { kGeneralPage, kAppearancePage, kMetersPage, kOutputsPage, kAiPage, kLicensePage };
+    static constexpr float kSidebarWidth = 250.0f;
     static constexpr int kNumScales = 6;
-    static constexpr int kNumLatency = 3;
     static constexpr int kNumRouteBands = 7;
     static constexpr float kScaleValues[kNumScales] = { 0.75f, 0.80f, 0.85f, 0.90f, 0.95f, 1.0f };
 
-    juce::TextButton scaleButtons[kNumScales];
-    juce::TextButton latencyButtons[kNumLatency];
-    juce::ComboBox   mainOutCombo;
-    juce::ComboBox   bandOutCombos[kNumRouteBands];
+    int pageWidth() const   { return viewport.getWidth() - viewport.getScrollBarThickness(); }
+
+    void updateCategoryCounts()
+    {
+        for (int i = 0; i < kNumCategories; ++i)
+            categoryItems[i]->setCount (pages[i].getNumVisibleRows());
+    }
+
+    // Ombre portee du panneau, mise en cache (DropShadow est couteux et le
+    // voile est repeint a chaque rafraichissement des vu-metres dessous).
+    void rebuildShadow()
+    {
+        const auto area = sheetBounds.expanded (64.0f).getSmallestIntegerContainer();
+        shadowOrigin = area.getPosition();
+        shadowImage = juce::Image (juce::Image::ARGB, juce::jmax (1, area.getWidth()), juce::jmax (1, area.getHeight()), true);
+        juce::Graphics sg (shadowImage);
+        juce::Path p;
+        p.addRoundedRectangle (sheetBounds.translated ((float) -area.getX(), (float) -area.getY()), 14.0f);
+        juce::DropShadow (juce::Colours::black.withAlpha (0.45f), 48, { 0, 18 }).drawForPath (sg, p);
+    }
+
+    static void setupCombo (juce::ComboBox& c)
+    {
+        c.setJustificationType (juce::Justification::centredLeft);
+        c.setRepaintsOnMouseActivity (true);
+        c.setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    void buildGeneralPage()
+    {
+        using OptionsUi::Icon;
+        auto& p = pages[kGeneralPage];
+        p.addGroup ({});
+        p.addRow (Icon::window, juce::Colour (0xff5e5ce6), "Window size", "Plugin window scale", &scaleSeg, scaleSeg.getIdealWidth());
+        p.addRow (Icon::theme, juce::Colour (0xff48484a), "Theme", "Dark, light or retro DOS", &themeSeg, themeSeg.getIdealWidth());
+        p.addGroup ("Performance");
+        p.addRow (Icon::cpu, juce::Colour (0xff8e8e93), "Linear mode CPU budget", "Latency of the linear-phase crossover",
+                  &latencySeg, latencySeg.getIdealWidth());
+
+        scaleSeg.onChange   = [this] (int i) { if (onScaleSelected) onScaleSelected (kScaleValues[i]); };
+        themeSeg.onChange   = [this] (int i) { if (onUiThemeSelected) onUiThemeSelected (i); };
+        latencySeg.onChange = [this] (int i) { if (onLatencySelected) onLatencySelected (i); };
+    }
+
+    void buildAppearancePage()
+    {
+        using OptionsUi::Icon;
+        auto& p = pages[kAppearancePage];
+        p.addGroup ("Look");
+        p.addRow (Icon::finish, juce::Colour (0xff0a84ff), "Finish", "Plastic look of the light theme", &finishSeg, finishSeg.getIdealWidth());
+        p.addRow (Icon::palette, juce::Colour (0xffff375f), "Band colours", "Pastel banner, tinted card or none",
+                  &colourModeSeg, colourModeSeg.getIdealWidth());
+        p.addRow (Icon::fader, juce::Colour (0xff636366), "Band faders", "Console fader cap", &faderSeg, faderSeg.getIdealWidth());
+        p.addRow (Icon::timer, juce::Colour (0xffff9f0a), "Attack / release icons", "Next to ATT and REL, animated while turning",
+                  &attRelSeg, attRelSeg.getIdealWidth());
+
+        finishSeg.onChange     = [this] (int i) { if (onFinishSelected) onFinishSelected (i); };
+        colourModeSeg.onChange = [this] (int i) { if (onBandColourModeSelected) onBandColourModeSelected (i); };
+        faderSeg.onChange      = [this] (int i) { if (onFaderStyleSelected) onFaderStyleSelected (i); };
+        attRelSeg.onChange     = [this] (int i) { if (onAttRelIconsSelected) onAttRelIconsSelected (i); };
+    }
+
+    void buildMetersPage()
+    {
+        using OptionsUi::Icon;
+        auto& p = pages[kMetersPage];
+        p.addGroup ("Needles");
+        p.addRow (Icon::spring, juce::Colour (0xffff9f0a), "Bounce", "Needle overshoot", &bounceSlider, 250);
+        p.addRow (Icon::back, juce::Colour (0xffff9f0a), "Return", "Needle return speed", &returnSlider, 250);
+        p.addRow (Icon::glass, juce::Colour (0xff64d2ff), "Glass", "Reflection on the dials", &glassSeg, glassSeg.getIdealWidth());
+        p.addRow (Icon::needle, juce::Colour (0xffff453a), "Needle tip", "Tip colour", &tipSeg, tipSeg.getIdealWidth());
+        p.addGroup ("Goniometer");
+        p.addRow (Icon::gonio, juce::Colour (0xff30b158), "Display", "Dots or connected lines", &gonioSeg, gonioSeg.getIdealWidth());
+        p.addRow (Icon::phase, juce::Colour (0xffff453a), "Out of phase in red", "Anti-phase content in red instead of white",
+                  &phaseSwitch, 44, 26);
+        p.addGroup ("Spectrum", "Music curve on the crossover screen. Classic = the original look.");
+        p.addRow (Icon::spectrum, juce::Colour (0xff30b0c7), "Style", "Classic, white line, glow, band colours or filled",
+                  &spectrumStyleSeg, spectrumStyleSeg.getIdealWidth());
+        p.addRow (Icon::phase, juce::Colour (0xff64d2ff), "Smoothing", "Smoother curve, easier to follow",
+                  &spectrumSmoothSeg, spectrumSmoothSeg.getIdealWidth());
+        p.addRow (Icon::amount, juce::Colour (0xff5e5ce6), "Peak line", "Dotted line holding the peaks for a moment",
+                  &spectrumPeakSwitch, 44, 26);
+
+        const auto needleChanged = [this]
+        {
+            if (onNeedleSettingsChanged)
+                onNeedleSettingsChanged ((float) bounceSlider.getValue(), (float) returnSlider.getValue());
+        };
+        bounceSlider.onValueChange = needleChanged;
+        returnSlider.onValueChange = needleChanged;
+        bounceSlider.setDefault (55.0);
+        returnSlider.setDefault (50.0);
+
+        glassSeg.onChange    = [this] (int i) { if (onNeedleGlassSelected) onNeedleGlassSelected (i); };
+        tipSeg.onChange      = [this] (int i) { if (onNeedleTipSelected) onNeedleTipSelected (i == 0); };
+        gonioSeg.onChange    = [this] (int i) { if (onGonioLinesSelected) onGonioLinesSelected (i == 1); };
+        phaseSwitch.onChange = [this] (bool on) { if (onGonioRedPhaseSelected) onGonioRedPhaseSelected (on); };
+        spectrumStyleSeg.onChange   = [this] (int i) { if (onSpectrumStyleSelected) onSpectrumStyleSelected (i); };
+        spectrumSmoothSeg.onChange  = [this] (int i) { if (onSpectrumSmoothSelected) onSpectrumSmoothSelected (i); };
+        spectrumPeakSwitch.onChange = [this] (bool on) { if (onSpectrumPeakChanged) onSpectrumPeakChanged (on); };
+    }
+
+    void buildOutputsPage()
+    {
+        using OptionsUi::Icon;
+        auto& p = pages[kOutputsPage];
+        p.addGroup ("Separate outputs");
+        p.addRow (Icon::out, juce::Colour (0xff30b158), "Main mix", "Output pair of the main mix", &mainOutCombo, 170);
+        setupCombo (mainOutCombo);
+        mainOutCombo.onChange = [this]
+        {
+            if (onMainOutPairChanged && mainOutCombo.getSelectedId() > 0)
+                onMainOutPairChanged (mainOutCombo.getSelectedId() - 1);
+        };
+
+        static const char* bandNames[kNumRouteBands] = { "Low", "Low-Mid", "Mid", "High-Mid", "Presence", "High", "Air" };
+        for (int i = 0; i < kNumRouteBands; ++i)
+        {
+            p.addRow (Icon::split, juce::Colour (0xff34c759), bandNames[i], {}, &bandOutCombos[i], 170);
+            setupCombo (bandOutCombos[i]);
+            bandOutCombos[i].onChange = [this, i]
+            {
+                if (onBandOutRoutingChanged && bandOutCombos[i].getSelectedId() > 0)
+                    onBandOutRoutingChanged (i, bandOutCombos[i].getSelectedId() - 1); // 0 = MIX, >=1 = paire+1
+            };
+        }
+    }
+
+    void buildAiPage()
+    {
+        using OptionsUi::Icon;
+        auto& p = pages[kAiPage];
+        p.addGroup ("Target");
+        p.addRow (Icon::target, juce::Colour (0xffbf5af2), "Mastering target", "Loudness reference (LUFS)", &aiTargetCombo, 190);
+        p.addRow (Icon::music, juce::Colour (0xffff2d55), "Style", "Output balance by music style", &aiStyleCombo, 190);
+        p.addRow (Icon::fidelity, juce::Colour (0xff30b158), "Fidelity", "Restore the mix tonal balance after compression",
+                  &fidelitySwitch, 44, 26);
+        p.addGroup ("Compression", "Off on one setting leaves only that setting alone; AI Learn still sets the others.");
+        p.addRow (Icon::comp, juce::Colour (0xff5e5ce6), "Compression", "Overall intensity", &compressionSeg, compressionSeg.getIdealWidth());
+        p.addRow (Icon::timer, juce::Colour (0xffff9f0a), "Attack / release", "Character", &characterSeg, characterSeg.getIdealWidth());
+        p.addRow (Icon::stack, juce::Colour (0xff0a84ff), "Gain reduction", "How much in total", &gainReductionSeg,
+                  gainReductionSeg.getIdealWidth());
+        p.addGroup ("Expander");
+        p.addRow (Icon::expand, juce::Colour (0xffbf5af2), "Expand mode", "Bands set to Expand or Both", &expandModeSeg,
+                  expandModeSeg.getIdealWidth());
+        p.addRow (Icon::timer, juce::Colour (0xffbf5af2), "Expand attack / release", "Character", &expandCharacterSeg,
+                  expandCharacterSeg.getIdealWidth());
+        p.addRow (Icon::amount, juce::Colour (0xffbf5af2), "Expand amount", "How much in total", &expandAmountSeg,
+                  expandAmountSeg.getIdealWidth());
+        p.addGroup ("Scope", "What AI Learn is allowed to change.");
+        p.addRow (Icon::scope, juce::Colour (0xff0a84ff), "Crossovers", "AI may move the crossover points", &scopeCrossoverSwitch, 44, 26);
+        p.addRow (Icon::scope, juce::Colour (0xff0a84ff), "Compression", "AI may set input, ratio, attack and release",
+                  &scopeCompressionSwitch, 44, 26);
+
+        static const char* targetLabels[] = { "Off", "Apple Music", "YouTube", "Spotify", "Deezer", "SoundCloud", "TV", "CD", "Side Key", "Match" };
+        for (int i = 0; i < (int) std::size (targetLabels); ++i)
+            aiTargetCombo.addItem (targetLabels[i], i + 1);
+        static const char* styleLabels[] = { "Off", "Bass", "Loud", "Rock", "Pop", "Electronic" };
+        for (int i = 0; i < (int) std::size (styleLabels); ++i)
+            aiStyleCombo.addItem (styleLabels[i], i + 1);
+        setupCombo (aiTargetCombo);
+        setupCombo (aiStyleCombo);
+        aiTargetCombo.onChange = [this]
+        {
+            if (onAiTargetSelected && aiTargetCombo.getSelectedId() > 0)
+                onAiTargetSelected (aiTargetCombo.getSelectedId() - 1);
+        };
+        aiStyleCombo.onChange = [this]
+        {
+            if (onAiStyleSelected && aiStyleCombo.getSelectedId() > 0)
+                onAiStyleSelected (aiStyleCombo.getSelectedId() - 1);
+        };
+        fidelitySwitch.onChange = [this] (bool on) { if (onAiFidelityChanged) onAiFidelityChanged (on); };
+
+        compressionSeg.onChange   = [this] (int i) { if (onAiCompressionModeSelected) onAiCompressionModeSelected (i); };
+        characterSeg.onChange     = [this] (int i) { if (onAiCharacterSelected) onAiCharacterSelected (i); };
+        gainReductionSeg.onChange = [this] (int i) { if (onAiGainReductionSelected) onAiGainReductionSelected (i); };
+
+        // Violet de la diode Expand (demande explicite : "les options de
+        // l'expandeur en violet comme la diode expand").
+        for (auto* s : { &expandModeSeg, &expandCharacterSeg, &expandAmountSeg })
+            s->setTint (juce::Colour (0xffbf5af2));
+        expandModeSeg.onChange      = [this] (int i) { if (onAiExpandModeSelected) onAiExpandModeSelected (i); };
+        expandCharacterSeg.onChange = [this] (int i) { if (onAiExpandCharacterSelected) onAiExpandCharacterSelected (i); };
+        expandAmountSeg.onChange    = [this] (int i) { if (onAiExpandAmountSelected) onAiExpandAmountSelected (i); };
+
+        scopeCrossoverSwitch.onChange   = [this] (bool on) { if (onAiScopeChanged) onAiScopeChanged (0, on); };
+        scopeCompressionSwitch.onChange = [this] (bool on) { if (onAiScopeChanged) onAiScopeChanged (1, on); };
+    }
+
+    void buildLicensePage()
+    {
+        using OptionsUi::Icon;
+        auto& p = pages[kLicensePage];
+        p.addGroup ({});
+        p.addRow (Icon::info, juce::Colour (0xff8e8e93), "Sevenpack Alpha", juce::String ("Version ") + JucePlugin_VersionString);
+        p.addRow (Icon::key, juce::Colour (0xffffcc00), "License manager", "Activate, deactivate or move a license", &licenseButton, 76);
+        licenseButton.onClick = [this] { if (onOpenLicense) onOpenLicense(); };
+    }
+
+    // Declare en premier : detruit en dernier, apres tous les controles.
+    OptionsUi::LookAndFeel laf;
+    juce::SharedResourcePointer<OptionsUi::IconSet> icons;
+
+    // General
+    OptionsUi::Segmented scaleSeg   { { "75%", "80%", "85%", "90%", "95%", "100%" } };
+    OptionsUi::Segmented themeSeg   { { "Dark", "Light", "DOS" } };
+    OptionsUi::Segmented latencySeg { { "Low", "Medium", "High" } };
+    // Appearance
+    OptionsUi::Segmented finishSeg     { { "Matte", "Satin", "Gloss", "Molded" } };
+    OptionsUi::Segmented colourModeSeg { { "Banner", "Tint", "None" } };
+    OptionsUi::Segmented faderSeg      { { "Black", "Vintage", "Alu" } };
+    OptionsUi::Segmented attRelSeg     { { "Off", "Curve", "Wave", "LEDs" } };
+    // Meters
+    OptionsUi::ValueSlider bounceSlider, returnSlider;
+    OptionsUi::Segmented glassSeg { { "Arc", "Smoked" } };
+    OptionsUi::Segmented tipSeg   { { "Red", "White" } };
+    OptionsUi::Segmented gonioSeg { { "Dots", "Lines" } };
+    OptionsUi::Switch phaseSwitch;
+    OptionsUi::Segmented spectrumStyleSeg  { { "Classic", "Line", "Glow", "Bands", "Filled" } };
+    OptionsUi::Segmented spectrumSmoothSeg { { "Classic", "Smoother" } };
+    OptionsUi::Switch spectrumPeakSwitch;
+    // Outputs
+    juce::ComboBox mainOutCombo;
+    juce::ComboBox bandOutCombos[kNumRouteBands];
     bool outIsStandalone = false;
     int  outPairCount = 1;
-    juce::TextButton themeButton;
-    juce::TextButton licenseButton;
-    juce::TextButton closeButton;
-    juce::TextButton closeCrossButton;
+    // AI Learn
+    juce::ComboBox aiTargetCombo, aiStyleCombo;
+    OptionsUi::Switch fidelitySwitch;
+    OptionsUi::Segmented compressionSeg     { { "Off", "Soft", "Medium", "Hard" } };
+    OptionsUi::Segmented characterSeg       { { "Off", "Smooth", "Medium", "Punchy" } };
+    OptionsUi::Segmented gainReductionSeg   { { "Off", "Smooth", "Mid", "Hard" } };
+    OptionsUi::Segmented expandModeSeg      { { "Off", "Soft", "Medium", "Hard" } };
+    OptionsUi::Segmented expandCharacterSeg { { "Off", "Smooth", "Medium", "Punchy" } };
+    OptionsUi::Segmented expandAmountSeg    { { "Off", "Smooth", "Mid", "Hard" } };
+    OptionsUi::Switch scopeCrossoverSwitch, scopeCompressionSwitch;
+    // License
+    OptionsUi::PillButton licenseButton { "Open" };
 
-    juce::Viewport aiViewport;
-    AiPanel aiPanel { *this };
+    OptionsUi::Page pages[kNumCategories];
+    juce::OwnedArray<OptionsUi::CategoryItem> categoryItems;
+    OptionsUi::CloseButton closeButton;
+    juce::Viewport viewport;
+    int currentCategory = 0;
 
-    juce::Rectangle<float> panelBounds;
-    juce::Rectangle<int> scaleLabelBounds, latencyLabelBounds, themeLabelBounds;
-    juce::Rectangle<int> routeOutLabelBounds, mainOutMiniLabelBounds, bandOutInitialsBounds;
-    juce::Rectangle<int> generalHeaderBounds, aiHeaderBounds;
-    float aiDividerY = 0.0f;
+    juce::Rectangle<float> sheetBounds, sidebarBounds, brandBounds;
+    juce::Rectangle<int> titleArea;
+    juce::Image shadowImage;
+    juce::Point<int> shadowOrigin;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OptionsOverlay)
 };

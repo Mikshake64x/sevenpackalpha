@@ -1,12 +1,21 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
+#include "AlphaSkin.h"
 #include "LicenseManager.h"
 
 /**
     AboutOverlay
     ------------
-    Voile plein ecran affiche au clic sur le logo Sixpack.
+    Voile plein ecran affiche au clic sur le logo Sevenpack.
+
+    Bandeau "Duo en tete" (variante A de l'apercu
+    claude.ai/artifact/47SvX1upNG8o8KkigfRitX, demande explicite : "il y a
+    moi Mikshake le coder et Sunny le designer") : sous l'en-tete, les deux
+    portraits (noir et blanc, nom + role en legende) et une courte
+    presentation, puis les 3 colonnes de texte. L'ancienne photo du pied de
+    page et l'image de la colonne du milieu sont masquees (kShowFooterPhoto,
+    kShowSplashImage).
 
     Mise en page EN LONGUEUR (3 colonnes cote a cote, separees par de
     fines lignes -- meme langage que les dividers du panneau principal).
@@ -19,7 +28,7 @@
     aucun conflit avec un clic simple) ou a la touche Echap, sauf sur le
     lien sidekey.fr.
 */
-class AboutOverlay : public juce::Component
+class AboutOverlay : public juce::Component, private juce::Timer
 {
 public:
     // Un item de colonne : paragraphe justifie, sous-titre en gras, ou
@@ -77,25 +86,25 @@ public:
                 switch (it.kind)
                 {
                     case ColumnItem::Kind::Header:
-                        g.setColour (SixpackLookAndFeel::textAccentBlue());
+                        g.setColour (AlphaPalette::get().heading());
                         g.setFont (headFont);
                         g.drawFittedText (it.text, { 0, (int) y, (int) w, 18 }, juce::Justification::centredLeft, 1);
                         break;
 
                     case ColumnItem::Kind::Bullet:
-                        g.setColour (SixpackColours::ledAmber);
+                        g.setColour (AlphaPalette::get().heading());
                         g.fillEllipse (0.0f, y + 6.0f, 5.0f, 5.0f);
                         // Texte indente de 12px, largeur RETIREE de ces 12px
                         // (pas de troncature a 2 lignes fixes -- hauteur
                         // reellement calculee, voir itemHeight, pour que la
                         // puce et le texte restent alignes meme si le libelle
                         // fait 3 lignes -- bug rapporte : "pas bien en face").
-                        drawParagraph (g, it.text, { 12.0f, y, w - 12.0f, 0.0f }, bodyFont, SixpackColours::textBright, 1.25f);
+                        drawParagraph (g, it.text, { 12.0f, y, w - 12.0f, 0.0f }, bodyFont, AlphaPalette::get().sheetText(), 1.25f);
                         break;
 
                     case ColumnItem::Kind::Paragraph:
                     default:
-                        drawParagraph (g, it.text, { 0.0f, y, w, 0.0f }, bodyFont, SixpackColours::textBright, 1.3f);
+                        drawParagraph (g, it.text, { 0.0f, y, w, 0.0f }, bodyFont, AlphaPalette::get().sheetText(), 1.3f);
                         break;
 
                     case ColumnItem::Kind::Image:
@@ -133,7 +142,7 @@ public:
                     // libelle fait 2-3 lignes doit reserver la vraie
                     // hauteur, sinon la puce/le texte suivants chevauchent.
                     juce::AttributedString as;
-                    as.append (it.text, bodyFont, SixpackColours::textBright);
+                    as.append (it.text, bodyFont, AlphaPalette::get().sheetText());
                     as.setWordWrap (juce::AttributedString::byWord);
                     as.setLineSpacing (1.25f);
                     juce::TextLayout tl;
@@ -144,7 +153,7 @@ public:
                 default:
                 {
                     juce::AttributedString as;
-                    as.append (it.text, bodyFont, SixpackColours::textBright);
+                    as.append (it.text, bodyFont, AlphaPalette::get().sheetText());
                     as.setWordWrap (juce::AttributedString::byWord);
                     as.setLineSpacing (1.3f);
                     juce::TextLayout tl;
@@ -189,15 +198,27 @@ public:
     {
         badgeImage = juce::ImageCache::getFromMemory (BinaryData::sidekey_monogram_png, BinaryData::sidekey_monogram_pngSize);
         photoImage = juce::ImageCache::getFromMemory (BinaryData::mikshake_about_png, BinaryData::mikshake_about_pngSize);
-        // Variante BLANCHE (pas la noire utilisee sous le logo SIXPACK sur
+        // Variante BLANCHE (pas la noire utilisee sous le logo SEVENPACK sur
         // la barre de controle claire) -- ce voile About est sombre (voile
         // noir + panneau verre, voir rebuildChromeCache()), une signature
         // noire y serait quasi invisible. Construite depuis le PNG maitre
         // via le meme pipeline de qualite que PluginEditor.cpp (retour
         // utilisateur : "ca fait une soupe de pixels" -- voir
-        // SixpackLookAndFeel::buildSignatureImage()).
-        signatureImage = SixpackLookAndFeel::buildSignatureImage (juce::Colours::white, 55);
+        // SevenpackLookAndFeel::buildSignatureImage()).
+        signatureImage = SevenpackLookAndFeel::buildSignatureImage (AlphaPalette::get().light ? juce::Colours::black : juce::Colours::white, 55);
         splashImage = juce::ImageCache::getFromMemory (BinaryData::Mikshakesplash_png, BinaryData::Mikshakesplash_pngSize);
+
+        // Portraits du duo, en noir et blanc (choix par defaut de l'apercu :
+        // harmonise les deux photos). Copies : desaturate() modifie l'image
+        // et celles de l'ImageCache sont partagees.
+        const auto loadPortrait = [] (const void* data, int size)
+        {
+            auto img = juce::ImageCache::getFromMemory (data, size).createCopy();
+            img.desaturate();
+            return img;
+        };
+        team[0] = { loadPortrait (BinaryData::mikshake_about_crop_jpg, BinaryData::mikshake_about_crop_jpgSize), "MIKSHAKE", "CODE" };
+        team[1] = { loadPortrait (BinaryData::sunny_crop_jpg, BinaryData::sunny_crop_jpgSize), "SUNNY", "DESIGN" };
 
         buildOverviewColumns();
         buildFeaturesAndPhilosophyColumn();
@@ -273,11 +294,38 @@ public:
         if (! chromeCache.isValid())
             rebuildChromeCache();
 
+        // Voile (fondu) puis panneau (zoom + glissement), voir animation.
+        AlphaDraw::overlayVeil (g, getLocalBounds().toFloat(), animOpacity);
+        g.saveState();
+        g.setOpacity (animOpacity);
+        g.addTransform (panelTransform());
         g.drawImageAt (chromeCache, 0, 0);
+        g.restoreState();
+    }
+
+    // --- Apparition / disparition animees (demande explicite : "une
+    // petite animation sympathique pour faire apparaitre about et le faire
+    // disparaitre. Il arrive trop comme une fenetre") : le voile se fond,
+    // le panneau grandit de 92 % a 100 % en montant de 16 px avec un leger
+    // rebond (280 ms) ; a la fermeture il redescend et se fond (170 ms). ---
+    void showAnimated()
+    {
+        refreshTheme();
+        setVisible (true);
+        toFront (true);
+        startAnimation (true);
+    }
+
+    void hideAnimated()
+    {
+        if (isVisible() && ! (animating && ! animatingIn))
+            startAnimation (false);
     }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
+        if (animating && ! animatingIn)
+            return; // deja en train de se fermer
         if (websiteBounds.contains (e.position))
         {
             juce::URL ("https://sidekeysystem.com").launchInDefaultBrowser();
@@ -286,7 +334,7 @@ public:
 
         if (manualBounds.contains (e.position))
         {
-            juce::URL ("https://sidekey.fr/manuals/Sixpack_Manual_EN.pdf").launchInDefaultBrowser();
+            juce::URL ("https://sidekey.fr/manuals/Sevenpack_Manual_EN.pdf").launchInDefaultBrowser();
             return;
         }
 
@@ -314,14 +362,86 @@ public:
     // the whole plugin was reopened.
     void refreshTheme()
     {
+        // Signature noire sur le panneau clair, blanche sur le sombre.
+        signatureImage = SevenpackLookAndFeel::buildSignatureImage (AlphaPalette::get().light ? juce::Colours::black
+                                                                                             : juce::Colours::white, 55);
+        AlphaDraw::styleControls (*this);
         chromeCache = juce::Image();
         repaint();
     }
 
 private:
+    juce::AffineTransform panelTransform() const
+    {
+        const auto c = panelBounds().getCentre();
+        const float s = 0.92f + 0.08f * animScale;
+        return juce::AffineTransform::scale (s, s, c.x, c.y).translated (0.0f, (1.0f - animScale) * 16.0f);
+    }
+
+    void startAnimation (bool in)
+    {
+        animatingIn = in;
+        animating = true;
+        animStartMs = juce::Time::getMillisecondCounterHiRes();
+        animFrom = animOpacity;
+        startTimerHz (60);
+        timerCallback();
+    }
+
+    void timerCallback() override
+    {
+        const double dur = animatingIn ? 280.0 : 170.0;
+        const float t = (float) juce::jlimit (0.0, 1.0, (juce::Time::getMillisecondCounterHiRes() - animStartMs) / dur);
+        if (animatingIn)
+        {
+            constexpr float c1 = 1.2f, c3 = c1 + 1.0f; // rebond discret
+            const float back = 1.0f + c3 * std::pow (t - 1.0f, 3.0f) + c1 * std::pow (t - 1.0f, 2.0f);
+            animOpacity = animFrom + (1.0f - animFrom) * (1.0f - (1.0f - t) * (1.0f - t));
+            animScale = back;
+        }
+        else
+        {
+            const float e = t * t; // acceleration vers la sortie
+            animOpacity = animFrom * (1.0f - e);
+            animScale = 1.0f - e;
+        }
+
+        const auto tr = panelTransform();
+        for (auto* vp : { &viewportA, &viewportB, &viewportC })
+        {
+            vp->setTransform (tr);
+            vp->setAlpha (animOpacity);
+        }
+        repaint();
+
+        if (t >= 1.0f)
+        {
+            stopTimer();
+            animating = false;
+            if (! animatingIn)
+            {
+                setVisible (false);
+                animOpacity = 0.0f;
+            }
+            else
+            {
+                animOpacity = animScale = 1.0f;
+                for (auto* vp : { &viewportA, &viewportB, &viewportC })
+                {
+                    vp->setTransform ({});
+                    vp->setAlpha (1.0f);
+                }
+            }
+        }
+    }
+
+    bool animating = false, animatingIn = false;
+    double animStartMs = 0.0;
+    float animOpacity = 1.0f, animScale = 1.0f, animFrom = 0.0f;
+
     struct Layout
     {
-        juce::Rectangle<float> headerRow, footerRow, headerDividerY, footerDividerY;
+        juce::Rectangle<float> headerRow, footerRow, headerDividerY, footerDividerY, teamRow, teamDividerY;
         juce::Rectangle<int> colA, colB, colC;
         float dividerX1 = 0.0f, dividerX2 = 0.0f, colTop = 0.0f, colBottom = 0.0f;
     };
@@ -342,15 +462,10 @@ private:
         chromeCache = juce::Image (juce::Image::ARGB, w, h, true);
         juce::Graphics g (chromeCache);
 
-        auto bounds = getLocalBounds().toFloat();
-        g.setColour (juce::Colours::black.withAlpha (0.88f));
-        g.fillRect (bounds);
-
+        // Panneau clair Alpha SEUL (le voile est peint a part dans paint(),
+        // pour pouvoir le fondre independamment pendant l'animation).
         auto panel = panelBounds();
-        SixpackLookAndFeel::renderGlassPanel (g, panel, 12.0f);
-        SixpackLookAndFeel::renderGlossySheen (g, panel);
-        g.setColour (SixpackColours::ledAmber.withAlpha (0.5f));
-        g.drawRoundedRectangle (panel.reduced (0.5f), 12.0f, 1.0f);
+        AlphaDraw::overlaySheet (g, panel, 12.0f);
 
         auto layout = computeLayout();
 
@@ -369,33 +484,38 @@ private:
         }
 
         auto versionArea = headerRow.removeFromRight (56.0f);
-        g.setColour (SixpackColours::textDim);
+        g.setColour (AlphaPalette::get().sheetTextSoft());
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
-        g.drawFittedText ("v1.18.0", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
+        g.drawFittedText ("v2.14.0", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
 
-        auto titleArea = headerRow.removeFromLeft (juce::jmin (240.0f, headerRow.getWidth() * 0.48f));
-        g.setColour (SixpackColours::ledAmber);
+        g.setColour (AlphaPalette::get().heading());
         g.setFont (juce::Font (juce::FontOptions (24.0f, juce::Font::bold)).withExtraKerningFactor (0.1f));
-        // "ABOUT TRIPRESSOR" -> "ABOUT SIXPACK" (retour utilisateur : "il
-        // faut reecrire la about en fonction de ce qu'est Sixpack") -- le
-        // texte entier de ce voile date du portage 3 bandes Tripressor,
-        // jamais mis a jour depuis le passage a 6 bandes.
-        g.drawFittedText ("ABOUT SIXPACK", titleArea.toNearestInt(), juce::Justification::centredLeft, 1);
+        // "ABOUT TRIPRESSOR" -> "ABOUT SEVENPACK" (retour utilisateur : "il
+        // faut reecrire la about en fonction de ce qu'est Sevenpack") puis
+        // "ABOUT SEVENPACK ALPHA" (nouvelle page About, apercu du duo).
+        const juce::String title ("ABOUT SEVENPACK ALPHA");
+        const float titleW = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), title) + 4.0f;
+        auto titleArea = headerRow.removeFromLeft (juce::jmin (titleW, headerRow.getWidth() * 0.62f));
+        g.drawFittedText (title, titleArea.toNearestInt(), juce::Justification::centredLeft, 1);
 
         headerRow.removeFromLeft (14.0f);
-        g.setColour (SixpackLookAndFeel::textAccentBlue().withAlpha (0.85f));
+        g.setColour (AlphaPalette::get().heading().withAlpha (0.85f));
         g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::italic)).withExtraKerningFactor (0.10f));
         g.drawFittedText ("Dynamics. Refined.", headerRow.toNearestInt(), juce::Justification::centredLeft, 1);
 
-        g.setColour (SixpackColours::gridLine);
+        g.setColour (AlphaPalette::get().cardLine);
         g.drawLine (layout.headerDividerY.getX(), layout.headerDividerY.getY(), layout.headerDividerY.getRight(), layout.headerDividerY.getY(), 1.0f);
+
+        drawTeam (g, layout.teamRow);
+        g.setColour (AlphaPalette::get().cardLine);
+        g.drawLine (layout.teamDividerY.getX(), layout.teamDividerY.getY(), layout.teamDividerY.getRight(), layout.teamDividerY.getY(), 1.0f);
 
         drawFooter (g, layout.footerRow); // met aussi a jour websiteBounds (coordonnees composant, pas image)
 
         g.drawLine (layout.footerDividerY.getX(), layout.footerDividerY.getY(), layout.footerDividerY.getRight(), layout.footerDividerY.getY(), 1.0f);
 
         // --- Separateurs verticaux entre les 3 colonnes ---
-        g.setColour (SixpackColours::gridLine);
+        g.setColour (AlphaPalette::get().cardLine);
         g.drawLine (layout.dividerX1, layout.colTop, layout.dividerX1, layout.colBottom, 1.0f);
         g.drawLine (layout.dividerX2, layout.colTop, layout.dividerX2, layout.colBottom, 1.0f);
     }
@@ -417,6 +537,12 @@ private:
         content.removeFromBottom (10.0f);
         L.footerDividerY = { content.getX(), content.getBottom(), content.getWidth(), 0.0f };
         content.removeFromBottom (10.0f);
+
+        // Bandeau du duo (portraits + presentation), puis un filet.
+        L.teamRow = content.removeFromTop (kTeamRowHeight);
+        content.removeFromTop (14.0f);
+        L.teamDividerY = { content.getX(), content.getY(), content.getWidth(), 0.0f };
+        content.removeFromTop (14.0f);
 
         const float gap = 18.0f;
         const float colW = (content.getWidth() - gap * 2.0f) / 3.0f;
@@ -445,29 +571,28 @@ private:
     void buildOverviewColumns()
     {
         columnA.setItems ({
-            { "SIXPACK: Seven Bands, One Mastering Chain", ColumnItem::Kind::Header },
-            { "I designed SIXPACK with an experimental goal above all else. After many attempts at building multiband compressors, "
+            { "SEVENPACK: Seven Bands, One Mastering Chain", ColumnItem::Kind::Header },
+            { "I designed SEVENPACK with an experimental goal above all else. After many attempts at building multiband compressors, "
               "I started multiplying the bands right from the earliest stages of development, with a fairly simple idea: chase the "
               "best possible mastering, even if it meant making the CPU cry.", ColumnItem::Kind::Paragraph },
             { "The goal was to push the boundaries of multiband processing and explore just how far dynamic control could go without "
               "turning the mix into a spectral puzzle.", ColumnItem::Kind::Paragraph },
             { "I already have several ideas for what comes next, especially as processors keep bulking up on steroids. But for now, "
-              "I want SIXPACK to stay accessible and usable across a wide range of hardware configurations.", ColumnItem::Kind::Paragraph },
+              "I want SEVENPACK to stay accessible and usable across a wide range of hardware configurations.", ColumnItem::Kind::Paragraph },
             { "The principle itself is fairly simple: 7 bands, in the philosophy of Tripressor, with a feedforward compressor built "
               "on Tripressor's current DSP, and a crossover designed to be as transparent as possible.", ColumnItem::Kind::Paragraph },
             { "With THD disabled, the measured deviation reaches about 0.001dB. In other words, the crossover tries very hard not to "
               "be noticed. It does its job and goes back to its office.", ColumnItem::Kind::Paragraph },
-            { "The other distinctive trait of SIXPACK is the way the compressor and the expander work in tandem. The goal is to "
+            { "The other distinctive trait of SEVENPACK is the way the compressor and the expander work in tandem. The goal is to "
               "optimize mastering dynamics without needlessly losing energy after every release phase.", ColumnItem::Kind::Paragraph },
             { "The result is compression that can be extremely natural, or, at the other end of the scale, much more aggressive, all "
               "while keeping maximum energy for LUFS.", ColumnItem::Kind::Paragraph },
-            { "In short, SIXPACK lets you compress hard, very hard, or not at all, while trying to preserve what actually matters: "
+            { "In short, SEVENPACK lets you compress hard, very hard, or not at all, while trying to preserve what actually matters: "
               "the energy of the mix.", ColumnItem::Kind::Paragraph },
-            { "And yes, there are now seven bands, not six. SIXPACK was named back when that was still true.", ColumnItem::Kind::Paragraph },
-            { "I could rename it SEVENPACK, but at this point the name is more brand than description, and SEVENPACK sounds like a multivitamin.", ColumnItem::Kind::Paragraph },
+            { "And yes: seven bands, SEVENPACK. For once, the name tells the whole truth.", ColumnItem::Kind::Paragraph },
         });
 
-        columnB.setItems ({
+        std::vector<ColumnItem> learnItems {
             { "Learn: A Starting Point, Not an Autopilot", ColumnItem::Kind::Header },
             { "I also built in a Learn module, designed to automatically provide a coherent starting point for compression and "
               "expansion.", ColumnItem::Kind::Paragraph },
@@ -478,15 +603,76 @@ private:
             { "I naturally encourage you to experiment from there and find whatever sounds the most musical and professional for "
               "your mix and your own approach to mastering.", ColumnItem::Kind::Paragraph },
             { "With this many bands and this many things to tweak, the Learn module felt like an almost indispensable extension of "
-              "SIXPACK.", ColumnItem::Kind::Paragraph },
+              "SEVENPACK.", ColumnItem::Kind::Paragraph },
             { "Seven bands, two dynamics processors per band, and one button to try and put a little order back into all of it.", ColumnItem::Kind::Paragraph },
-            // Photo (retour utilisateur : "voici la nouvelle photo a mettre
-            // dans about ... colonne du centre ... assez gros, avec le
-            // minimum de zone morte autour", puis "il faut que la photo ...
-            // soit sous le texte pas au dessus") -- pleine largeur de
-            // colonne, en fin de colonne, apres le texte Learn.
-            { "", ColumnItem::Kind::Image, splashImage },
-        });
+        };
+        // Photo (retour utilisateur : "voici la nouvelle photo a mettre
+        // dans about ... colonne du centre ... assez gros, avec le
+        // minimum de zone morte autour", puis "il faut que la photo ...
+        // soit sous le texte pas au dessus") -- pleine largeur de
+        // colonne, en fin de colonne, apres le texte Learn. Masquee depuis
+        // le bandeau du duo (gardee dans le code).
+        if constexpr (kShowSplashImage)
+            learnItems.push_back ({ "", ColumnItem::Kind::Image, splashImage });
+        columnB.setItems (std::move (learnItems));
+    }
+
+    // Bandeau du duo : deux portraits (legende nom + role sur un degrade
+    // sombre), puis la presentation a droite, centree verticalement.
+    void drawTeam (juce::Graphics& g, juce::Rectangle<float> row) const
+    {
+        constexpr float cardW = 200.0f, radius = 10.0f;
+        for (const auto& person : team)
+        {
+            const auto card = row.removeFromLeft (cardW);
+            row.removeFromLeft (16.0f);
+
+            juce::Graphics::ScopedSaveState state (g);
+            juce::Path clip;
+            clip.addRoundedRectangle (card, radius);
+            g.reduceClipRegion (clip);
+            g.setColour (juce::Colour (0xff111111));
+            g.fillRect (card);
+
+            if (! person.photo.isNull())
+            {
+                // Remplissage "cover", cadrage un peu au-dessus du centre
+                // (visages).
+                const auto& img = person.photo;
+                const float scale = juce::jmax (card.getWidth() / (float) img.getWidth(), card.getHeight() / (float) img.getHeight());
+                const float w = (float) img.getWidth() * scale, h = (float) img.getHeight() * scale;
+                const auto dest = juce::Rectangle<float> (card.getX() + (card.getWidth() - w) * 0.5f,
+                                                          card.getY() + (card.getHeight() - h) * 0.3f, w, h);
+                g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+                g.drawImage (img, dest);
+            }
+
+            const auto capArea = card.withTrimmedTop (card.getHeight() - 72.0f);
+            g.setGradientFill (juce::ColourGradient (juce::Colours::black.withAlpha (0.0f), 0.0f, capArea.getY(),
+                                                     juce::Colours::black.withAlpha (0.72f), 0.0f, capArea.getBottom(), false));
+            g.fillRect (capArea);
+            auto text = card.reduced (14.0f, 12.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.9f));
+            g.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::plain)).withExtraKerningFactor (0.12f));
+            g.drawFittedText (person.role, text.removeFromBottom (15.0f).toNearestInt(), juce::Justification::bottomLeft, 1);
+            g.setColour (juce::Colours::white);
+            g.setFont (juce::Font (juce::FontOptions (19.0f, juce::Font::bold)).withExtraKerningFactor (0.14f));
+            g.drawFittedText (person.name, text.removeFromBottom (24.0f).toNearestInt(), juce::Justification::bottomLeft, 1);
+        }
+
+        // Presentation.
+        const auto pal = AlphaPalette::get();
+        auto intro = row.withTrimmedLeft (10.0f).withTrimmedRight (10.0f);
+        juce::AttributedString as;
+        as.append ("Two people, seven bands\n", juce::Font (juce::FontOptions (15.0f, juce::Font::bold)), pal.heading());
+        as.append ("SEVENPACK ALPHA is made by two people: Mikshake writes the code, Sunny designs everything you see.\n",
+                   juce::Font (juce::FontOptions (13.0f, juce::Font::plain)), pal.sheetText());
+        as.append ("Dynamics. Refined.", juce::Font (juce::FontOptions (13.0f, juce::Font::plain)), pal.sheetTextSoft());
+        as.setWordWrap (juce::AttributedString::byWord);
+        as.setLineSpacing (6.0f);
+        juce::TextLayout tl;
+        tl.createLayout (as, juce::jmin (intro.getWidth(), 620.0f));
+        tl.draw (g, intro.withSizeKeepingCentre (intro.getWidth(), tl.getHeight()).withWidth (tl.getWidth()));
     }
 
     // --- Colonne C : Features (liste complete) + Philosophy (demande
@@ -553,7 +739,7 @@ private:
     // d'empiler ces elements verticalement.
     void drawFooter (juce::Graphics& g, juce::Rectangle<float> area)
     {
-        if (! photoImage.isNull())
+        if (kShowFooterPhoto && ! photoImage.isNull())
         {
             const float photoH = area.getHeight();
             const float photoW = photoH * ((float) photoImage.getWidth() / (float) photoImage.getHeight());
@@ -567,7 +753,7 @@ private:
                          0, 0, photoImage.getWidth(), photoImage.getHeight());
             g.restoreState();
 
-            g.setColour (SixpackColours::ledAmber.withAlpha (0.4f));
+            g.setColour (AlphaPalette::get().heading().withAlpha (0.4f));
             g.drawRoundedRectangle (photoBounds, 6.0f, 1.0f);
 
             area.removeFromLeft (photoBounds.getWidth() + 16.0f);
@@ -576,7 +762,7 @@ private:
         // Signature, fond transparent, juste apres la photo (retour
         // utilisateur explicite : "dans la page about dans le cadre du bas
         // ou il y a la ma photo et les licences") -- construite depuis le
-        // PNG maitre via SixpackLookAndFeel::buildSignatureImage() (voir
+        // PNG maitre via SevenpackLookAndFeel::buildSignatureImage() (voir
         // constructeur), dessinee ici en 1:1 EXACT (drawImageAt, aucun
         // resample supplementaire). Variante BLANCHE (voile sombre ici).
         if (! signatureImage.isNull())
@@ -594,7 +780,7 @@ private:
         auto copyrightRow = area.removeFromBottom (13.0f);
         drawWebsiteLink (g, area);
 
-        g.setColour (SixpackColours::textDim.withAlpha (0.75f));
+        g.setColour (AlphaPalette::get().sheetTextSoft().withAlpha (0.75f));
         g.setFont (juce::Font (juce::FontOptions (9.5f, juce::Font::plain)).withExtraKerningFactor (0.04f));
         g.drawFittedText ("(c) 2026 Side Key System. All rights reserved.   Made in France",
                            copyrightRow.toNearestInt(), juce::Justification::centredLeft, 1);
@@ -607,7 +793,7 @@ private:
     {
         const auto centre = area.getCentre();
         const float r = juce::jmin (area.getWidth(), area.getHeight()) * 0.5f;
-        const juce::Colour ink = SixpackColours::ledRed.withAlpha (0.82f);
+        const juce::Colour ink = SevenpackColours::ledRed.withAlpha (0.82f);
 
         g.saveState();
         g.addTransform (juce::AffineTransform::rotation (juce::degreesToRadians (-8.0f), centre.x, centre.y));
@@ -655,7 +841,7 @@ private:
         const float siteW = gaSite.getBoundingBox (0, -1, true).getWidth();
 
         websiteBounds = row.withWidth (siteW);
-        g.setColour (SixpackLookAndFeel::textAccentBlue());
+        g.setColour (AlphaPalette::get().heading());
         g.drawFittedText ("sidekeysystem.com", websiteBounds.toNearestInt(), juce::Justification::centredLeft, 1);
         g.drawLine (websiteBounds.getX(), websiteBounds.getBottom() - 3.0f,
                     websiteBounds.getX() + siteW, websiteBounds.getBottom() - 3.0f, 1.0f);
@@ -666,10 +852,10 @@ private:
         const float manualW = gaManual.getBoundingBox (0, -1, true).getWidth();
 
         manualBounds = row.withX (websiteBounds.getRight() + sepW).withWidth (manualW);
-        g.setColour (SixpackColours::textDim.withAlpha (0.5f));
+        g.setColour (AlphaPalette::get().sheetTextSoft().withAlpha (0.5f));
         g.drawFittedText ("|", juce::Rectangle<float> (websiteBounds.getRight(), row.getY(), sepW, row.getHeight()).toNearestInt(),
                            juce::Justification::centred, 1);
-        g.setColour (SixpackColours::ledAmber);
+        g.setColour (AlphaPalette::get().heading());
         g.drawFittedText ("Manual", manualBounds.toNearestInt(), juce::Justification::centredLeft, 1);
         g.drawLine (manualBounds.getX(), manualBounds.getBottom() - 3.0f,
                     manualBounds.getX() + manualW, manualBounds.getBottom() - 3.0f, 1.0f);
@@ -693,10 +879,10 @@ private:
         const float licenseW = gaLicense.getBoundingBox (0, -1, true).getWidth();
 
         licenseBounds = row.withX (manualBounds.getRight() + sepW).withWidth (licenseW);
-        g.setColour (SixpackColours::textDim.withAlpha (0.5f));
+        g.setColour (AlphaPalette::get().sheetTextSoft().withAlpha (0.5f));
         g.drawFittedText ("|", juce::Rectangle<float> (manualBounds.getRight(), row.getY(), sepW, row.getHeight()).toNearestInt(),
                            juce::Justification::centred, 1);
-        g.setColour (SixpackLookAndFeel::textAccentBlue());
+        g.setColour (AlphaPalette::get().heading());
         g.drawFittedText (licenseText, licenseBounds.toNearestInt(), juce::Justification::centredLeft, 1);
     }
 
@@ -704,6 +890,14 @@ private:
     juce::Image photoImage;
     juce::Image signatureImage;
     juce::Image splashImage;
+
+    // Duo (bandeau sous l'en-tete, voir drawTeam()).
+    struct TeamMember { juce::Image photo; juce::String name, role; };
+    std::array<TeamMember, 2> team;
+    static constexpr float kTeamRowHeight = 250.0f;
+    // Anciennes images remplacees par le bandeau du duo, gardees dans le code.
+    static constexpr bool kShowFooterPhoto = false;
+    static constexpr bool kShowSplashImage = false;
     juce::Image chromeCache;
     juce::Rectangle<float> websiteBounds;
     juce::Rectangle<float> manualBounds;

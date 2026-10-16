@@ -1,15 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
-<JUCERPROJECT id="Pc5XqR" name="Sixpack" projectType="audioplug" useAppConfig="0"
+<JUCERPROJECT id="Sv7PkA" name="SevenpackAlpha" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" pluginFormats="buildAU,buildStandalone,buildUnity,buildVST3"
-              companyName="Side Key System" version="1.18.0"
+              companyName="Side Key System" version="2.14.0" pluginName="Sevenpack Alpha"
+              pluginDesc="Sevenpack Alpha" pluginManufacturer="Side Key System" pluginCode="Svpa"
+              bundleIdentifier="com.SideKeySystem.SevenpackAlpha"
               defines="JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1">
-  <MAINGROUP id="ROqGi2" name="Sixpack">
+  <MAINGROUP id="ROqGi2" name="SevenpackAlpha">
     <GROUP id="{DE5886B3-4345-FADC-030F-9B92F9E2500D}" name="Source">
       <FILE id="fCLEz3" name="PluginProcessor.cpp" compile="1" resource="0"
             file="Source/PluginProcessor.cpp"/>
-      <FILE id="spstapp1" name="SixpackStandaloneApp.cpp" compile="1" resource="0"
-            file="Source/SixpackStandaloneApp.cpp"/>
+      <FILE id="spstapp1" name="SevenpackStandaloneApp.cpp" compile="1" resource="0"
+            file="Source/SevenpackStandaloneApp.cpp"/>
       <FILE id="HMvHBa" name="PluginProcessor.h" compile="0" resource="0"
             file="Source/PluginProcessor.h"/>
       <FILE id="EuYvlF" name="PluginEditor.cpp" compile="1" resource="0"
@@ -17,10 +18,10 @@
       <FILE id="WYBZ3v" name="PluginEditor.h" compile="0" resource="0" file="Source/PluginEditor.h"/>
       <FILE id="a1b2c3" name="GRMeter.cpp" compile="1" resource="0" file="Source/GRMeter.cpp"/>
       <FILE id="a1b2c4" name="GRMeter.h" compile="0" resource="0" file="Source/GRMeter.h"/>
-      <FILE id="a1b2c5" name="SixpackLookAndFeel.cpp" compile="1" resource="0"
-            file="Source/SixpackLookAndFeel.cpp"/>
-      <FILE id="a1b2c6" name="SixpackLookAndFeel.h" compile="0" resource="0"
-            file="Source/SixpackLookAndFeel.h"/>
+      <FILE id="a1b2c5" name="SevenpackLookAndFeel.cpp" compile="1" resource="0"
+            file="Source/SevenpackLookAndFeel.cpp"/>
+      <FILE id="a1b2c6" name="SevenpackLookAndFeel.h" compile="0" resource="0"
+            file="Source/SevenpackLookAndFeel.h"/>
       <FILE id="a1b2c7" name="AboutOverlay.h" compile="0" resource="0" file="Source/AboutOverlay.h"/>
       <FILE id="o9p1o2" name="OptionsOverlay.h" compile="0" resource="0"
             file="Source/OptionsOverlay.h"/>
@@ -41,6 +42,11 @@
             file="Source/CrossoverSpectrumEditor.h"/>
       <FILE id="thdhdr01" name="ThdHeaderModule.h" compile="0" resource="0"
             file="Source/ThdHeaderModule.h"/>
+      <FILE id="bst00001" name="BandStrip.h" compile="0" resource="0" file="Source/BandStrip.h"/>
+      <FILE id="alphskn1" name="AlphaSkin.h" compile="0" resource="0" file="Source/AlphaSkin.h"/>
+      <FILE id="alphmtr1" name="AlphaMeters.h" compile="0" resource="0" file="Source/AlphaMeters.h"/>
+      <FILE id="alphstr1" name="AlphaStrip.h" compile="0" resource="0" file="Source/AlphaStrip.h"/>
+      <FILE id="alphatr1" name="AlphaAttRel.h" compile="0" resource="0" file="Source/AlphaAttRel.h"/>
       <FILE id="bmr00001" name="BandMetersRack.h" compile="0" resource="0"
             file="Source/BandMetersRack.h"/>
       <FILE id="cfd00001" name="ConsoleFader.h" compile="0" resource="0"
@@ -68,8 +74,8 @@
       <FILE id="a1b2d5" name="SidechainEQ.h" compile="0" resource="0" file="Source/SidechainEQ.h"/>
       <FILE id="a1b2d6" name="SidekeyMonogram.h" compile="0" resource="0"
             file="Source/SidekeyMonogram.h"/>
-      <FILE id="slb0001" name="SixpackLogoButton.h" compile="0" resource="0"
-            file="Source/SixpackLogoButton.h"/>
+      <FILE id="slb0001" name="SevenpackLogoButton.h" compile="0" resource="0"
+            file="Source/SevenpackLogoButton.h"/>
       <FILE id="a1b2d7" name="SoftClipper.h" compile="0" resource="0" file="Source/SoftClipper.h"/>
       <FILE id="a1b2d8" name="SteelRockerToggle.h" compile="0" resource="0"
             file="Source/SteelRockerToggle.h"/>
@@ -87,29 +93,20 @@
             file="Source/LicenseManager.h"/>
       <FILE id="lic0pr02" name="LicenseOverlay.h" compile="0" resource="0"
             file="Source/LicenseOverlay.h"/>
-      <FILE id="a1b2dd" name="Button-08-S-Filmstrip.png" compile="0" resource="1"
-            file="Source/Button-08-S-Filmstrip.png"/>
-      <FILE id="a1b2de" name="Power_switch_01.png" compile="0" resource="1"
-            file="Source/Power_switch_01.png"/>
       <FILE id="a1b2df" name="mikshake_about.png" compile="0" resource="1"
             file="Source/mikshake_about.png"/>
       <FILE id="mikssplash" name="Mikshakesplash.png" compile="0" resource="1"
             file="Source/Mikshakesplash.png"/>
-      <FILE id="a1b2e0" name="plaques.png" compile="0" resource="1" file="Source/plaques.png"/>
       <FILE id="a1b2e1" name="sidekey_monogram.png" compile="0" resource="1"
             file="Source/sidekey_monogram.png"/>
-      <FILE id="a1b2e2" name="switch_metal.png" compile="0" resource="1"
-            file="Source/switch_metal.png"/>
       <FILE id="trpicon1" name="TripressorAppIcon.png" compile="0" resource="1"
             file="Source/TripressorAppIcon.png"/>
-      <FILE id="sp6log1" name="sixpacklogo1.png" compile="0" resource="1"
-            file="Source/sixpacklogo1.png"/>
-      <FILE id="sp6log2" name="sixpacklogo2.png" compile="0" resource="1"
-            file="Source/sixpacklogo2.png"/>
-      <FILE id="sp6log3" name="sixpacklogo3.png" compile="0" resource="1"
-            file="Source/sixpacklogo3.png"/>
       <FILE id="sigmiksh3" name="signature_mikshake_master.png" compile="0" resource="1"
             file="Source/signature_mikshake_master.png"/>
+      <FILE id="alphwood1" name="bois_wood.jpg" compile="0" resource="1" file="Source/bois_wood.jpg"/>
+      <FILE id="alphlogo4" name="LOGO4x.png" compile="0" resource="1" file="Source/LOGO4x.png"/>
+      <FILE id="aboutmik2" name="mikshake_about_crop.jpg" compile="0" resource="1" file="Source/mikshake_about_crop.jpg"/>
+      <FILE id="aboutsun1" name="sunny_crop.jpg" compile="0" resource="1" file="Source/sunny_crop.jpg"/>
     </GROUP>
   </MAINGROUP>
   <MODULES>
@@ -133,9 +130,9 @@
   <EXPORTFORMATS>
     <VS2026 targetFolder="Builds/VisualStudio2026" smallIcon="trpicon1" bigIcon="trpicon1">
       <CONFIGURATIONS>
-        <CONFIGURATION isDebug="1" name="Debug" targetName="Sixpack" enablePluginBinaryCopyStep="1"
+        <CONFIGURATION isDebug="1" name="Debug" targetName="SevenpackAlpha" enablePluginBinaryCopyStep="1"
                        headerPath="../../ThirdParty/asio"/>
-        <CONFIGURATION isDebug="0" name="Release" targetName="Sixpack" enablePluginBinaryCopyStep="1"
+        <CONFIGURATION isDebug="0" name="Release" targetName="SevenpackAlpha" enablePluginBinaryCopyStep="1"
                        headerPath="../../ThirdParty/asio"/>
       </CONFIGURATIONS>
       <MODULEPATHS>
@@ -156,9 +153,9 @@
     </VS2026>
     <XCODE_MAC targetFolder="Builds/MacOSX" smallIcon="trpicon1" bigIcon="trpicon1">
       <CONFIGURATIONS>
-        <CONFIGURATION isDebug="1" name="Debug" targetName="Sixpack" enablePluginBinaryCopyStep="1"
+        <CONFIGURATION isDebug="1" name="Debug" targetName="SevenpackAlpha" enablePluginBinaryCopyStep="1"
                        macOSDeploymentTarget="10.13"/>
-        <CONFIGURATION isDebug="0" name="Release" targetName="Sixpack" enablePluginBinaryCopyStep="1"
+        <CONFIGURATION isDebug="0" name="Release" targetName="SevenpackAlpha" enablePluginBinaryCopyStep="1"
                        macOSDeploymentTarget="10.13"/>
       </CONFIGURATIONS>
       <MODULEPATHS>

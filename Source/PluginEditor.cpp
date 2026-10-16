@@ -1,6 +1,6 @@
 #include "PluginEditor.h"
 
-static constexpr int kNumBands = (int) SixpackAudioProcessor::NumBands;
+static constexpr int kNumBands = (int) SevenpackAudioProcessor::NumBands;
 
 // Bornes FIXES de l'axe X du graphe XY (DetectorFilterGraph) aux deux
 // extremites du spectre -- LOW commence a 20Hz, HIGH finit a 20000Hz.
@@ -18,13 +18,13 @@ namespace
     juce::File getUserPresetsDirectory()
     {
         auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                       .getChildFile ("SideKeySystem").getChildFile ("Sixpack").getChildFile ("Presets");
+                       .getChildFile ("SideKeySystem").getChildFile ("SevenpackAlpha").getChildFile ("Presets");
         dir.createDirectory();
         return dir;
     }
 
     // Migration des presets d'usine HERITES DE TRIPRESSOR (3 bandes, 2
-    // crossovers Low/High) vers sixpack (5 bandes, 4 crossovers) : les 2
+    // crossovers Low/High) vers sevenpack (5 bandes, 4 crossovers) : les 2
     // frequences d'origine deviennent les bornes EXTERIEURES (Low/LowMid et
     // HighMid/High), l'ancienne plage "Mid" est subdivisee log-uniformement
     // en 3 pour loger LowMid/Mid/HighMid. Ces presets n'ont pas encore ete
@@ -34,7 +34,7 @@ namespace
     // legerement des nouvelles bornes Crossover::kSplitMinHz/MaxHz[0]/[3] et
     // se retrouver clampee -- acceptable pour une premiere migration, a
     // affiner a la main une fois le nouvel editeur de crossover en place.
-    std::array<float, (size_t) SixpackAudioProcessor::NumCrossovers> legacyCrossoverHz (float lowHz, float highHz)
+    std::array<float, (size_t) SevenpackAudioProcessor::NumCrossovers> legacyCrossoverHz (float lowHz, float highHz)
     {
         const double lo = juce::jlimit ((double) Crossover::kSplitMinHz[0], (double) Crossover::kSplitMaxHz[0], (double) lowHz);
         const double hi = juce::jlimit ((double) Crossover::kSplitMinHz[4], (double) Crossover::kSplitMaxHz[4], (double) highHz);
@@ -46,12 +46,12 @@ namespace
         return { { (float) lo, (float) (lo * ratio), (float) (lo * ratio * ratio), (float) (lo * ratio * ratio * ratio), (float) hi } };
     }
 
-    void writePresetXml (const SixpackEditorContent::PresetData& p, const juce::File& file)
+    void writePresetXml (const SevenpackEditorContent::PresetData& p, const juce::File& file)
     {
-        juce::XmlElement xml ("SixpackPreset");
+        juce::XmlElement xml ("SevenpackPreset");
         xml.setAttribute ("name", p.name);
         xml.setAttribute ("author", p.author);
-        for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
+        for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
         {
             xml.setAttribute ("crossoverHz" + juce::String (x), (double) p.crossoverHz[(size_t) x]);
             xml.setAttribute ("crossoverEnabled" + juce::String (x), p.crossoverEnabled[(size_t) x]);
@@ -99,16 +99,16 @@ namespace
         xml.writeTo (file);
     }
 
-    bool readPresetXml (const juce::File& file, SixpackEditorContent::PresetData& out)
+    bool readPresetXml (const juce::File& file, SevenpackEditorContent::PresetData& out)
     {
         auto xml = juce::XmlDocument::parse (file);
-        if (xml == nullptr || xml->getTagName() != "SixpackPreset")
+        if (xml == nullptr || xml->getTagName() != "SevenpackPreset")
             return false;
 
         out.name          = xml->getStringAttribute ("name", file.getFileNameWithoutExtension());
         out.author        = xml->getStringAttribute ("author", "User");
         out.isFactory      = false;
-        for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
+        for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
         {
             out.crossoverHz[(size_t) x] = (float) xml->getDoubleAttribute ("crossoverHz" + juce::String (x), (double) Crossover::kSplitDefaultHz[x]);
             out.crossoverEnabled[(size_t) x] = xml->getBoolAttribute ("crossoverEnabled" + juce::String (x), true);
@@ -127,14 +127,14 @@ namespace
             auto& bp = out.bands[idx];
             bp.input            = (float) bandXml->getDoubleAttribute ("input", 0.0);
             bp.ratioIndex        = bandXml->getIntAttribute ("ratioIndex", 3);
-            bp.attack            = (float) bandXml->getDoubleAttribute ("attack", SixpackAudioProcessor::defaultAttackMs);
-            bp.release           = (float) bandXml->getDoubleAttribute ("release", SixpackAudioProcessor::defaultReleaseMs);
+            bp.attack            = (float) bandXml->getDoubleAttribute ("attack", SevenpackAudioProcessor::defaultAttackMs);
+            bp.release           = (float) bandXml->getDoubleAttribute ("release", SevenpackAudioProcessor::defaultReleaseMs);
             bp.output            = (float) bandXml->getDoubleAttribute ("output", 0.0);
             bp.aboveBelow        = bandXml->getIntAttribute ("aboveBelow", 0);
             bp.rangeExpand       = (float) bandXml->getDoubleAttribute ("rangeExpand", 0.0);
             bp.ratioIndexExpand  = bandXml->getIntAttribute ("ratioIndexExpand", 0);
-            bp.attackExpand      = (float) bandXml->getDoubleAttribute ("attackExpand", SixpackAudioProcessor::defaultAttackMs);
-            bp.releaseExpand     = (float) bandXml->getDoubleAttribute ("releaseExpand", SixpackAudioProcessor::defaultReleaseMs);
+            bp.attackExpand      = (float) bandXml->getDoubleAttribute ("attackExpand", SevenpackAudioProcessor::defaultAttackMs);
+            bp.releaseExpand     = (float) bandXml->getDoubleAttribute ("releaseExpand", SevenpackAudioProcessor::defaultReleaseMs);
             bp.outputExpand      = (float) bandXml->getDoubleAttribute ("outputExpand", 0.0);
             bp.detectorHp        = bandXml->getBoolAttribute ("detectorHp", false);
             bp.detectorHpFreq    = (float) bandXml->getDoubleAttribute ("detectorHpFreq", 100.0);
@@ -160,103 +160,104 @@ namespace
     }
 }
 
-SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
+SevenpackEditorContent::SevenpackEditorContent (SevenpackAudioProcessor& p)
     : processorRef (p)
 {
-    // Opaque -- paint() couvre deja tout le fond (backgroundCache ou
-    // renderMetalPanel, voir plus bas), donc pas besoin que JUCE efface
-    // en dessous. Aide aussi a eviter le clignotement blanc au
-    // redimensionnement (voir SixpackAudioProcessorEditor::setOpaque).
+    // Opaque -- paint() couvre deja tout le fond (cache bois + panneau).
     setOpaque (true);
     setLookAndFeel (&lookAndFeel);
     setWantsKeyboardFocus (true);
-    // Theme deja applique aux globales SixpackColours AVANT que ce
-    // constructeur (et tous les membres de cette classe) ne commence a
-    // tourner -- voir le membre sentinelle juste avant `content` dans
-    // SixpackAudioProcessorEditor (PluginEditor.h) et
-    // SixpackLookAndFeel::applyGlobalTheme(). `lookAndFeel` (juste
-    // au-dessus) a deja capture la bonne teinte a SA construction via
-    // refreshFixedColours(), rien d'autre a faire ici.
+    // Theme deja applique aux globales SevenpackColours AVANT que ce
+    // constructeur ne commence a tourner -- voir le membre sentinelle juste
+    // avant `content` dans SevenpackAudioProcessorEditor (PluginEditor.h).
 
-    // --- Barre de controle globale ---
-    addAndMakeVisible (powerButton);
+    woodImage = juce::ImageCache::getFromMemory (BinaryData::bois_wood_jpg, BinaryData::bois_wood_jpgSize);
+
+    // ========================================================================
+    // Interface v2 "Sevenpack Alpha" (maquette 7PACK validee) -- voir
+    // AlphaSkin.h / AlphaStrip.h / AlphaMeters.h.
+    // ========================================================================
+
+    // --- POWER / A/B / theme (interrupteurs a pilule) ---
+    addAndMakeVisible (powerToggle);
+    powerToggle.setTooltip ("Power");
     powerAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorRef.apvts, SixpackAudioProcessor::idPower, powerButton);
+        processorRef.apvts, SevenpackAudioProcessor::idPower, powerToggle);
 
-    // A/B : bascule persistante entre 2 jeux de reglages (voir
-    // SixpackAudioProcessor::toggleABCompare()/selectABSlot()) -- pas de
-    // ButtonAttachment (etat gere par le processeur, pas un parametre APVTS).
-    addAndMakeVisible (abButton);
-    abButton.setIsB (processorRef.isUsingSlotB());
-    abButton.onSelect = [this] (bool wantB)
+    addAndMakeVisible (abToggle);
+    abToggle.setTooltip ("A/B compare");
+    abToggle.setToggleState (processorRef.isUsingSlotB(), juce::dontSendNotification);
+    abToggle.setLetter (processorRef.isUsingSlotB() ? "B" : "A");
+    abToggle.onClick = [this]
     {
-        processorRef.selectABSlot (wantB);
-        abButton.setIsB (processorRef.isUsingSlotB());
+        processorRef.selectABSlot (abToggle.getToggleState());
+        abToggle.setToggleState (processorRef.isUsingSlotB(), juce::dontSendNotification);
+        abToggle.setLetter (processorRef.isUsingSlotB() ? "B" : "A");
     };
 
-    // Spectre + 4 lignes de crossover draggables/activables + selection de
-    // bande (remplace les anciens knobs XLO/XHI de Tripressor) -- voir
-    // CrossoverSpectrumEditor.h.
-    addAndMakeVisible (crossoverSpectrum);
-    crossoverSpectrum.setSelectedBand (selectedBand);
-    crossoverSpectrum.onBandSelected = [this] (int band)
+    addAndMakeVisible (themeToggle);
+    themeToggle.setTooltip ("Dark theme");
+    themeToggle.setToggleState (processorRef.uiTheme.load() != 1, juce::dontSendNotification);
+    themeToggle.onClick = [this] { applyUiTheme (themeToggle.getToggleState() ? 0 : 1); };
+
+    // Contraste renforce (sous A/B) -- persiste dans processorRef.highContrast.
+    // N'agit que sur les knobs (variante C "silhouette", choisie par
+    // l'utilisateur). kShowContrastToggle = false le masque et le force a OFF.
+    constexpr bool kShowContrastToggle = true;
+    addChildComponent (contrastToggle);
+    contrastToggle.setVisible (kShowContrastToggle);
+    contrastToggle.setTooltip ("High contrast (for washed-out screens)");
+    AlphaPalette::highContrastActive = kShowContrastToggle && processorRef.highContrast.load();
+    AlphaPalette::finishActive = juce::jlimit (0, 3, processorRef.uiFinish.load()); // Options > FINISH
+    AlphaPalette::faderStyleActive = juce::jlimit (0, 2, processorRef.faderStyle.load()); // Options > BAND FADERS
+    contrastToggle.setToggleState (AlphaPalette::highContrastActive, juce::dontSendNotification);
+    contrastToggle.onClick = [this] { applyHighContrast (contrastToggle.getToggleState()); };
+
+    // --- LEARN (bouton AI) ---
+    addAndMakeVisible (learnButton);
+    learnButton.setStyle (AlphaButton::Style::Primary); // action principale : lisere lumineux + pulsation pendant LEARN
+    learnButton.setFontSize (AlphaType::title);
+    learnButton.setHaloMargin (8.0f);
+    learnButton.setTooltip ("Listens to a few seconds of audio, then sets the crossovers and each band's Input/Ratio/Attack/Release.");
+    learnButton.onClick = [this] { processorRef.startAiLearn(); };
+
+    // --- ANALOG / LINEAR (idDigitalCrossover) ---
+    analogButton.setStyle (AlphaButton::Style::Mode); // boutons de mode : discrets quand inactifs (audit)
+    linearButton.setStyle (AlphaButton::Style::Mode);
+    addAndMakeVisible (analogButton);
+    addAndMakeVisible (linearButton);
+    analogButton.setTooltip ("1st-order crossover, zero latency (default).");
+    linearButton.setTooltip ("Linear-phase FIR crossover, adjustable latency (Options). Very CPU hungry.");
+    analogButton.onClick = [this]
     {
-        selectedBand = band;
-        linkedBands.fill (false); // selection "fraiche", meme convention qu'un clic simple sur SEL
-        refreshBandPanelVisibility();
+        if (auto* linearParam = processorRef.apvts.getParameter (SevenpackAudioProcessor::idDigitalCrossover))
+            linearParam->setValueNotifyingHost (0.0f);
     };
-
-    addAndMakeVisible (xoverModeButton);
-    xoverModeButton.setAnalogTooltip ("Crossover 1er ordre, 0 latence (comportement par defaut).");
-    xoverModeButton.setLinearTooltip ("Crossover FIR a phase lineaire, latence reglable (icone engrenage). Tres gourmand en CPU.");
-    xoverModeButton.onSelect = [this] (XoverModeButton::Mode mode)
+    linearButton.onClick = [this]
     {
-        auto* linearParam = processorRef.apvts.getParameter (SixpackAudioProcessor::idDigitalCrossover);
-        if (linearParam == nullptr)
+        auto* linearParam = processorRef.apvts.getParameter (SevenpackAudioProcessor::idDigitalCrossover);
+        if (linearParam == nullptr || linearParam->getValue() > 0.5f)
             return;
-
-        const bool wantLinear = mode == XoverModeButton::Mode::Linear;
-        const bool alreadyLinear = linearParam->convertFrom0to1 (linearParam->getValue()) > 0.5f;
-
-        if (! wantLinear || alreadyLinear)
-        {
-            linearParam->setValueNotifyingHost (wantLinear ? 1.0f : 0.0f);
-            return;
-        }
 
         // Avertissement CPU en passant ANALOG -> LINEAR (retour utilisateur
-        // explicite) -- meme mecanisme OK/Cancel que le CPU Budget LINEAR
-        // (onLatencySelected plus haut) : Cancel laisse le bouton sur
-        // ANALOG (rien n'a encore ete ecrit au parametre).
+        // explicite) -- Cancel laisse le crossover sur ANALOG.
         auto options = juce::MessageBoxOptions::makeOptionsOkCancel (
             juce::MessageBoxIconType::WarningIcon, "Higher CPU usage",
             "LINEAR crossover uses a linear-phase FIR filter, which is significantly more "
             "CPU-intensive than ANALOG. An octa-core CPU is strongly recommended. Continue?",
             "Continue", "Cancel");
 
-        juce::AlertWindow::showAsync (options, [this, linearParam] (int alertResult)
+        juce::AlertWindow::showAsync (options.withAssociatedComponent (this), [linearParam] (int alertResult)
         {
-            if (alertResult == 1) // "Continue" est le 1er bouton ajoute
+            if (alertResult == 1)
                 linearParam->setValueNotifyingHost (1.0f);
-            // Cancel : rien a faire, le Timer interne de xoverModeButton
-            // relit le parametre (toujours ANALOG) et remet le bouton
-            // visuellement a sa place tout seul.
         });
     };
 
-    addAndMakeVisible (latencyModeButton);
-    latencyModeButton.onClick = [this] { showOptionsOverlay(); };
-
-    addAndMakeVisible (aiLearnButton);
-    aiLearnButton.setTooltip ("Ecoute quelques secondes du programme audio et propose Crossover + Input/Ratio/Attack/Release par bande.");
-    aiLearnButton.onClick = [this] { processorRef.startAiLearn(); };
-
-    // RackPushButton ne configure PAS setClickingTogglesState() par defaut
-    // (SEL en depend pour rester momentane, voir RackPushButton.h) -- ici
-    // LINK IN/OUT sont de vrais toggles persistants, meme raison que SOLO
-    // (voir BandMetersRack.h).
+    // --- LINK IN / LINK OUT (etat sur le processeur, voir PluginProcessor.h) ---
     linkInSwitch.setClickingTogglesState (true);
     addAndMakeVisible (linkInSwitch);
+    linkInSwitch.setTooltip ("Moves all IN knobs together (relative)");
     linkInSwitch.setToggleState (processorRef.linkInEnabled.load(), juce::dontSendNotification);
     linkInSwitch.onClick = [this]
     {
@@ -266,30 +267,22 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
 
     linkOutSwitch.setClickingTogglesState (true);
     addAndMakeVisible (linkOutSwitch);
+    linkOutSwitch.setTooltip ("Moves all OUT faders together (relative)");
     linkOutSwitch.setToggleState (processorRef.linkOutEnabled.load(), juce::dontSendNotification);
     linkOutSwitch.onClick = [this]
     {
-        // Meme garde que dans onBandSelectRequested : Link Out et un
-        // groupe SEL d'au moins 2 bandes ne doivent jamais etre actifs en
-        // meme temps (retour utilisateur). Ici c'est l'ordre inverse --
-        // un groupe est deja forme et l'utilisateur essaie d'allumer Link
-        // Out par-dessus. Plutot que de bloquer silencieusement le clic
-        // (retour utilisateur suivant : ca ne faisait rien, confus), on
-        // resout le conflit activement -- reduire la selection a la seule
-        // bande affichee (meme effet qu'un clic simple sur SEL) pour
-        // permettre l'activation. linkedBands NE compte PAS selectedBand
-        // lui-meme (toujours membre implicite du groupe, voir
-        // isInSelectionGroup() dans BandMetersRack.h), d'ou le seuil >= 1.
+        // Comme Sixpack : LINK OUT et un groupe SEL (>= 2 bandes) ne sont
+        // jamais actifs en meme temps -- allumer LINK OUT ramene la
+        // selection a la seule bande principale.
         if (linkOutSwitch.getToggleState())
         {
-            int linkedCount = 0;
+            bool anyLinked = false;
             for (bool b : linkedBands)
-                if (b) ++linkedCount;
-
-            if (linkedCount >= 1)
+                anyLinked = anyLinked || b;
+            if (anyLinked)
             {
                 linkedBands.fill (false);
-                refreshBandPanelVisibility();
+                refreshSelectionVisuals();
             }
         }
 
@@ -297,125 +290,99 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
         updateOutputLinkVisuals();
     };
 
-    addAndMakeVisible (suppressorLogoButton);
-    suppressorLogoButton.onClick = [this] { aboutOverlay.setVisible (true); aboutOverlay.toFront (true); };
+    // --- Logo (ouvre About). Mini spectrums IN/OUT supprimes (retour
+    // utilisateur : "c'est moche"). ---
+    addAndMakeVisible (logoButton);
+    logoButton.onClick = [this] { aboutOverlay.showAnimated(); };
 
-    // --- 7 bandes -- progression spectrale cyan (Low) -> rouge (High),
-    // Presence (6e bande, 1-5kHz) inseree en violet entre High-Mid (orange)
-    // et High (rouge) pour rester visuellement distincte de ses 2 voisines.
-    // Air (7e bande, au-dessus de High) poursuit la roue chromatique en
-    // rose au-dela du rouge. ---
-    static const juce::Colour bandAccents[kNumBands] = { SixpackColours::ledCyan, SixpackColours::ledGreen, SixpackColours::ledAmber, SixpackColours::ledOrange, SixpackColours::ledPurple, SixpackColours::ledRed, SixpackColours::ledPink };
-    static const char* bandTags[kNumBands] = { "LOW", "LOW-MID", "MID", "HIGH-MID", "PRESENCE", "HIGH", "AIR" };
+    // --- Graphe des crossovers (style Alpha) -- clic sur une zone = SEL ---
+    addAndMakeVisible (crossoverSpectrum);
+    crossoverSpectrum.setAlphaStyle (true);
+    crossoverSpectrum.setBandSelectionEnabled (true);
+    crossoverSpectrum.onBandSelected = [this] (int band) { selectBand (band, false); };
+
+    // --- 7 tranches ---
     for (int band = 0; band < kNumBands; ++band)
-        buildBandPanel (band, bandAccents[band], bandTags[band]);
-    refreshBandPanelVisibility(); // n'affiche que bandPanels[selectedBand] -- voir doc de classe BandPanel
+    {
+        buildHiddenBandControls (band);
+        bandStrips[(size_t) band] = std::make_unique<AlphaStrip> (processorRef, band);
+        bandStrips[(size_t) band]->onSelectClicked = [this] (int b, bool multi) { selectBand (b, multi); };
+        bandStrips[(size_t) band]->refreshTheme();
+        addAndMakeVisible (*bandStrips[(size_t) band]);
+    }
 
     // Installe les handlers onValueChange (une seule fois -- voir
     // wireInputLink()/wireOutputLink(), qui consultent l'etat des
-    // interrupteurs Link a CHAQUE mouvement plutot que d'etre reinstalles
-    // au clic, meme principe que Nuke Mext).
+    // interrupteurs Link a CHAQUE mouvement).
     wireInputLink();
     wireOutputLink();
     updateInputLinkVisuals();
     updateOutputLinkVisuals();
+    refreshSelectionVisuals();
 
-    // --- Plaque VU/THD globale ---
-    addAndMakeVisible (needleVu1);
-    addAndMakeVisible (needleVu2);
-    needleVu1Modes.onSelect = [this] (int idx) { needleVu1.setMode (NeedleVU::modeForIndex (idx)); processorRef.needleModeIndex1 = idx; };
-    needleVu2Modes.onSelect = [this] (int idx) { needleVu2.setMode (NeedleVU::modeForIndex (idx)); processorRef.needleModeIndex2 = idx; };
-    addAndMakeVisible (needleVu1Modes);
-    addAndMakeVisible (needleVu2Modes);
+    // Calque d'animation LEARN, au-dessus du graphe et des tranches (sous
+    // les overlays About/Options/Presets, ramenes devant en fin de constructeur).
+    addAndMakeVisible (learnFx);
 
-    addAndMakeVisible (thdHeader);
-    addAndMakeVisible (bandMetersRack);
-    bandMetersRack.onBandSelectRequested = [this] (int band, bool isMultiSelectModifier)
-    {
-        // Ctrl/Cmd+clic : ajoute/retire cette bande du groupe "lie" en
-        // edition (Output uniquement, delta relatif -- voir
-        // wireOutputLink()), SANS changer quelle bande est affichee dans
-        // le panneau de detail. Un clic simple change la bande affichee ET
-        // vide la selection liee (nouvelle selection "fraiche"), meme
-        // convention qu'un multi-select fichier standard (Ctrl+clic
-        // ajoute, clic simple reinitialise).
-        if (isMultiSelectModifier)
-        {
-            if (band != selectedBand)
-                linkedBands[(size_t) band] = ! linkedBands[(size_t) band];
-
-            // Retour utilisateur : "quand j'active link out et que je
-            // selectionne plusieurs tranches ... quand je bouge les faders
-            // ca fait n'importe quoi" -- Link Out (wireOutputLink(), tous
-            // les knobs Output des 6 bandes) et le groupe SEL multi-select
-            // (BandMetersRack, delta releatif entre les seules bandes
-            // choisies) sont deux mecanismes de liaison independants qui
-            // peuvent tous les deux reagir au meme geste et se marcher
-            // dessus. Des qu'un groupe d'au moins 2 bandes est forme,
-            // Link Out se desactive automatiquement pour lever
-            // l'ambiguite -- le groupe SEL reste la source de verite pour
-            // le deplacement relatif tant qu'il est actif.
-            // linkedBands NE compte PAS selectedBand lui-meme (toujours
-            // membre implicite du groupe, voir isInSelectionGroup() dans
-            // BandMetersRack.h) -- la vraie taille du groupe est donc
-            // linkedCount + 1, d'ou le seuil >= 1 ici (1 Ctrl+clic suffit
-            // deja a former un groupe de 2 : selectedBand + cette bande).
-            int linkedCount = 0;
-            for (bool b : linkedBands)
-                if (b) ++linkedCount;
-
-            if (linkedCount >= 1 && linkOutSwitch.getToggleState())
-            {
-                linkOutSwitch.setToggleState (false, juce::dontSendNotification);
-                processorRef.linkOutEnabled.store (false);
-                updateOutputLinkVisuals();
-            }
-        }
-        else
-        {
-            selectedBand = band;
-            linkedBands.fill (false);
-        }
-        refreshBandPanelVisibility();
-    };
+    // --- THD global + 4 modes (radio exclusif sur idThdMode, toujours un actif) ---
+    thdButton.setClickingTogglesState (true);
+    thdButton.setFontSize (AlphaType::title);
+    thdButton.setTooltip ("THD saturation stage (global, after the bands)");
+    addAndMakeVisible (thdButton);
     softClipAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorRef.apvts, SixpackAudioProcessor::idSoftClip, thdHeader.engageSwitch);
+        processorRef.apvts, SevenpackAudioProcessor::idSoftClip, thdButton);
 
-    // 4 boutons de mode THD (SOFT/TAPE/IRON/AIR, voir ThdHeaderModule) --
-    // radio exclusif sur idThdMode (0..3), TOUJOURS exactement un actif
-    // (SOFT = comportement d'origine, plus un etat "rien de selectionne").
-    // Meme mecanique que RatioSelector (ParameterAttachment manuel, pas de
-    // ButtonAttachment -- ce n'est pas un booleen).
-    if (auto* thdModeParamPtr = processorRef.apvts.getParameter (SixpackAudioProcessor::idThdMode))
+    static const char* thdModeLabels[4] = { "SOFT", "TAPE", "IRON", "AIR" };
+    for (int i = 0; i < 4; ++i)
+    {
+        thdModeButtons[(size_t) i] = std::make_unique<AlphaButton> (thdModeLabels[i]);
+        thdModeButtons[(size_t) i]->setStyle (AlphaButton::Style::Mode);
+        addAndMakeVisible (*thdModeButtons[(size_t) i]);
+    }
+    if (auto* thdModeParamPtr = processorRef.apvts.getParameter (SevenpackAudioProcessor::idThdMode))
     {
         thdModeAttachment = std::make_unique<juce::ParameterAttachment> (
             *thdModeParamPtr,
             [this] (float v)
             {
                 const int mode = (int) std::round (v);
-                thdHeader.softToggle.setToggleState (mode == 0, juce::dontSendNotification);
-                thdHeader.tapeToggle.setToggleState (mode == 1, juce::dontSendNotification);
-                thdHeader.ironToggle.setToggleState (mode == 2, juce::dontSendNotification);
-                thdHeader.airToggle.setToggleState  (mode == 3, juce::dontSendNotification);
+                for (int i = 0; i < 4; ++i)
+                    thdModeButtons[(size_t) i]->setToggleState (mode == i, juce::dontSendNotification);
             },
             nullptr);
-
-        auto wireThdModeButton = [this] (juce::Button& btn, int modeIndex)
-        {
-            btn.onClick = [this, modeIndex] { thdModeAttachment->setValueAsCompleteGesture ((float) modeIndex); };
-        };
-        wireThdModeButton (thdHeader.softToggle, 0);
-        wireThdModeButton (thdHeader.tapeToggle, 1);
-        wireThdModeButton (thdHeader.ironToggle, 2);
-        wireThdModeButton (thdHeader.airToggle, 3);
-
+        for (int i = 0; i < 4; ++i)
+            thdModeButtons[(size_t) i]->onClick = [this, i] { thdModeAttachment->setValueAsCompleteGesture ((float) i); };
         thdModeAttachment->sendInitialUpdate();
     }
+
+    // --- Mode des aiguilles THD / GR / GONIO, a gauche des tranches
+    // (demande explicite : change les aiguilles des 7 bandes) ---
+    {
+        static const char* labels[3] = { "THD", "GR", "GONIO" };
+        static const char* tips[3] = { "Needles show how much THD each band receives.",
+                                       "Needles show gain reduction: compression to the right, expansion to the left.",
+                                       "Needles become a stereo goniometer of each band, with phase correlation." };
+        for (int i = 0; i < 3; ++i)
+        {
+            auto& b = meterModeButtons[(size_t) i];
+            b = std::make_unique<AlphaButton> (labels[i]);
+            b->setStyle (AlphaButton::Style::Mode);
+            b->setTooltip (tips[i]);
+            b->onClick = [this, i] { processorRef.meterMode.store (i); syncMeterModeButtons(); };
+            addAndMakeVisible (*b);
+        }
+        syncMeterModeButtons();
+    }
+
+    // --- Menu "3 points" : remplace l'engrenage (demande explicite) ---
+    addAndMakeVisible (optionsButton);
+    optionsButton.setTooltip ("Options");
+    optionsButton.onClick = [this] { showOptionsOverlay(); };
 
     addChildComponent (aboutOverlay);
     aboutOverlay.setVisible (false);
     aboutOverlay.setLicenseManager (processorRef.licenseManager);
-    aboutOverlay.onDismiss = [this] { aboutOverlay.setVisible (false); };
+    aboutOverlay.onDismiss = [this] { aboutOverlay.hideAnimated(); };
     aboutOverlay.onOpenLicense = [this]
     {
         aboutOverlay.setVisible (false);
@@ -433,30 +400,24 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
             onOpenLicenseRequested();
     };
     optionsOverlay.onScaleSelected = [this] (float scale) { if (onScaleRequested) onScaleRequested (scale); };
-    // Theme SOMBRE/CLAIR -- retour utilisateur explicite : "je souhaite
-    // faire un design plus clair qu'on peut changer dans l'engrenage".
-    // Persiste dans processorRef.lightTheme (meme pattern que uiScale),
-    // repousse vers le LookAndFeel partage, puis invalide le cache de
-    // fond statique (rebuildBackgroundCache() -- renderMetalPanel() lit
-    // SixpackLookAndFeel::isLightThemeStatic()) et repaint tout.
-    optionsOverlay.onThemeToggled = [this] (bool light)
-    {
-        processorRef.lightTheme.store (light ? 1.0f : 0.0f);
-        lookAndFeel.setLightTheme (light);
-        refreshThemeReactiveColours();
-        rebuildBackgroundCache();
-        aboutOverlay.refreshTheme();
-        repaint();
-    };
-    // setLightTheme() deja applique tout en haut du constructeur (voir
-    // commentaire la-bas) -- juste synchroniser l'etat visuel du bouton ici.
-    optionsOverlay.setLightThemeState (processorRef.lightTheme.load() > 0.5f);
+    // Theme SOMBRE/CLAIR/DOS retro -- retour utilisateur explicite : "je
+    // souhaite faire un design plus clair qu'on peut changer dans
+    // l'engrenage", puis "on peut tester un 3 eme UI... vieille machine
+    // MSDOS". Persiste dans processorRef.uiTheme (meme pattern que
+    // uiScale), repousse vers le LookAndFeel partage, puis invalide le
+    // cache de fond statique (rebuildBackgroundCache() -- renderMetalPanel()
+    // lit SevenpackLookAndFeel::isLightThemeStatic()/isDosThemeStatic()) et
+    // repaint tout.
+    optionsOverlay.onUiThemeSelected = [this] (int themeIndex) { applyUiTheme (themeIndex); };
+    // applyGlobalTheme() deja applique tout en haut du constructeur (voir
+    // commentaire la-bas) -- juste synchroniser l'etat visuel des boutons ici.
+    optionsOverlay.setCurrentUiThemeIndex (processorRef.uiTheme.load());
     // Meme avertissement que Nuke Mext (showLatencyModeMenu()) : Low CPU
     // s'applique immediatement, mais Medium/High CPU demandent confirmation
     // (cout CPU/latence nettement plus eleve).
     optionsOverlay.onLatencySelected = [this] (int index)
     {
-        auto* param = processorRef.apvts.getParameter (SixpackAudioProcessor::idLinearLatencyMode);
+        auto* param = processorRef.apvts.getParameter (SevenpackAudioProcessor::idLinearLatencyMode);
         if (param == nullptr)
             return;
 
@@ -477,7 +438,7 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
             "and adds more latency. Recommended on a CPU with at least " + recommendedCores
             + " cores. Continue?", "Continue", "Cancel");
 
-        juce::AlertWindow::showAsync (options, [this, param, index, currentIndex] (int alertResult)
+        juce::AlertWindow::showAsync (options.withAssociatedComponent (this), [this, param, index, currentIndex] (int alertResult)
         {
             if (alertResult == 1) // "Continue" est le 1er bouton ajoute
                 param->setValueNotifyingHost (param->convertTo0to1 ((float) index));
@@ -489,19 +450,19 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
     // --- Section AI (menu Options, demande explicite) ---
     optionsOverlay.onAiTargetSelected = [this] (int index)
     {
-        setParamValue (SixpackAudioProcessor::idAiMasteringTarget, (float) index);
+        setParamValue (SevenpackAudioProcessor::idAiMasteringTarget, (float) index);
     };
     optionsOverlay.onAiCompressionModeSelected = [this] (int index)
     {
-        setParamValue (SixpackAudioProcessor::idAiCompressionMode, (float) index);
+        setParamValue (SevenpackAudioProcessor::idAiCompressionMode, (float) index);
     };
     optionsOverlay.onAiCharacterSelected = [this] (int index)
     {
-        setParamValue (SixpackAudioProcessor::idAiAttackReleaseCharacter, (float) index);
+        setParamValue (SevenpackAudioProcessor::idAiAttackReleaseCharacter, (float) index);
     };
     optionsOverlay.onAiGainReductionSelected = [this] (int index)
     {
-        setParamValue (SixpackAudioProcessor::idAiGainReductionMode, (float) index);
+        setParamValue (SevenpackAudioProcessor::idAiGainReductionMode, (float) index);
     };
     optionsOverlay.onAiScopeChanged = [this] (int scopeIndex, bool enabled)
     {
@@ -511,31 +472,31 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
         // depuis cette liste.
         static constexpr const char* scopeIds[2] =
         {
-            SixpackAudioProcessor::idAiScopeCrossover,
-            SixpackAudioProcessor::idAiScopeCompression,
+            SevenpackAudioProcessor::idAiScopeCrossover,
+            SevenpackAudioProcessor::idAiScopeCompression,
         };
         if (scopeIndex >= 0 && scopeIndex < 2)
             setParamValue (scopeIds[scopeIndex], enabled ? 1.0f : 0.0f);
     };
     optionsOverlay.onAiStyleSelected = [this] (int index)
     {
-        setParamValue (SixpackAudioProcessor::idAiStyle, (float) index);
+        setParamValue (SevenpackAudioProcessor::idAiStyle, (float) index);
     };
     optionsOverlay.onAiFidelityChanged = [this] (bool enabled)
     {
-        setParamValue (SixpackAudioProcessor::idAiFidelity, enabled ? 1.0f : 0.0f);
+        setParamValue (SevenpackAudioProcessor::idAiFidelity, enabled ? 1.0f : 0.0f);
     };
     optionsOverlay.onAiExpandModeSelected = [this] (int index)
     {
-        setParamValue (SixpackAudioProcessor::idAiExpandMode, (float) index);
+        setParamValue (SevenpackAudioProcessor::idAiExpandMode, (float) index);
     };
     optionsOverlay.onAiExpandCharacterSelected = [this] (int index)
     {
-        setParamValue (SixpackAudioProcessor::idAiExpandCharacter, (float) index);
+        setParamValue (SevenpackAudioProcessor::idAiExpandCharacter, (float) index);
     };
     optionsOverlay.onAiExpandAmountSelected = [this] (int index)
     {
-        setParamValue (SixpackAudioProcessor::idAiExpandAmount, (float) index);
+        setParamValue (SevenpackAudioProcessor::idAiExpandAmount, (float) index);
     };
 
     optionsOverlay.onMainOutPairChanged = [this] (int pairIndex)
@@ -545,73 +506,114 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
 
     optionsOverlay.onBandOutRoutingChanged = [this] (int band, int comboIndex)
     {
-        if (band < 0 || band >= (int) SixpackAudioProcessor::NumBands)
+        if (band < 0 || band >= (int) SevenpackAudioProcessor::NumBands)
             return;
         // comboIndex 0 = reste dans le mix ; >=1 = routee (et, en standalone,
         // sur la paire comboIndex-1).
         const bool routed = comboIndex >= 1;
-        setParamValue (SixpackAudioProcessor::bandParamId (SixpackAudioProcessor::idBandRouteOut, band),
+        setParamValue (SevenpackAudioProcessor::bandParamId (SevenpackAudioProcessor::idBandRouteOut, band),
                        routed ? 1.0f : 0.0f);
         if (routed)
             processorRef.bandOutPairIndex[(size_t) band].store (comboIndex - 1);
     };
 
+    // Section INTERFACE des options (Sevenpack Alpha) -- preferences
+    // d'affichage persistees sur le processeur (voir PluginProcessor.h).
+    optionsOverlay.onNeedleSettingsChanged = [this] (float bounce, float ret)
+    {
+        processorRef.needleBounce.store (bounce);
+        processorRef.needleReturn.store (ret);
+    };
+    optionsOverlay.onNeedleGlassSelected = [this] (int glass)
+    {
+        processorRef.needleGlass.store (juce::jlimit (0, 1, glass));
+        for (auto& strip : bandStrips)
+            strip->repaint();
+    };
+    optionsOverlay.onGonioLinesSelected = [this] (bool lines)
+    {
+        processorRef.gonioLines.store (lines);
+        for (auto& strip : bandStrips)
+            strip->repaint();
+    };
+    optionsOverlay.onGonioRedPhaseSelected = [this] (bool red)
+    {
+        processorRef.gonioRedPhase.store (red);
+        for (auto& strip : bandStrips)
+            strip->repaint();
+    };
+    optionsOverlay.onFaderStyleSelected = [this] (int styleIdx)
+    {
+        processorRef.faderStyle.store (juce::jlimit (0, 2, styleIdx));
+        AlphaPalette::faderStyleActive = processorRef.faderStyle.load();
+        for (auto& strip : bandStrips)
+            strip->repaint();
+    };
+    optionsOverlay.onAttRelIconsSelected = [this] (int style)
+    {
+        processorRef.attRelIcons.store (juce::jlimit (0, 3, style));
+        for (auto& strip : bandStrips)
+            strip->repaint();
+    };
+    optionsOverlay.onSpectrumStyleSelected = [this] (int style)
+    {
+        processorRef.spectrumStyle.store (juce::jlimit (0, 4, style));
+        crossoverSpectrum.repaint();
+    };
+    optionsOverlay.onSpectrumSmoothSelected = [this] (int smooth)
+    {
+        processorRef.spectrumSmooth.store (juce::jlimit (0, 1, smooth));
+        crossoverSpectrum.repaint();
+    };
+    optionsOverlay.onSpectrumPeakChanged = [this] (bool on)
+    {
+        processorRef.spectrumPeak.store (on);
+        crossoverSpectrum.repaint();
+    };
+    optionsOverlay.onFinishSelected = [this] (int finish)
+    {
+        processorRef.uiFinish.store (juce::jlimit (0, 3, finish));
+        AlphaPalette::finishActive = processorRef.uiFinish.load();
+        applyUiTheme (processorRef.uiTheme.load()); // memes rafraichissements qu'un changement de theme
+    };
+    optionsOverlay.onNeedleTipSelected = [this] (bool red)
+    {
+        processorRef.needleRedTip.store (red);
+        for (auto& strip : bandStrips)
+            strip->repaint();
+    };
+    optionsOverlay.onBandColourModeSelected = [this] (int mode)
+    {
+        processorRef.bandColourMode.store (juce::jlimit (0, 2, mode));
+        crossoverSpectrum.repaint();
+        for (auto& strip : bandStrips)
+            strip->repaint();
+    };
+
     // --- Presets rapides (meme mecanisme que Nuke Mext) ---
     buildPresetList();
 
-    presetSectionLabel.setText ("preset", juce::dontSendNotification);
-    presetSectionLabel.setJustificationType (juce::Justification::centredLeft);
-    presetSectionLabel.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)).withExtraKerningFactor (0.12f));
-    presetSectionLabel.setColour (juce::Label::textColourId, SixpackColours::textDim);
-    addAndMakeVisible (presetSectionLabel);
-
     prevPresetButton.onClick = [this] { goToPreset (-1); };
     nextPresetButton.onClick = [this] { goToPreset (1); };
-    addAndMakeVisible (prevPresetButton);
-    addAndMakeVisible (nextPresetButton);
-
     presetNameButton.onClick = [this] { openPresetBrowser(); };
-    addAndMakeVisible (presetNameButton);
-
-    presetAuthorLabel.setJustificationType (juce::Justification::centred);
-    presetAuthorLabel.setFont (juce::Font (juce::FontOptions (9.5f, juce::Font::italic)));
-    presetAuthorLabel.setColour (juce::Label::textColourId, SixpackColours::textDim);
-    addAndMakeVisible (presetAuthorLabel);
-
-    copyButton.onClick = [this] { copyStateToClipboard(); };
+    copyButton.onClick  = [this] { copyStateToClipboard(); };
     pasteButton.onClick = [this] { pasteStateFromClipboard(); };
-    addAndMakeVisible (copyButton);
-    addAndMakeVisible (pasteButton);
-
-    saveButton.onClick = [this] { promptSavePreset(); };
-    addAndMakeVisible (saveButton);
-
+    saveButton.onClick  = [this] { promptSavePreset(); };
     deletePresetButton.onClick = [this] { promptDeletePreset(); };
-    addAndMakeVisible (deletePresetButton);
+    undoButton.onClick = [this] { undo(); };
+    redoButton.onClick = [this] { redo(); };
+    for (juce::Component* c : { (juce::Component*) &prevPresetButton, (juce::Component*) &nextPresetButton, (juce::Component*) &presetNameButton,
+                                (juce::Component*) &copyButton, (juce::Component*) &pasteButton, (juce::Component*) &saveButton,
+                                (juce::Component*) &deletePresetButton, (juce::Component*) &undoButton, (juce::Component*) &redoButton })
+        addAndMakeVisible (*c);
 
-    // --- Plafond de sortie THD Valve (-0.5 -> -3 dB) dans la barre du bas ---
-    // Retour utilisateur : "je souhaite quand meme pouvoir gerer le niveau de
-    // sortie apres le THD ... de -0.5 a -3". Slider LinearBar : la valeur
-    // s'ecrit DANS la barre, pas besoin d'une text-box separee (rangee de
-    // 26px seulement).
-    thdCeilingLabel.setText ("THD CEIL", juce::dontSendNotification);
-    thdCeilingLabel.setJustificationType (juce::Justification::centredRight);
-    thdCeilingLabel.setFont (juce::Font (juce::FontOptions (10.0f, juce::Font::bold)).withExtraKerningFactor (0.12f));
-    thdCeilingLabel.setColour (juce::Label::textColourId, SixpackColours::textDim);
-    addAndMakeVisible (thdCeilingLabel);
-
-    thdCeilingSlider.setSliderStyle (juce::Slider::LinearBar);
-    thdCeilingSlider.setTextValueSuffix (" dB");
-    thdCeilingSlider.setNumDecimalPlacesToDisplay (1);
-    thdCeilingSlider.setColour (juce::Slider::trackColourId, SixpackColours::ledGreen.withAlpha (0.45f));
-    thdCeilingSlider.setColour (juce::Slider::textBoxTextColourId, SixpackColours::textBright);
-    thdCeilingSlider.setColour (juce::Slider::backgroundColourId, juce::Colours::black.withAlpha (0.35f));
-    thdCeilingSlider.setTooltip ("Plafond de sortie de l'etage THD Valve (-0.5 a -3 dB)");
-    if (auto* ceilParam = processorRef.apvts.getParameter (SixpackAudioProcessor::idThdOutput))
-        thdCeilingSlider.setDoubleClickReturnValue (true, ceilParam->convertFrom0to1 (ceilParam->getDefaultValue()));
-    thdCeilingAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-        processorRef.apvts, SixpackAudioProcessor::idThdOutput, thdCeilingSlider);
-    addAndMakeVisible (thdCeilingSlider);
+    // Plafond de sortie THD (-0.5 -> -3 dB) -- retour utilisateur : "je
+    // souhaite quand meme pouvoir gerer le niveau de sortie apres le THD".
+    if (auto* ceilParam = processorRef.apvts.getParameter (SevenpackAudioProcessor::idThdOutput))
+    {
+        thdCeiling = std::make_unique<AlphaCeilControl> (*ceilParam);
+        addAndMakeVisible (*thdCeiling);
+    }
 
     addChildComponent (presetBrowser);
     presetBrowser.setVisible (false);
@@ -629,48 +631,263 @@ SixpackEditorContent::SixpackEditorContent (SixpackAudioProcessor& p)
     // ecrasee silencieusement a l'ouverture de l'editeur. Le nom affiche
     // au depart est purement indicatif ; choisir un preset (clic sur le
     // nom, ou < / >) l'applique reellement.
-    presetNameButton.setButtonText ("Default");
+    presetNameButton.setButtonText ("Presets");
     presetAuthorLabel.setText ({}, juce::dontSendNotification);
     deletePresetButton.setEnabled (false);
 
-    startTimerHz (10);
+    // Overlays au premier plan (ajoutes avant certains controles ci-dessus).
+    aboutOverlay.toFront (false);
+    optionsOverlay.toFront (false);
+    presetBrowser.toFront (false);
 
-    // Garantit que le rack du bas (et ses faders) reste TOUJOURS au-dessus
-    // de tout sibling ajoute apres lui (barre de presets, etc.), quel que
-    // soit l'ordre d'ajout -- retour utilisateur explicite : "les fader ne
-    // doivent pas passer sous le canvas mais par dessus".
-    bandMetersRack.toFront (false);
+    // Boites de dialogue (avertissements CPU, sauvegarde/suppression de
+    // preset) aux couleurs Alpha.
+    AlphaDraw::styleAlertWindows (lookAndFeel);
+
+    // Annuler/retablir : tout geste souris dans l'editeur (y compris sur
+    // les enfants) marque "changement utilisateur" ; premier instantane =
+    // etat a l'ouverture.
+    addMouseListener (this, true);
+    lastSeenParams = captureParamValues();
+    undoHistory.push_back (lastSeenParams);
+    undoIndex = 0;
+    refreshUndoButtons();
+
+    startTimerHz (10);
 
     setSize (baseWidth, baseHeight);
 }
 
-SixpackEditorContent::~SixpackEditorContent()
+SevenpackEditorContent::~SevenpackEditorContent()
 {
     setLookAndFeel (nullptr);
 }
 
-void SixpackEditorContent::timerCallback()
+void SevenpackEditorContent::timerCallback()
 {
-    const bool powered = *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idPower) > 0.5f;
+    const bool powered = *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idPower) > 0.5f;
     if (powered != lookAndFeel.isPowered())
     {
         lookAndFeel.setPowered (powered);
         repaint();
     }
 
+    // LEARN clignote pendant l'ecoute/l'analyse (meme role que l'ancien
+    // AiLearnButton), le graphe anime les crossovers en meme temps.
+    {
+        const auto st = processorRef.aiLearnAnalyzer.getState();
+        const bool busy = st == AiLearnAnalyzer::State::Capturing || st == AiLearnAnalyzer::State::Analyzing;
+        learnButton.setForceLit (busy); // enfonce tant que le plugin ecoute/analyse (animation : AlphaLearnFx)
+        learnButton.setPulsing (busy);  // halo + texte clignotant, comme la preview HTML
+    }
+
+    // Etats lus sur les parametres (automation, presets, A/B...).
+    {
+        const bool linear = *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idDigitalCrossover) > 0.5f;
+        analogButton.setToggleState (! linear, juce::dontSendNotification);
+        linearButton.setToggleState (linear, juce::dontSendNotification);
+        const bool thdOn = *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idSoftClip) > 0.5f;
+        for (auto& b : thdModeButtons)
+            b->setDimmed (! thdOn);
+        abToggle.setToggleState (processorRef.isUsingSlotB(), juce::dontSendNotification);
+        abToggle.setLetter (processorRef.isUsingSlotB() ? "B" : "A");
+        syncMeterModeButtons(); // etat restaure par l'hote pendant que l'editeur est ouvert
+    }
+
     // Bouton AI : des que l'analyse en tache de fond est terminee, on
     // applique le resultat puis on acquitte pour permettre un nouvel
-    // apprentissage. AiLearnButton se rafraichit lui-meme via son propre
-    // Timer (clignotement), on n'a besoin de "poller" ici que pour savoir
-    // QUAND appliquer le resultat.
+    // apprentissage.
     if (processorRef.aiLearnAnalyzer.getState() == AiLearnAnalyzer::State::Done)
     {
         applyAiLearnResult (processorRef.aiLearnAnalyzer.getResult());
         processorRef.aiLearnAnalyzer.acknowledge();
+        userTouchedParams = true; // le resultat LEARN est annulable
     }
+
+    pushUndoSnapshotIfChanged();
 }
 
-void SixpackEditorContent::applyAiLearnResult (const AiLearnAnalyzer::Result& result)
+// ============================================================================
+// Annuler / retablir -- historique par INSTANTANES de tous les parametres
+// (le plugin n'a pas d'UndoManager APVTS). Un instantane est pris quand les
+// parametres ont change APRES une action de l'utilisateur dans l'editeur
+// (clic, molette, preset, LEARN, coller, A/B) et sont stables depuis 400 ms
+// -- un glisser de knob = une seule etape. L'automation de l'hote seule
+// (sans geste dans l'editeur) n'alimente pas l'historique.
+// ============================================================================
+
+std::vector<float> SevenpackEditorContent::captureParamValues() const
+{
+    std::vector<float> values;
+    for (auto* p : processorRef.getParameters())
+        values.push_back (p->getValue());
+    return values;
+}
+
+void SevenpackEditorContent::pushUndoSnapshotIfChanged()
+{
+    const auto now = juce::Time::getMillisecondCounter();
+    auto current = captureParamValues();
+
+    if (current != lastSeenParams)
+    {
+        lastSeenParams = std::move (current);
+        lastParamChangeMs = now;
+        return; // on attend que ca se stabilise
+    }
+
+    if (! userTouchedParams || juce::ModifierKeys::getCurrentModifiersRealtime().isAnyMouseButtonDown())
+        return;
+    if (now - lastParamChangeMs < 400)
+        return;
+    if (undoIndex >= 0 && undoHistory[(size_t) undoIndex] == lastSeenParams)
+    {
+        userTouchedParams = false;
+        return;
+    }
+
+    // Nouvelle etape : on coupe la branche "retablir" et on borne a 60 etapes.
+    undoHistory.resize ((size_t) (undoIndex + 1));
+    undoHistory.push_back (lastSeenParams);
+    if (undoHistory.size() > 60)
+        undoHistory.erase (undoHistory.begin());
+    undoIndex = (int) undoHistory.size() - 1;
+    userTouchedParams = false;
+    refreshUndoButtons();
+}
+
+void SevenpackEditorContent::restoreUndoSnapshot (int index)
+{
+    if (index < 0 || index >= (int) undoHistory.size())
+        return;
+    const auto& snap = undoHistory[(size_t) index];
+    const auto& params = processorRef.getParameters();
+    for (size_t i = 0; i < snap.size() && i < (size_t) params.size(); ++i)
+    {
+        auto* p = params[(int) i];
+        if (std::abs (p->getValue() - snap[i]) > 1.0e-6f)
+        {
+            p->beginChangeGesture();
+            p->setValueNotifyingHost (snap[i]);
+            p->endChangeGesture();
+        }
+    }
+    undoIndex = index;
+    lastSeenParams = snap;
+    userTouchedParams = false;
+    refreshUndoButtons();
+}
+
+void SevenpackEditorContent::undo()
+{
+    pushUndoSnapshotIfChanged(); // fige un reglage en cours avant de revenir
+    restoreUndoSnapshot (undoIndex - 1);
+}
+
+void SevenpackEditorContent::redo()
+{
+    restoreUndoSnapshot (undoIndex + 1);
+}
+
+void SevenpackEditorContent::refreshUndoButtons()
+{
+    undoButton.setEnabled (undoIndex > 0);
+    redoButton.setEnabled (undoIndex >= 0 && undoIndex < (int) undoHistory.size() - 1);
+}
+
+void SevenpackEditorContent::mouseDown (const juce::MouseEvent&)
+{
+    userTouchedParams = true;
+}
+
+void SevenpackEditorContent::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&)
+{
+    userTouchedParams = true;
+}
+
+bool SevenpackEditorContent::keyPressed (const juce::KeyPress& key)
+{
+    const auto mods = key.getModifiers();
+    if (mods.isCommandDown() && key.getKeyCode() == 'Z')
+    {
+        if (mods.isShiftDown()) redo(); else undo();
+        return true;
+    }
+    if (mods.isCommandDown() && key.getKeyCode() == 'Y')
+    {
+        redo();
+        return true;
+    }
+    return false;
+}
+
+void SevenpackEditorContent::applyUiTheme (int themeIndex)
+{
+    // Theme SOMBRE/CLAIR/DOS -- persiste dans processorRef.uiTheme, repousse
+    // vers le LookAndFeel partage (overlays historiques), puis l'interface
+    // Alpha relit AlphaPalette::get() a sa prochaine peinture.
+    themeIndex = juce::jlimit (0, 2, themeIndex);
+    processorRef.uiTheme.store (themeIndex);
+    lookAndFeel.setUiTheme (themeIndex);
+    optionsOverlay.setCurrentUiThemeIndex (themeIndex);
+    themeToggle.setToggleState (themeIndex != 1, juce::dontSendNotification);
+    refreshThemeReactiveColours();
+    rebuildBackgroundCache();
+    aboutOverlay.refreshTheme();
+    optionsOverlay.applyAlphaStyle();
+    AlphaDraw::styleAlertWindows (lookAndFeel);
+    repaint();
+}
+
+void SevenpackEditorContent::applyHighContrast (bool shouldBeOn)
+{
+    processorRef.highContrast.store (shouldBeOn);
+    AlphaPalette::highContrastActive = shouldBeOn;
+    contrastToggle.setToggleState (shouldBeOn, juce::dontSendNotification);
+    applyUiTheme (processorRef.uiTheme.load()); // memes rafraichissements qu'un changement de theme
+}
+
+void SevenpackEditorContent::selectBand (int band, bool isMultiSelectModifier)
+{
+    if (band < 0 || band >= kNumBands)
+        return;
+
+    if (isMultiSelectModifier)
+    {
+        // Ctrl/Cmd+clic : ajoute/retire la bande du groupe lie, SANS changer
+        // la bande principale (meme convention qu'un multi-select fichier).
+        if (band != selectedBand)
+            linkedBands[(size_t) band] = ! linkedBands[(size_t) band];
+
+        // Des qu'un groupe d'au moins 2 bandes existe, LINK OUT se coupe
+        // (deux mecanismes de liaison sur le meme fader -- voir Sixpack).
+        bool anyLinked = false;
+        for (bool b : linkedBands)
+            anyLinked = anyLinked || b;
+        if (anyLinked && linkOutSwitch.getToggleState())
+        {
+            linkOutSwitch.setToggleState (false, juce::dontSendNotification);
+            processorRef.linkOutEnabled.store (false);
+            updateOutputLinkVisuals();
+        }
+    }
+    else
+    {
+        selectedBand = band;
+        linkedBands.fill (false);
+    }
+
+    refreshSelectionVisuals();
+}
+
+void SevenpackEditorContent::refreshSelectionVisuals()
+{
+    for (int b = 0; b < kNumBands; ++b)
+        bandStrips[(size_t) b]->setSelected (isInSelectionGroup (b));
+    crossoverSpectrum.setSelectedBand (selectedBand);
+}
+
+void SevenpackEditorContent::applyAiLearnResult (const AiLearnAnalyzer::Result& result)
 {
     // Portee (menu Options, section AI, demande explicite : "AI ne
     // s'occupe que de la compression si on le souhaite") -- chaque
@@ -678,13 +895,15 @@ void SixpackEditorContent::applyAiLearnResult (const AiLearnAnalyzer::Result& re
     // etait actif au moment du clic (voir AiLearnAnalyzer::Result).
     if (result.applyCrossoverScope)
     {
-        for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
-            rampParamTo (SixpackAudioProcessor::idCrossover[x], result.crossoverHz[(size_t) x]);
+        for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
+            // Strictement identique a Sixpack (demande explicite : "elle
+            // doit etre identique au sixpack") -- rampe standard 260 ms.
+            rampParamTo (SevenpackAudioProcessor::idCrossover[x], result.crossoverHz[(size_t) x]);
     }
 
     for (int band = 0; band < kNumBands; ++band)
     {
-        auto id = [band] (const char* base) { return SixpackAudioProcessor::bandParamId (base, band); };
+        auto id = [band] (const char* base) { return SevenpackAudioProcessor::bandParamId (base, band); };
 
         // Comp et Expand ont des jeux de parametres INDEPENDANTS
         // (idInput/idInputExpand, etc.) et sont TOUS LES DEUX calcules et
@@ -704,36 +923,36 @@ void SixpackEditorContent::applyAiLearnResult (const AiLearnAnalyzer::Result& re
             // Expand Mode/Amount/Character) sont INDEPENDANTES, chacune
             // avec ses propres drapeaux.
             if (result.pushInput)
-                rampParamTo (id (SixpackAudioProcessor::idInput), result.inputDb[(size_t) band]);
+                rampParamTo (id (SevenpackAudioProcessor::idInput), result.inputDb[(size_t) band]);
             if (result.pushAttackRelease)
             {
-                rampParamTo (id (SixpackAudioProcessor::idAttack),  result.attackMs[(size_t) band]);
-                rampParamTo (id (SixpackAudioProcessor::idRelease), result.releaseMs[(size_t) band]);
+                rampParamTo (id (SevenpackAudioProcessor::idAttack),  result.attackMs[(size_t) band]);
+                rampParamTo (id (SevenpackAudioProcessor::idRelease), result.releaseMs[(size_t) band]);
             }
             if (result.pushRatio)
-                setParamValue (id (SixpackAudioProcessor::idRatioIndex),
+                setParamValue (id (SevenpackAudioProcessor::idRatioIndex),
                                (float) juce::roundToInt (result.ratioIndex[(size_t) band]));
 
             if (result.pushExpandInput)
-                rampParamTo (id (SixpackAudioProcessor::idInputExpand), result.expandInputDb[(size_t) band]);
+                rampParamTo (id (SevenpackAudioProcessor::idInputExpand), result.expandInputDb[(size_t) band]);
             if (result.pushExpandAttackRelease)
             {
-                rampParamTo (id (SixpackAudioProcessor::idAttackExpand),  result.expandAttackMs[(size_t) band]);
-                rampParamTo (id (SixpackAudioProcessor::idReleaseExpand), result.expandReleaseMs[(size_t) band]);
+                rampParamTo (id (SevenpackAudioProcessor::idAttackExpand),  result.expandAttackMs[(size_t) band]);
+                rampParamTo (id (SevenpackAudioProcessor::idReleaseExpand), result.expandReleaseMs[(size_t) band]);
             }
             if (result.pushExpandRatio)
-                setParamValue (id (SixpackAudioProcessor::idRatioIndexExpand),
+                setParamValue (id (SevenpackAudioProcessor::idRatioIndexExpand),
                                (float) juce::roundToInt (result.expandRatioIndex[(size_t) band]));
 
-            rampParamTo (id (SixpackAudioProcessor::idBandMix),   result.mixPercent[(size_t) band]);
-            rampParamTo (id (SixpackAudioProcessor::idBandWidth), result.widthPercent[(size_t) band]);
+            rampParamTo (id (SevenpackAudioProcessor::idBandMix),   result.mixPercent[(size_t) band]);
+            rampParamTo (id (SevenpackAudioProcessor::idBandWidth), result.widthPercent[(size_t) band]);
         }
 
         if (result.applyDetectorsScope)
         {
-            setParamValue (id (SixpackAudioProcessor::idDetectorBell), result.detectorBellOn[(size_t) band] ? 1.0f : 0.0f);
-            setParamValue (id (SixpackAudioProcessor::idDetectorBellFreq), result.detectorBellFreqHz[(size_t) band]);
-            setParamValue (id (SixpackAudioProcessor::idDetectorBellGain), result.detectorBellGainDb[(size_t) band]);
+            setParamValue (id (SevenpackAudioProcessor::idDetectorBell), result.detectorBellOn[(size_t) band] ? 1.0f : 0.0f);
+            setParamValue (id (SevenpackAudioProcessor::idDetectorBellFreq), result.detectorBellFreqHz[(size_t) band]);
+            setParamValue (id (SevenpackAudioProcessor::idDetectorBellGain), result.detectorBellGainDb[(size_t) band]);
         }
 
         // Output : UN SEUL knob partage entre Comp et Expand desormais
@@ -756,252 +975,74 @@ void SixpackEditorContent::applyAiLearnResult (const AiLearnAnalyzer::Result& re
             if (result.applyStyle)          outputDb += result.styleOutputDb[(size_t) band];
             if (result.applyFidelity)       outputDb += result.fidelityOutputDb[(size_t) band];
             if (result.applyExpandOutput)   outputDb += result.expandOutputDb[(size_t) band];
-            rampParamTo (id (SixpackAudioProcessor::idOutput), outputDb);
+            rampParamTo (id (SevenpackAudioProcessor::idOutput), outputDb);
         }
     }
 
     if (result.applyLoudnessTarget && result.recommendSoftClipOn)
     {
-        setParamValue (SixpackAudioProcessor::idSoftClip, 1.0f);
+        setParamValue (SevenpackAudioProcessor::idSoftClip, 1.0f);
     }
 }
 
-void SixpackEditorContent::setupKnob (KnobControl& knob, const juce::String& paramID, const juce::String& labelText,
-                                                 const juce::String& unitSuffix, int decimalPlaces)
+void SevenpackEditorContent::buildHiddenBandControls (int band)
 {
-    addAndMakeVisible (knob.slider);
-    // Non clippe a ses propres bounds (retour utilisateur : l'ombre portee
-    // du knob etait tronquee au bord de son petit composant carre -- "il
-    // faut la laisser par-dessus le tout") -- laisse le halo/l'ombre de
-    // SixpackLookAndFeel::drawRotarySlider deborder dans le parent
-    // (le BandPanel, dont le clip couvre toute la plaque) au lieu d'etre
-    // coupes au bord du knob lui-meme.
-    knob.slider.setPaintingIsUnclipped (true);
-    knob.slider.setTextValueSuffix (unitSuffix);
-    knob.slider.setNumDecimalPlacesToDisplay (decimalPlaces);
+    auto& hc = hiddenBandControls[(size_t) band];
+    const auto pid = [band] (const char* base) { return SevenpackAudioProcessor::bandParamId (base, band); };
 
-    if (auto* param = processorRef.apvts.getParameter (paramID))
-        knob.slider.setDoubleClickReturnValue (true, param->convertFrom0to1 (param->getDefaultValue()));
-
-    knob.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-        processorRef.apvts, paramID, knob.slider);
-
-    knob.label.setText (labelText, juce::dontSendNotification);
-    // Centre (au lieu de centredLeft) -- retour utilisateur : "le IN a cote
-    // du knob des bandes est un peu loin" -- avec un texte aligne a GAUCHE
-    // dans une boite de largeur fixe (44px, dimensionnee pour le mot le
-    // plus long, "RANGE"), un mot court comme "IN" ne remplit qu'une
-    // fraction de la boite et semble donc decale par rapport au knob. Centre
-    // rend la position visuelle independante de la longueur du mot.
-    knob.label.setJustificationType (juce::Justification::centred);
-    knob.label.setFont (juce::Font (juce::FontOptions (12.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
-    knob.label.setColour (juce::Label::textColourId, SixpackColours::textBright.withAlpha (0.78f));
-    addAndMakeVisible (knob.label);
-}
-
-void SixpackEditorContent::buildBandPanel (int band, juce::Colour accent, const juce::String& tag)
-{
-    auto& bp = bandPanels[(size_t) band];
-    bp.accentColour = accent;
-
-    const auto pid = [band] (const char* base) { return SixpackAudioProcessor::bandParamId (base, band); };
-
-    addAndMakeVisible (bp.opticalButton);
-    bp.opticalAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorRef.apvts, pid (SixpackAudioProcessor::idOptical), bp.opticalButton);
-
-    addAndMakeVisible (bp.britishButton);
-    bp.britishAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorRef.apvts, pid (SixpackAudioProcessor::idBritish), bp.britishButton);
-
-    auto* opticalBtn = &bp.opticalButton;
-    auto* britishBtn = &bp.britishButton;
-    opticalBtn->onClick = [opticalBtn, britishBtn] { if (opticalBtn->getToggleState()) britishBtn->setToggleState (false, juce::sendNotificationSync); };
-    britishBtn->onClick = [opticalBtn, britishBtn] { if (britishBtn->getToggleState()) opticalBtn->setToggleState (false, juce::sendNotificationSync); };
-
-    // Comp/Expand : bouton RETIRE DU VISUEL (retour utilisateur explicite :
-    // "dans les bandes... on va faire apparaitre les expandeurs" -- Comp et
-    // Expand ont maintenant CHACUN leurs propres knobs affiches en
-    // permanence, voir BandPanel::expandRangeKnob/expandAttackKnob et
-    // updateDspFromParams(), qui n'alterne plus entre les 2 jeux de
-    // parametres -- ce bouton n'a donc plus d'utilite. addChildComponent
-    // (pas addAndMakeVisible) : le parametre idAboveBelow reste dans
-    // l'APVTS pour la compat des presets/automations existants, juste plus
-    // lu par le DSP ni affiche.
-    addChildComponent (bp.aboveBelowButton);
-
-    addAndMakeVisible (bp.sidechainToggle);
-    bp.sidechainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorRef.apvts, pid (SixpackAudioProcessor::idSidechainEnable), bp.sidechainToggle);
-
-    bp.soloSwitch = std::make_unique<SoloSwitch> (accent);
-    addAndMakeVisible (*bp.soloSwitch);
-    bp.soloAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorRef.apvts, SixpackAudioProcessor::idSolo[band], bp.soloSwitch->lever);
-
-    bp.grMeter = std::make_unique<GRMeter> (processorRef.grMeterDb[(size_t) band],
-                                             processorRef.grMeterExpandDb[(size_t) band],
-                                             *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idPower),
-                                             *processorRef.apvts.getRawParameterValue (pid (SixpackAudioProcessor::idAboveBelow)));
-    addAndMakeVisible (*bp.grMeter);
-
-    addAndMakeVisible (bp.ratioSelector);
-    auto* ratioParam = processorRef.apvts.getParameter (pid (SixpackAudioProcessor::idRatioIndex));
-    auto* ratioSelectorPtr = &bp.ratioSelector;
-    bp.ratioAttachment = std::make_unique<juce::ParameterAttachment> (
-        *ratioParam,
-        [ratioSelectorPtr] (float v) { ratioSelectorPtr->setSelectedIndex ((int) std::round (v)); },
-        nullptr);
-    bp.ratioSelector.onSelect = [this, band] (int idx) { bandPanels[(size_t) band].ratioAttachment->setValueAsCompleteGesture ((float) idx); };
-    bp.ratioAttachment->sendInitialUpdate();
-
-    // DETECTOR/COLOR retires du VISUEL (retour utilisateur explicite : "je
-    // souhaite retirer detector, color et le XY. laisse dans le code mais
+    // DETECTOR/COLOR/XY retires du VISUEL (retour utilisateur explicite :
+    // "je souhaite retirer detector, color et le XY. laisse dans le code mais
     // retire du visuel si un jour je veux remettre") -- addChildComponent
-    // (pas addAndMakeVisible) : les attachements/le DSP restent intacts,
-    // ces composants existent juste hors-ecran en permanence.
-    for (auto* t : { &bp.detectorHpToggle, &bp.detectorBellToggle, &bp.detectorBell2Toggle, &bp.detectorLinkToggle,
-                     &bp.audioHpToggle, &bp.audioDist2Toggle, &bp.audioDist3Toggle })
+    // (jamais addAndMakeVisible) : les attachements restent intacts, ces
+    // composants existent juste hors-ecran en permanence.
+    for (auto* t : { &hc.detectorHpToggle, &hc.detectorBellToggle, &hc.detectorBell2Toggle, &hc.detectorLinkToggle,
+                     &hc.audioHpToggle, &hc.audioDist2Toggle, &hc.audioDist3Toggle })
         addChildComponent (*t);
 
-    // useBell2 ne pilote plus que le routage DetectorFilterGraph ci-dessous
-    // (bell2FreqP/GainP transmis ou non) -- les boutons eux-memes ne
-    // s'affichent plus jamais (voir ci-dessus), mais le parametre reste
-    // fonctionnel bande par bande (LowMid/Mid/HighMid) si jamais l'UI
-    // Detector est remise un jour.
-    const bool useBell2 = (band != SixpackAudioProcessor::Low && band != kNumBands - 1);
+    // useBell2 ne pilote que le routage DetectorFilterGraph ci-dessous
+    // (bell2FreqP/GainP transmis ou non) -- parametre fonctionnel bande par
+    // bande (LowMid..High) si jamais l'UI Detector est remise un jour.
+    const bool useBell2 = (band != SevenpackAudioProcessor::Low && band != kNumBands - 1);
 
-    bp.detectorHpAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorRef.apvts, pid (SixpackAudioProcessor::idDetectorHp), bp.detectorHpToggle);
-    bp.detectorBellAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorRef.apvts, pid (SixpackAudioProcessor::idDetectorBell), bp.detectorBellToggle);
-    bp.detectorBell2Attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorRef.apvts, pid (SixpackAudioProcessor::idDetectorBell2), bp.detectorBell2Toggle);
-    bp.detectorLinkAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorRef.apvts, pid (SixpackAudioProcessor::idDetectorLink), bp.detectorLinkToggle);
-    bp.audioHpAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorRef.apvts, pid (SixpackAudioProcessor::idAudioHp), bp.audioHpToggle);
-    bp.audioDist2Attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorRef.apvts, pid (SixpackAudioProcessor::idAudioDist2), bp.audioDist2Toggle);
-    bp.audioDist3Attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-        processorRef.apvts, pid (SixpackAudioProcessor::idAudioDist3), bp.audioDist3Toggle);
+    hc.detectorHpAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+        processorRef.apvts, pid (SevenpackAudioProcessor::idDetectorHp), hc.detectorHpToggle);
+    hc.detectorBellAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+        processorRef.apvts, pid (SevenpackAudioProcessor::idDetectorBell), hc.detectorBellToggle);
+    hc.detectorBell2Attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+        processorRef.apvts, pid (SevenpackAudioProcessor::idDetectorBell2), hc.detectorBell2Toggle);
+    hc.detectorLinkAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+        processorRef.apvts, pid (SevenpackAudioProcessor::idDetectorLink), hc.detectorLinkToggle);
+    hc.audioHpAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+        processorRef.apvts, pid (SevenpackAudioProcessor::idAudioHp), hc.audioHpToggle);
+    hc.audioDist2Attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+        processorRef.apvts, pid (SevenpackAudioProcessor::idAudioDist2), hc.audioDist2Toggle);
+    hc.audioDist3Attachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
+        processorRef.apvts, pid (SevenpackAudioProcessor::idAudioDist3), hc.audioDist3Toggle);
 
     // Bornes de l'axe X (voir doc de classe DetectorFilterGraph) : la bande
-    // 0 (Low) part de 20Hz, la derniere (High) finit a 20000Hz, chaque
-    // bande intermediaire va du crossover qui la precede a celui qui la
-    // suit -- les bandes voisines partagent le meme atomic de crossover a
-    // leur frontiere commune, c'est voulu (continuite visuelle).
+    // 0 (Low) part de 20Hz, la derniere (Air) finit a 20000Hz, chaque bande
+    // intermediaire va du crossover qui la precede a celui qui la suit.
     auto& viewMin = (band == 0) ? kFilterGraphMinHz
-                  : *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idCrossover[band - 1]);
+                  : *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idCrossover[band - 1]);
     auto& viewMax = (band == kNumBands - 1) ? kFilterGraphMaxHz
-                  : *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idCrossover[band]);
+                  : *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idCrossover[band]);
 
-    bp.filterGraph = std::make_unique<DetectorFilterGraph> (
-        *processorRef.apvts.getRawParameterValue (pid (SixpackAudioProcessor::idDetectorHp)),
-        *processorRef.apvts.getParameter (pid (SixpackAudioProcessor::idDetectorHpFreq)),
-        *processorRef.apvts.getParameter (pid (SixpackAudioProcessor::idDetectorHpSlope)),
-        *processorRef.apvts.getRawParameterValue (pid (SixpackAudioProcessor::idDetectorBell)),
-        *processorRef.apvts.getParameter (pid (SixpackAudioProcessor::idDetectorBellFreq)),
-        *processorRef.apvts.getParameter (pid (SixpackAudioProcessor::idDetectorBellGain)),
+    hc.filterGraph = std::make_unique<DetectorFilterGraph> (
+        *processorRef.apvts.getRawParameterValue (pid (SevenpackAudioProcessor::idDetectorHp)),
+        *processorRef.apvts.getParameter (pid (SevenpackAudioProcessor::idDetectorHpFreq)),
+        *processorRef.apvts.getParameter (pid (SevenpackAudioProcessor::idDetectorHpSlope)),
+        *processorRef.apvts.getRawParameterValue (pid (SevenpackAudioProcessor::idDetectorBell)),
+        *processorRef.apvts.getParameter (pid (SevenpackAudioProcessor::idDetectorBellFreq)),
+        *processorRef.apvts.getParameter (pid (SevenpackAudioProcessor::idDetectorBellGain)),
         band == kNumBands - 1, viewMin, viewMax,
-        useBell2 ? processorRef.apvts.getRawParameterValue (pid (SixpackAudioProcessor::idDetectorBell2)) : nullptr,
-        useBell2 ? processorRef.apvts.getParameter (pid (SixpackAudioProcessor::idDetectorBell2Freq)) : nullptr,
-        useBell2 ? processorRef.apvts.getParameter (pid (SixpackAudioProcessor::idDetectorBell2Gain)) : nullptr);
-    addChildComponent (*bp.filterGraph);
+        useBell2 ? processorRef.apvts.getRawParameterValue (pid (SevenpackAudioProcessor::idDetectorBell2)) : nullptr,
+        useBell2 ? processorRef.apvts.getParameter (pid (SevenpackAudioProcessor::idDetectorBell2Freq)) : nullptr,
+        useBell2 ? processorRef.apvts.getParameter (pid (SevenpackAudioProcessor::idDetectorBell2Gain)) : nullptr);
+    addChildComponent (*hc.filterGraph);
 
-    // Bande la plus haute (Air) : le point HP devient LP (meme mecanique) --
-    // relabelle le bouton en consequence.
+    // Bande la plus haute (Air) : le point HP devient LP (meme mecanique).
     if (band == kNumBands - 1)
-        bp.detectorHpToggle.setText ("LP");
-
-    // 2 decimales (retour utilisateur : "pour que je puisse calibrer
-    // proprement" -- calibration fine du trim cache Input via Plugin
-    // Doctor, 1 decimale ne suffit pas pour lire les 1/100e de dB).
-    setupKnob (bp.inputKnob,   pid (SixpackAudioProcessor::idInput),   "IN",  " dB", 2);
-    setupKnob (bp.attackKnob,  pid (SixpackAudioProcessor::idAttack),  "ATT", " ms", 2);
-    setupKnob (bp.releaseKnob, pid (SixpackAudioProcessor::idRelease), "REL", " ms", 1);
-    setupKnob (bp.outputKnob,  pid (SixpackAudioProcessor::idOutput),  "OUT", " dB", 1);
-
-    // Expandeur -- knobs PERMANENTS et INDEPENDANTS du compresseur (retour
-    // utilisateur explicite, voir doc de classe BandPanel), plus de mode
-    // Comp/Expand a choisir (voir updateDspFromParams()). RANGE = idInputExpand
-    // (meme parametre que la ligne RANGE de CrossoverSpectrumEditor). Pas de
-    // knob Release ("pas besoin du reglage release sur les expandeurs") ni
-    // Output (partage avec le compresseur, voir doc de classe).
-    setupKnob (bp.expandRangeKnob,  pid (SixpackAudioProcessor::idInputExpand),  "Exp", " dB", 2);
-    setupKnob (bp.expandAttackKnob, pid (SixpackAudioProcessor::idAttackExpand), "ATT",   " ms", 2);
-    // Libelle RANGE/ATT desormais IDENTIQUE aux autres knobs (retour
-    // utilisateur explicite : "meme chose pour les noms sous l'expand.
-    // range et att il faut que ce soit grave en noir" -- le violet etait
-    // peu lisible sur le panneau, seule la bague du knob (juste en dessous)
-    // reste teintee violette pour identifier visuellement l'expandeur.
-    for (auto* knob : { &bp.expandRangeKnob, &bp.expandAttackKnob })
-        SixpackLookAndFeel::setKnobAccentGradient (knob->slider, SixpackColours::ledPurple, SixpackColours::ledPurple);
-
-    // "tag" (LOW/MID/HIGH) n'est plus dessine en texte -- voir le logo
-    // image correspondant peint directement dans paint() -- conserve comme
-    // parametre pour le nom accessible du composant.
-    juce::ignoreUnused (tag);
-}
-
-void SixpackEditorContent::setBandPanelVisible (int band, bool visible)
-{
-    auto& bp = bandPanels[(size_t) band];
-
-    bp.opticalButton.setVisible (visible);
-    bp.britishButton.setVisible (visible);
-    bp.sidechainToggle.setVisible (visible);
-    if (bp.soloSwitch != nullptr)  bp.soloSwitch->setVisible (visible);
-    if (bp.grMeter != nullptr)     bp.grMeter->setVisible (visible);
-    bp.ratioSelector.setVisible (visible);
-
-    // Ancien bouton Comp/Expand, AUDIO HP, DETECTOR (HP/BELL/BELL2), COLOR
-    // (TUBE/FUZZ) et XY (filterGraph) restent TOUJOURS caches (voir
-    // buildBandPanel() -- addChildComponent, jamais addAndMakeVisible) --
-    // jamais reaffiches, meme quand le reste de la bande redevient visible.
-    bp.aboveBelowButton.setVisible (false);
-    bp.audioHpToggle.setVisible (false);
-    bp.detectorLinkToggle.setVisible (false);
-    bp.detectorHpToggle.setVisible (false);
-    bp.detectorBell2Toggle.setVisible (false);
-    bp.detectorBellToggle.setVisible (false);
-    bp.audioDist2Toggle.setVisible (false);
-    bp.audioDist3Toggle.setVisible (false);
-    if (bp.filterGraph != nullptr) bp.filterGraph->setVisible (false);
-
-    for (auto* knob : { &bp.inputKnob, &bp.attackKnob, &bp.releaseKnob, &bp.outputKnob,
-                         &bp.expandRangeKnob, &bp.expandAttackKnob })
-    {
-        knob->slider.setVisible (visible);
-        knob->label.setVisible (visible);
-    }
-
-    // Repositionne dans la zone de detail UNIQUE a chaque fois qu'une bande
-    // redevient visible -- les 5 BandPanel partagent la meme zone (voir
-    // bandPanelBounds), pas besoin de la recalculer par bande.
-    if (visible)
-        layoutBandRow (bp, bandPanelBounds.toNearestInt());
-}
-
-void SixpackEditorContent::refreshBandPanelVisibility()
-{
-    for (int band = 0; band < kNumBands; ++band)
-        setBandPanelVisible (band, band == selectedBand);
-    crossoverSpectrum.setSelectedBand (selectedBand);
-    bandMetersRack.setSelectedBand (selectedBand, &linkedBands);
-    // repaint() SCOPE (retour utilisateur : "ça ne change plus la couleur
-    // des plaques du compresseur quand je selectionne les bandes") --
-    // SixpackEditorContent::paint() redessine l'en-tete teinte du panneau
-    // de detail (couleur de bande) EN LISANT selectedBand a CHAQUE paint(),
-    // voir son commentaire ("Un seul en-tete a dessiner ... puisqu'il doit
-    // changer avec la selection") -- ce paint() ne se redeclenche QUE si
-    // quelque chose invalide au moins CETTE zone. Un repaint() global (SANS
-    // rectangle) le faisait, mais invalidait AUSSI tout le reste de la
-    // fenetre (header compris) -- cause du bug precedent ("n'importe quel
-    // bouton neuromorphic ... change de rendu" au clic sur SEL). Se limiter
-    // a bandPanelBounds evite ce debordement tout en rafraichissant bien la
-    // teinte de bande a chaque selection.
-    repaint (bandPanelBounds.toNearestInt());
+        hc.detectorHpToggle.setText ("LP");
 }
 
 // Lien RELATIF (delta), pas absolu : si Low=10dB et Mid=5dB et qu'on bouge
@@ -1009,14 +1050,14 @@ void SixpackEditorContent::refreshBandPanelVisibility()
 // plutot que de forcer tout le monde a la meme valeur. Installe UNE FOIS
 // (pas a chaque clic sur le bouton Link) -- le handler consulte l'etat du
 // bouton a chaque mouvement. Meme principe que Nuke Mext.
-void SixpackEditorContent::wireInputLink()
+void SevenpackEditorContent::wireInputLink()
 {
     for (int band = 0; band < kNumBands; ++band)
-        lastInputValue[(size_t) band] = bandPanels[(size_t) band].inputKnob.slider.getValue();
+        lastInputValue[(size_t) band] = bandStrips[(size_t) band]->getInputSlider().getValue();
 
     for (int band = 0; band < kNumBands; ++band)
     {
-        auto& slider = bandPanels[(size_t) band].inputKnob.slider;
+        auto& slider = bandStrips[(size_t) band]->getInputSlider();
         auto previous = slider.onValueChange;
 
         slider.onValueChange = [this, band, previous]
@@ -1024,7 +1065,7 @@ void SixpackEditorContent::wireInputLink()
             if (previous)
                 previous();
 
-            auto& thisSlider = bandPanels[(size_t) band].inputKnob.slider;
+            auto& thisSlider = bandStrips[(size_t) band]->getInputSlider();
             const double newValue = thisSlider.getValue();
 
             if (linkInSwitch.getToggleState() && ! linkInGuard)
@@ -1033,18 +1074,12 @@ void SixpackEditorContent::wireInputLink()
 
                 if (std::abs (delta) > 1.0e-9)
                 {
-                    // Ce knob represente TOUJOURS Input (Comp) -- plus de
-                    // mode Comp/Expand a rebinder desormais (retour
-                    // utilisateur : compresseur et expandeur ont chacun
-                    // leurs propres knobs en permanence, voir BandPanel::
-                    // expandRangeKnob/expandAttackKnob), donc plus besoin de
-                    // garde "meme mode" ici.
                     linkInGuard = true;
                     for (int b = 0; b < kNumBands; ++b)
                     {
                         if (b == band)
                             continue;
-                        auto& other = bandPanels[(size_t) b].inputKnob.slider;
+                        auto& other = bandStrips[(size_t) b]->getInputSlider();
                         const double target = juce::jlimit (other.getMinimum(), other.getMaximum(), other.getValue() + delta);
                         other.setValue (target, juce::sendNotificationSync);
                     }
@@ -1057,14 +1092,14 @@ void SixpackEditorContent::wireInputLink()
     }
 }
 
-void SixpackEditorContent::wireOutputLink()
+void SevenpackEditorContent::wireOutputLink()
 {
     for (int band = 0; band < kNumBands; ++band)
-        lastOutputValue[(size_t) band] = bandPanels[(size_t) band].outputKnob.slider.getValue();
+        lastOutputValue[(size_t) band] = bandStrips[(size_t) band]->getOutputSlider().getValue();
 
     for (int band = 0; band < kNumBands; ++band)
     {
-        auto& slider = bandPanels[(size_t) band].outputKnob.slider;
+        auto& slider = bandStrips[(size_t) band]->getOutputSlider();
         auto previous = slider.onValueChange;
 
         slider.onValueChange = [this, band, previous]
@@ -1072,90 +1107,67 @@ void SixpackEditorContent::wireOutputLink()
             if (previous)
                 previous();
 
-            auto& thisSlider = bandPanels[(size_t) band].outputKnob.slider;
+            auto& thisSlider = bandStrips[(size_t) band]->getOutputSlider();
             const double newValue = thisSlider.getValue();
             const double delta = newValue - lastOutputValue[(size_t) band];
 
-            if (linkOutSwitch.getToggleState() && ! linkOutGuard && std::abs (delta) > 1.0e-9)
+            // LINK OUT = les 7 bandes ; sinon groupe SEL (Ctrl/Cmd+clic, voir
+            // selectBand()) = seulement les bandes du groupe -- "pairage
+            // console" de Sixpack, delta relatif. Jamais les deux a la fois.
+            const bool allLinked = linkOutSwitch.getToggleState();
+            int groupSize = 0;
+            for (int b = 0; b < kNumBands; ++b)
+                if (isInSelectionGroup (b))
+                    ++groupSize;
+            const bool groupLinked = ! allLinked && groupSize > 1 && isInSelectionGroup (band);
+
+            if ((allLinked || groupLinked) && ! linkOutGuard && std::abs (delta) > 1.0e-9)
             {
-                // Output est desormais un knob PARTAGE (jamais rebinde,
-                // voir doc de classe BandPanel) -- plus besoin de garde
-                // "meme mode" ici non plus (voir wireInputLink()).
                 linkOutGuard = true;
                 for (int b = 0; b < kNumBands; ++b)
                 {
-                    if (b == band)
+                    if (b == band || (groupLinked && ! isInSelectionGroup (b)))
                         continue;
-                    auto& other = bandPanels[(size_t) b].outputKnob.slider;
+                    auto& other = bandStrips[(size_t) b]->getOutputSlider();
                     const double target = juce::jlimit (other.getMinimum(), other.getMaximum(), other.getValue() + delta);
                     other.setValue (target, juce::sendNotificationSync);
                 }
                 linkOutGuard = false;
             }
 
-            // NOTE : l'edition liee via selection multiple SEL (Ctrl/Cmd+
-            // clic) est geree directement dans BandMetersRack (voir
-            // wireOutputSelectionLink()), sur le VRAI fader console visible
-            // pour toutes les bandes -- ce knob-ci (panneau de detail,
-            // visible pour une seule bande a la fois) n'a pas besoin de sa
-            // propre logique de liaison, il reste synchronise passivement
-            // via l'attachment APVTS partage sur idOutput.
-
             lastOutputValue[(size_t) band] = thisSlider.getValue();
         };
     }
 }
 
-void SixpackEditorContent::updateInputLinkVisuals()
+void SevenpackEditorContent::updateInputLinkVisuals()  { updateLinkVisuals(); }
+void SevenpackEditorContent::updateOutputLinkVisuals() { updateLinkVisuals(); }
+
+// Libelles IN (vert) / OUT (rouge) de chaque tranche quand LINK IN / LINK
+// OUT sont actifs -- meme code couleur que les 2 boutons du header.
+void SevenpackEditorContent::updateLinkVisuals()
 {
-    const bool linked = linkInSwitch.getToggleState();
-    for (int band = 0; band < kNumBands; ++band)
-        bandPanels[(size_t) band].inputKnob.label.setColour (
-            juce::Label::textColourId, linked ? SixpackColours::ledGreen : SixpackColours::textDim);
+    for (auto& strip : bandStrips)
+        if (strip != nullptr)
+            strip->setLinkStates (linkInSwitch.getToggleState(), linkOutSwitch.getToggleState());
 }
 
-void SixpackEditorContent::updateOutputLinkVisuals()
+void SevenpackEditorContent::refreshThemeReactiveColours()
 {
-    const bool linked = linkOutSwitch.getToggleState();
-    for (int band = 0; band < kNumBands; ++band)
-        bandPanels[(size_t) band].outputKnob.label.setColour (
-            juce::Label::textColourId, linked ? SixpackColours::ledRed : SixpackColours::textDim);
+    // Les juce::Label "bakent" Label::textColourId au moment de leur
+    // creation (simple copie de valeur) -- un changement de theme EN COURS
+    // D'EXECUTION ne les met donc pas a jour tout seul (retour utilisateur :
+    // "quand on desactive le light theme les ecritures sont blanches").
+    // Les tranches, elles, relisent les globales a chaque paint() : seul
+    // leur cache de plaque doit etre invalide.
+    presetAuthorLabel.setColour (juce::Label::textColourId, SevenpackColours::textDim);
+
+    for (auto& strip : bandStrips)
+        if (strip != nullptr)
+            strip->refreshTheme();
 }
 
-void SixpackEditorContent::refreshThemeReactiveColours()
-{
-    // setupKnob()/le constructeur "bakent" Label::textColourId a partir de
-    // SixpackColours::textBright/textDim au moment de leur creation (une
-    // simple copie de valeur, voir doc de Component::setColour) -- un
-    // changement de theme EN COURS D'EXECUTION (bouton LIGHT THEME dans
-    // l'engrenage) ne les met donc pas a jour tout seul. Retour utilisateur
-    // explicite : "quand on desactive le light theme les ecritures sont
-    // blanches" (texte reste bloque sur la couleur du theme precedent).
-    // Reapplique ici toutes les couleurs "bakees" avec les valeurs
-    // ACTUELLES des globales -- a appeler juste apres tout changement de
-    // theme.
-    const auto knobLabelColour = SixpackColours::textBright.withAlpha (0.78f);
-    for (auto& bp : bandPanels)
-    {
-        bp.attackKnob.label.setColour (juce::Label::textColourId, knobLabelColour);
-        bp.releaseKnob.label.setColour (juce::Label::textColourId, knobLabelColour);
-        bp.expandRangeKnob.label.setColour (juce::Label::textColourId, knobLabelColour);
-        bp.expandAttackKnob.label.setColour (juce::Label::textColourId, knobLabelColour);
-    }
-
-    // inputKnob/outputKnob ont une couleur conditionnelle (lien actif ou
-    // non) -- ces deux fonctions relisent deja les globales EN DIRECT,
-    // il suffit de les rappeler pour qu'elles rebakent avec les valeurs a jour.
-    updateInputLinkVisuals();
-    updateOutputLinkVisuals();
-
-    presetSectionLabel.setColour (juce::Label::textColourId, SixpackColours::textDim);
-    presetAuthorLabel.setColour (juce::Label::textColourId, SixpackColours::textDim);
-
-    bandMetersRack.refreshThemeReactiveColours();
-}
-
-void SixpackEditorContent::showOptionsOverlay()
+void SevenpackEditorContent::showOptionsOverlay()
 {
     // Trouve l'index d'echelle le plus proche parmi { 75, 80, 85, 90, 95, 100 }%
     // -- plus robuste qu'une chaine de seuils si la liste change.
@@ -1171,31 +1183,31 @@ void SixpackEditorContent::showOptionsOverlay()
     optionsOverlay.setCurrentScaleIndex (scaleIndex);
 
     int latencyIndex = 0;
-    if (auto* param = processorRef.apvts.getParameter (SixpackAudioProcessor::idLinearLatencyMode))
+    if (auto* param = processorRef.apvts.getParameter (SevenpackAudioProcessor::idLinearLatencyMode))
         latencyIndex = (int) std::round (param->convertFrom0to1 (param->getValue()));
     optionsOverlay.setCurrentLatencyIndex (latencyIndex);
 
     optionsOverlay.setCurrentAiTargetIndex ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiMasteringTarget)));
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiMasteringTarget)));
     optionsOverlay.setCurrentAiCompressionMode ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiCompressionMode)));
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiCompressionMode)));
     optionsOverlay.setCurrentAiCharacter ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiAttackReleaseCharacter)));
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiAttackReleaseCharacter)));
     optionsOverlay.setCurrentAiGainReduction ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiGainReductionMode)));
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiGainReductionMode)));
     optionsOverlay.setAiScopeStates (
-        *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiScopeCrossover) > 0.5f,
-        *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiScopeCompression) > 0.5f);
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiScopeCrossover) > 0.5f,
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiScopeCompression) > 0.5f);
     optionsOverlay.setCurrentAiStyle ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiStyle)));
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiStyle)));
     optionsOverlay.setAiFidelityState (
-        *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiFidelity) > 0.5f);
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiFidelity) > 0.5f);
     optionsOverlay.setCurrentAiExpandMode ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiExpandMode)));
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiExpandMode)));
     optionsOverlay.setCurrentAiExpandCharacter ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiExpandCharacter)));
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiExpandCharacter)));
     optionsOverlay.setCurrentAiExpandAmount ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idAiExpandAmount)));
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiExpandAmount)));
 
     {
         const bool standalone = processorRef.wrapperType == juce::AudioProcessor::wrapperType_Standalone;
@@ -1213,10 +1225,10 @@ void SixpackEditorContent::showOptionsOverlay()
         const int pairCount = juce::jmax (1, pairLabels.size());
         optionsOverlay.setMainOutPair (juce::jlimit (0, pairCount - 1, processorRef.mainOutPairIndex.load()));
 
-        for (int b = 0; b < (int) SixpackAudioProcessor::NumBands; ++b)
+        for (int b = 0; b < (int) SevenpackAudioProcessor::NumBands; ++b)
         {
             const bool routed = *processorRef.apvts.getRawParameterValue (
-                SixpackAudioProcessor::bandParamId (SixpackAudioProcessor::idBandRouteOut, b)) > 0.5f;
+                SevenpackAudioProcessor::bandParamId (SevenpackAudioProcessor::idBandRouteOut, b)) > 0.5f;
             int comboIndex = 0; // dans le mix
             if (routed)
                 comboIndex = standalone
@@ -1226,252 +1238,148 @@ void SixpackEditorContent::showOptionsOverlay()
         }
     }
 
+    optionsOverlay.setNeedleSettings (processorRef.needleBounce.load(), processorRef.needleReturn.load());
+    optionsOverlay.setBandColourMode (processorRef.bandColourMode.load());
+    optionsOverlay.setNeedleGlass (processorRef.needleGlass.load());
+    optionsOverlay.setNeedleRedTip (processorRef.needleRedTip.load());
+    optionsOverlay.setGonioLines (processorRef.gonioLines.load());
+    optionsOverlay.setGonioRedPhase (processorRef.gonioRedPhase.load());
+    optionsOverlay.setFinish (processorRef.uiFinish.load());
+    optionsOverlay.setFaderStyle (processorRef.faderStyle.load());
+    optionsOverlay.setAttRelIcons (processorRef.attRelIcons.load());
+    optionsOverlay.setSpectrumStyle (processorRef.spectrumStyle.load());
+    optionsOverlay.setSpectrumSmooth (processorRef.spectrumSmooth.load());
+    optionsOverlay.setSpectrumPeak (processorRef.spectrumPeak.load());
+
+    optionsOverlay.applyAlphaStyle();
     optionsOverlay.setVisible (true);
     optionsOverlay.toFront (true);
 }
 
-void SixpackEditorContent::resized()
+void SevenpackEditorContent::resized()
 {
-    // Barre de controle globale : meme hauteur que les autres plaques
-    // (144), pour loger les VU a aiguille (deplacees ici, a gauche du
-    // knob XLO) en plus des knobs Xover/Wide-Linear/Link/Power.
-    controlBarBounds = juce::Rectangle<float> (3.0f, 3.0f, 1394.0f, 144.0f);
+    // Interface Alpha (maquette 7PACK) : cadre bois sur tout le pourtour,
+    // panneau metal arrondi pose dessus (14px de bois visible), puis de
+    // haut en bas : en-tete (96), graphe des crossovers (130), 7 tranches,
+    // barre du bas (44). Taille de fenetre INCHANGEE (1400x808).
+    panelBounds = getLocalBounds().toFloat().reduced (14.0f);
+    auto area = panelBounds;
 
-    // Ordre des plaques : barre de controle (THD desormais compact dedans,
-    // voir thdHeader plus bas), PUIS l'editeur de crossover (spectre +
-    // selection de bande), PUIS le panneau de detail de la bande
-    // selectionnee (UN SEUL a la fois, voir BandPanel/selectedBand), PUIS
-    // la plaque du bas -- gardee VIDE pour l'instant (retour utilisateur :
-    // "il faut garder le rack vide en bas pour le moment"), reservee pour
-    // un usage futur.
-    // Hauteur 144 REVERTEE a l'original (tentative 200 rejetee, retour
-    // utilisateur : "tu a agrandi la fenetre du plugin" -- la fenetre ne
-    // doit pas grandir). Ecarts de 10px avant/apres SUPPRIMES (retour
-    // utilisateur explicite : "il reste une bande grise en haut et en bas
-    // du compresseur" -- le fond du chassis se voyait dans ces 2 ecarts
-    // entre crossoverEditorBounds/bandPanelBounds et bandPanelBounds/
-    // vuPlateBounds) : les 3 plaques se touchent desormais.
-    // Haut chaine sur controlBarBounds.getBottom() (etait un Y fixe=153,
-    // laissant un ecart de 6px -- retour utilisateur : "une bande grise au
-    // dessus du bandeau crossover ... [il] s'agrandisse ... pour ne plus
-    // voir cette bande grise"). Le BAS reste fixe (293, comme avant) pour
-    // ne rien decaler en dessous -- seule la hauteur grandit (140 -> 146)
-    // pour absorber l'ecart, la fenetre ne grandit pas.
-    crossoverEditorBounds = juce::Rectangle<float> (3.0f, controlBarBounds.getBottom(), 1394.0f, 146.0f);
-    bandPanelBounds       = juce::Rectangle<float> (3.0f, crossoverEditorBounds.getBottom(), 1394.0f, 144.0f);
-    vuPlateBounds         = juce::Rectangle<float> (3.0f, bandPanelBounds.getBottom(), 1394.0f, 328.0f);
+    headerBounds = area.removeFromTop (96.0f);
+    footerBounds = area.removeFromBottom (44.0f);
+    area.removeFromTop (8.0f);
+    crossoverEditorBounds = area.removeFromTop (130.0f).reduced (22.0f, 0.0f);
+    area.removeFromTop (10.0f);
+    area.removeFromBottom (8.0f);
+    stripsBounds = area.reduced (22.0f, 0.0f);
 
     crossoverSpectrum.setBounds (crossoverEditorBounds.toNearestInt());
-    layoutBandRow (bandPanels[(size_t) selectedBand], bandPanelBounds.toNearestInt());
-    // Les vis d'angle (renderCornerScrews, inset 15 + rayon 5) ne sont
-    // QUE dans les 4 coins -- decaler tout le rack de 24px a gauche suffit
-    // a degager les 2 vis de GAUCHE (le contenu ne va pas jusqu'a droite,
-    // voir compactBandW dans BandMetersRack), inutile de rogner la hauteur
-    // (ca ecrasait les vu-metres pour rien, retour utilisateur : "c'est
-    // trop petit en hauteur la") -- juste une petite marge haut/bas pour
-    // ne pas toucher le trait de bordure de la plaque.
-    auto rackArea = vuPlateBounds.reduced (0.0f, 4.0f);
-    rackArea.removeFromLeft (24.0f);
-    // Meme marge a DROITE qu'a gauche (retour utilisateur : "j'ai une
-    // plaque a gauche derriere la console mais elle n'est pas a droite du
-    // plugin") -- avant l'ajout de la 6e bande, le rack ne remplissait pas
-    // toute la largeur de vuPlateBounds a droite (marge reservee "pour
-    // d'autres fonctions"), donc son propre bord droit ne s'approchait
-    // jamais du bord de la plaque. Depuis que compactBandW*6 remplit
-    // presque toute la largeur, le dernier bandeau va desormais jusqu'au
-    // bord droit de vuPlateBounds SANS la meme marge que la gauche --
-    // asymetrie visible (bande de plaque de fond visible a gauche,
-    // absente a droite). Voir BandMetersRack::compactBandW, reduit en
-    // consequence pour que les 6 bandes tiennent toujours.
-    rackArea.removeFromRight (24.0f);
-    bandMetersRack.setBounds (rackArea.toNearestInt());
 
-    const int barTop = (int) controlBarBounds.getY();
+    {
+        constexpr float gap = 6.0f;
+        const float stripW = (stripsBounds.getWidth() - gap * (float) (kNumBands - 1)) / (float) kNumBands;
+        for (int band = 0; band < kNumBands; ++band)
+        {
+            const int x0 = juce::roundToInt (stripsBounds.getX() + (float) band * (stripW + gap));
+            const int x1 = juce::roundToInt (stripsBounds.getX() + (float) band * (stripW + gap) + stripW);
+            bandStrips[(size_t) band]->setBounds (x0, juce::roundToInt (stripsBounds.getY()), x1 - x0, juce::roundToInt (stripsBounds.getHeight()));
+        }
+    }
 
-    // --- Header redessine, v4 -- CENTRAGE EXACT du logo (retour
-    // utilisateur explicite : "reduis les boutons soft, iron tape et air
-    // en largeur pour placer au centre le logo"). Les versions precedentes
-    // avaient etabli qu'un centrage pixel-parfait etait mathematiquement
-    // impossible SANS toucher a un module -- l'utilisateur a alors
-    // explicitement autorise a retrecir la grille SOFT/TAPE/IRON/AIR (2x2)
-    // du module THD : ThdHeaderModule::resized() dimensionne cette grille
-    // PROPORTIONNELLEMENT a la largeur totale qu'on lui donne (pas de
-    // valeurs en dur a l'interieur), donc reduire thdHeader.setBounds()
-    // ici suffit, sans toucher a ThdHeaderModule.h. Largeur 228 -> 168
-    // (-60px), cellules SOFT/TAPE/IRON/AIR ~86px -> ~56px chacune.
-    //
-    // Avec ce -60px cote droit (Link+THD), le calcul rend le residu de
-    // centrage a 0 : logo exactement a x=700 (centre de la barre de
-    // 1394px). Zones : Power+A/B+module AI a gauche (pas de separateur
-    // interne) ; Link+THD a droite (idem) ; 2 lignes de demarcation
-    // seulement, aux frontieres avec le groupe central VU-logo-VU.
+    // --- En-tete ---
+    {
+        auto h = headerBounds.reduced (22.0f, 0.0f);
+        const float cy = h.getCentreY();
 
-    // Espacement redistribue (retour utilisateur : "espace mal reparti" +
-    // "elements mal groupes", preview Artifact "Header — pistes de layout",
-    // variante B choisie) -- l'ecart Power/AB -> module AI n'etait que de
-    // 4px (179 a 183), a peine plus que l'ecart INTERIEUR a un groupe (ex.
-    // 4px entre needleVu1Modes et needleVu1), alors que ce sont 2 groupes
-    // fonctionnels distincts : ca lisait comme un seul bloc. Tous les
-    // ecarts INTER-groupes sont maintenant proches de 6-9px (au lieu du
-    // 4/10/6/6/10 incoherent d'avant), les ecarts INTERIEURS a un groupe
-    // restent a 2-4px (inchanges) -- le rythme espace/groupe devient net
-    // sans avoir besoin des lignes de separation (retirees, voir
-    // rebuildBackgroundCache()). Meme span total qu'avant (29 a 1393).
+        // Groupes separes par un filet grave (demande explicite) :
+        // [ ON/OFF  A/B / THEME CONTRASTE ] | [ LEARN ] | [ ANALOG / LINEAR ]
+        // | [ THD / GR / GONIO ] ... logo ... [ LINK IN / OUT ] | [ THD |
+        // modes ] | [ options ]
+        // (LINK passe a droite : "surcharge a gauche").
+        constexpr float groupGap = 12.0f;
+        float x = h.getX();
 
-    // Centrage vertical HARMONISE (retour utilisateur : "centrage
-    // verticale" -- avant ce passage, chaque element avait ete recale
-    // independamment au fil des retours precedents et leurs centres
-    // verticaux respectifs s'etalaient sur ~62..79.5px, un desalignement
-    // perceptible sur toute la largeur du header). commonCenterY est le
-    // milieu exact de controlBarBounds (hauteur 144, voir son
-    // initialisation) -- CHAQUE element ci-dessous garde exactement sa
-    // largeur/hauteur d'origine (aucun risque de nouvelle collision avec
-    // les vis/le plafond deja valides), seul son Y est recalcule pour que
-    // SON PROPRE centre vertical tombe pile sur cette meme ligne.
-    constexpr int commonCenterY = 72; // barTop + 144/2
+        powerToggle.setBounds (juce::Rectangle<float> (x, cy - 30.0f, 56.0f, 26.0f).toNearestInt());
+        abToggle.setBounds    (juce::Rectangle<float> (x + 70.0f, cy - 30.0f, 56.0f, 26.0f).toNearestInt());
+        themeToggle.setBounds (juce::Rectangle<float> (x, cy + 4.0f, 56.0f, 26.0f).toNearestInt());
+        contrastToggle.setBounds (juce::Rectangle<float> (x + 70.0f, cy + 4.0f, 56.0f, 26.0f).toNearestInt());
+        x += 126.0f + groupGap;
+        headerSeparatorX[0] = x;
+        x += groupGap;
 
-    // POWER + A/B, puis module AI. Paire POWER/A-B remontee de 6px de plus
-    // (retour utilisateur : "tu peux monter un peu le bouton ON off et
-    // learn dans le header" -- meme decalage applique aux deux pour
-    // garder l'espacement relatif deja corrige entre elles, voir fix
-    // precedent "collision A/B en bas").
-    constexpr int powerGroupYOffset = -6;
-    // abButton redescendu de 4px par rapport a powerButton (retour
-    // utilisateur : "tu peux descendre un peu juste le A/B") -- powerButton
-    // ne bouge pas, seul l'offset de A/B change.
-    constexpr int abExtraYOffset = 4;
-    powerButton.setBounds (29, barTop + commonCenterY - 45 + powerGroupYOffset, 70, 90);
-    abButton.setBounds    (29, barTop + commonCenterY - 45 + 90 - 6 + powerGroupYOffset + abExtraYOffset, 150, 26);
+        // LEARN plus grand que les autres (action principale, audit) ; les
+        // bounds incluent la marge du halo (setHaloMargin (8)).
+        learnButton.setBounds (juce::Rectangle<float> (x, cy - 41.0f, 72.0f, 82.0f).expanded (8.0f).toNearestInt());
+        x += 72.0f + groupGap;
+        headerSeparatorX[1] = x;
+        x += groupGap;
 
-    // LEARN -- centre sur commonCenterY, remontee de 6px (meme retour
-    // utilisateur). latencyModeButton (engrenage) garde son offset relatif
-    // d'origine par rapport au coin haut-gauche de LEARN (-5px en Y).
-    constexpr int learnYOffset = -6;
-    aiLearnButton.setBounds (juce::Rectangle<int> (108, barTop + commonCenterY - 30 + learnYOffset, 64, 60).expanded (8));
-    latencyModeButton.setBounds (178, barTop + commonCenterY - 30 - 5 + learnYOffset, 20, 20);
-    xoverModeButton.setBounds (juce::Rectangle<int> (204, barTop + commonCenterY - 42, 70, 84)
-                                    .expanded ((int) XoverModeButton::segmentMargin));
+        analogButton.setBounds (juce::Rectangle<float> (x, cy - 38.0f, 70.0f, 37.0f).toNearestInt());
+        linearButton.setBounds (juce::Rectangle<float> (x, cy + 1.0f,  70.0f, 37.0f).toNearestInt());
+        x += 70.0f + groupGap;
+        headerSeparatorX[5] = x;
+        x += groupGap;
 
-    // VU gauche : module de mode (exterieur, cote module AI), puis
-    // aiguille (interieure, pres du logo).
-    needleVu1Modes.setBounds (juce::Rectangle<int> (287, barTop + commonCenterY - 61, 54, 122)
-                                    .expanded ((int) NeedleModeSelector::buttonMargin));
-    needleVu1.setBounds      (345, barTop + commonCenterY - 61, 266, 122);
+        // Mode des aiguilles THD / GR / GONIO (demande explicite : dans
+        // l'en-tete, plus a gauche des tranches) -- 3 boutons empiles.
+        for (int i = 0; i < 3; ++i)
+            meterModeButtons[(size_t) i]->setBounds (juce::Rectangle<float> (x, cy - 38.0f + 26.0f * (float) i, 70.0f, 24.0f).toNearestInt());
 
-    // Logo -- proche du centre (x=617, centre ~702, marge de 2px negligeable
-    // vs le centrage pixel-parfait d'avant pour absorber le nouvel
-    // espacement). Remonte de 12px par rapport a commonCenterY (retour
-    // utilisateur : "il faut remonter le logo sixpack et la signature")
-    // -- volontairement PAS aligne sur la meme ligne que POWER/LEARN/VU
-    // (le logo/signature forment leur propre bloc vertical, centre
-    // visuel different du reste du header) ; voir aussi la signature
-    // juste en dessous, dans paint(), repositionnee en consequence.
-    suppressorLogoButton.setBounds (617, barTop + commonCenterY - 42 - 12, 170, 84);
+        // Logo centre + mini spectrums de part et d'autre (graves a gauche
+        // pour les deux). La progression LEARN est en bas a droite (voir
+        // la barre du bas).
+        auto logo = juce::Rectangle<float> (220.0f, 52.0f).withCentre ({ panelBounds.getCentreX(), cy - 3.0f });
+        logoButton.setBounds (logo.toNearestInt());
 
-    // VU droite : MIROIR de la gauche.
-    needleVu2.setBounds      (793, barTop + commonCenterY - 61, 272, 122);
-    needleVu2Modes.setBounds (juce::Rectangle<int> (1069, barTop + commonCenterY - 61, 54, 122)
-                                    .expanded ((int) NeedleModeSelector::buttonMargin));
+        // Cote droit structure comme le gauche (audit) : [ THD | modes ] | [ options ].
+        optionsButton.setBounds (juce::Rectangle<float> (h.getRight() - 24.0f, cy - 22.0f, 24.0f, 44.0f).toNearestInt());
+        headerSeparatorX[4] = h.getRight() - 24.0f - groupGap;
+        const float tx = headerSeparatorX[4] - groupGap - 200.0f;
+        headerSeparatorX[3] = tx - groupGap;
+        const float lx = headerSeparatorX[3] - groupGap - 70.0f;
+        linkInSwitch.setBounds  (juce::Rectangle<float> (lx, cy - 38.0f, 70.0f, 37.0f).toNearestInt());
+        linkOutSwitch.setBounds (juce::Rectangle<float> (lx, cy + 1.0f,  70.0f, 37.0f).toNearestInt());
+        headerSeparatorX[2] = lx - groupGap;
+        thdButton.setBounds (juce::Rectangle<float> (tx, cy - 38.0f, 64.0f, 76.0f).toNearestInt());
+        thdModeButtons[0]->setBounds (juce::Rectangle<float> (tx + 68.0f,  cy - 38.0f, 64.0f, 37.0f).toNearestInt());
+        thdModeButtons[1]->setBounds (juce::Rectangle<float> (tx + 136.0f, cy - 38.0f, 64.0f, 37.0f).toNearestInt());
+        thdModeButtons[2]->setBounds (juce::Rectangle<float> (tx + 68.0f,  cy + 1.0f,  64.0f, 37.0f).toNearestInt());
+        thdModeButtons[3]->setBounds (juce::Rectangle<float> (tx + 136.0f, cy + 1.0f,  64.0f, 37.0f).toNearestInt());
+    }
 
-    // LINK IN/OUT -- le bloc des 2 (empiles, meme espacement de 8px
-    // qu'avant) est desormais centre sur commonCenterY plutot que sur son
-    // ancien axe, plus haut que le reste du header.
-    // .expanded(6) : voir RackPushButton::setHaloMargin() (6.0f est deja
-    // sa valeur par defaut) -- reserve la place pour que le halo neumorphic
-    // deborde reellement (retour utilisateur, reference visuelle "C").
-    linkInSwitch.setBounds  (juce::Rectangle<int> (1131, barTop + commonCenterY - 34, 90, 30).expanded (6));
-    linkOutSwitch.setBounds (juce::Rectangle<int> (1131, barTop + commonCenterY - 34 + 38, 90, 30).expanded (6));
+    // --- Barre du bas : THD CEIL a gauche, presets au centre, actions a droite ---
+    {
+        auto f = footerBounds.reduced (22.0f, 0.0f);
+        const float cy = f.getCentreY();
+        thdCeiling->setBounds (juce::Rectangle<float> (f.getX(), cy - 14.0f, 200.0f, 28.0f).toNearestInt());
 
-    // Largeur reduite 228 -> 150 (retour utilisateur : "les boutons du THD
-    // sont un peu larges") et hauteur augmentee 88 -> 104 (retour
-    // utilisateur : "l'interrupteur doit etre au milieu et plus gros",
-    // voir ThdHeaderModule::resized() -- libelle + interrupteur agrandi
-    // ont besoin d'un peu plus de place verticale).
-    // Hauteur portee 110->115 (retour utilisateur repete : "c'est trop
-    // petit" -- interrupteur/rangees agrandis, LEDs rehaussees, voir
-    // ThdHeaderModule::resized()) -- PLAFONNEE par controlBarBounds
-    // (barTop+144=147, ici barTop+28+115=146) : la version precedente a
-    // 130 aurait deborde de 14px sous la barre de controle, provoquant
-    // exactement la collision rapportee ("il y a des collisions avec le
-    // vu metre").
-    // Bloc entier decale vers le haut (retour utilisateur : "on peut
-    // decaler le bloc vers le haut et laisser un peu d'espace entre les
-    // boutons et le vu metre"), puis recale sur commonCenterY (retour
-    // utilisateur : "centrage verticale") -- centre = commonCenterY+0.5
-    // (hauteur impaire/2), arrondi a commonCenterY-63 : bord bas =
-    // barTop+9+127=barTop+136, encore sous le plafond de controlBarBounds
-    // (barTop+144) avec 8px de marge (la version precedente n'en avait
-    // qu'1) : les 12px recuperes plus tot financent la marge haute de
-    // l'interrupteur (voir ThdHeaderModule::resized(), fix du "coupe sur
-    // le dessus") et l'espace supplementaire avant le VU metre.
-    thdHeader.setBounds (1225, barTop + commonCenterY - 63, 150, 127);
+        auto pill = juce::Rectangle<float> (380.0f, 24.0f).withCentre ({ panelBounds.getCentreX(), cy });
+        presetNameButton.setBounds (pill.toNearestInt());
+        prevPresetButton.setBounds (juce::Rectangle<float> (24.0f, 24.0f).withCentre ({ pill.getX() - 18.0f, cy }).toNearestInt());
+        nextPresetButton.setBounds (juce::Rectangle<float> (24.0f, 24.0f).withCentre ({ pill.getRight() + 18.0f, cy }).toNearestInt());
+        // Annuler / retablir a gauche des fleches de preset (maquette).
+        redoButton.setBounds (juce::Rectangle<float> (24.0f, 24.0f).withCentre ({ pill.getX() - 54.0f, cy }).toNearestInt());
+        undoButton.setBounds (juce::Rectangle<float> (24.0f, 24.0f).withCentre ({ pill.getX() - 84.0f, cy }).toNearestInt());
 
-    // Panneau de detail de la bande selectionnee -- deja repositionne plus
-    // haut (voir crossoverEditorBounds/bandPanelBounds ci-dessus), rien de
-    // plus a faire ici (une seule bande visible a la fois).
+        // Copier / coller / enregistrer / corbeille juste a droite de la
+        // barre des presets (demande explicite) ; le coin bas droit recoit
+        // la progression LEARN.
+        float x = pill.getRight() + 40.0f;
+        for (auto* b : { &copyButton, &pasteButton, &saveButton, &deletePresetButton })
+        {
+            b->setBounds (juce::Rectangle<float> (24.0f, 24.0f).withCentre ({ x, cy }).toNearestInt());
+            x += 30.0f;
+        }
+        learnProgressBounds = juce::Rectangle<float> (f.getRight() - 240.0f, cy - 9.0f, 240.0f, 18.0f);
+    }
 
-    // --- Barre de presets, tout en bas (34px, meme mecanisme que Nuke Mext) ---
-    // Position calculee depuis le bas de vuPlateBounds (plutot qu'un nombre
-    // en dur) -- suit automatiquement la mise en page au-dessus. Centree
-    // verticalement dans la zone libre entre vuPlateBounds et le bord bas
-    // de la plaque de fond unique (outerPlate, marge 6px, voir
-    // rebuildBackgroundCache()) : zone disponible 37px (785->822), rangee
-    // de 26px -> ~5-6px de marge de chaque cote (etait +10 en haut / ~1px
-    // en bas, tout collait vers le bas -- retour utilisateur explicite).
-    const int presetBarTop = (int) vuPlateBounds.getBottom() + 6;
-    // x=32 (pas 14) -- la plaque de fond unique (voir rebuildBackgroundCache())
-    // pose une vis de coin en bas a gauche vers x=21 qui, a x=14, mordait
-    // sur le "P" de "PRESET" (aucune sous-plaque dediee ici pour l'eviter,
-    // contrairement aux autres rangees). Largeur reduite d'autant pour
-    // garder le bord droit aligne avec le reste.
-    auto presetBar = juce::Rectangle<int> (32, presetBarTop, 1354, 26);
-
-    // Marge de halo REDUITE (3px) pour ces petits boutons (rangee de
-    // 26px de haut seulement) -- voir RackButton::setHaloMargin().
-    constexpr float presetBtnMargin = 3.0f;
-    prevPresetButton.setHaloMargin (presetBtnMargin);
-    nextPresetButton.setHaloMargin (presetBtnMargin);
-    copyButton.setHaloMargin (presetBtnMargin);
-    pasteButton.setHaloMargin (presetBtnMargin);
-    saveButton.setHaloMargin (presetBtnMargin);
-
-    presetSectionLabel.setBounds (presetBar.removeFromLeft (46));
-    presetBar.removeFromLeft (6);
-    prevPresetButton.setBounds (presetBar.removeFromLeft (22).expanded ((int) presetBtnMargin));
-    presetBar.removeFromLeft (4);
-    presetNameButton.setBounds (presetBar.removeFromLeft (160));
-    presetBar.removeFromLeft (4);
-    nextPresetButton.setBounds (presetBar.removeFromLeft (22).expanded ((int) presetBtnMargin));
-    presetBar.removeFromLeft (8);
-    // Largeur reduite 100->45 (retour utilisateur : "il faut que tu
-    // decalle encore ça doit etre plus proche" -- le texte auteur est
-    // court, "Side Key" etc., 45px suffit et rapproche d'autant COPY/
-    // PASTE/SAVE juste apres).
-    presetAuthorLabel.setBounds (presetBar.removeFromLeft (45));
-    presetBar.removeFromLeft (4);
-
-    // COPY/PASTE/SAVE/corbeille juste A COTE de la selection de preset
-    // (retour utilisateur explicite : "il faut que ce soit à coté de la
-    // selection des preset", puis "il faut que tu decalle encore ça doit
-    // etre plus proche") -- removeFromLeft (au lieu de removeFromRight)
-    // colle ce groupe directement apres presetAuthorLabel, gap minimal.
-    copyButton.setBounds (presetBar.removeFromLeft (64).expanded ((int) presetBtnMargin));
-    presetBar.removeFromLeft (6);
-    pasteButton.setBounds (presetBar.removeFromLeft (64).expanded ((int) presetBtnMargin));
-    presetBar.removeFromLeft (8);
-    saveButton.setBounds (presetBar.removeFromLeft (60).expanded ((int) presetBtnMargin));
-    presetBar.removeFromLeft (8);
-    deletePresetButton.setBounds (presetBar.removeFromLeft (26));
-
-    // Plafond de sortie THD -- vers le bord DROIT de la barre, sans toucher
-    // au groupe preset a gauche (il reste ~730px libres entre les deux).
-    // Marge de 20px reservee a droite : la vis d'angle bas-droite de
-    // outerPlate (centre ~x1379, rayon 5, voir rebuildBackgroundCache())
-    // mordait sinon sur le bord droit du slider (retour utilisateur).
-    presetBar.removeFromRight (20);
-    thdCeilingSlider.setBounds (presetBar.removeFromRight (128));
-    presetBar.removeFromRight (6);
-    thdCeilingLabel.setBounds (presetBar.removeFromRight (66));
+    {
+        std::array<juce::Rectangle<float>, 7> stripRects {};
+        for (int band = 0; band < kNumBands; ++band)
+            stripRects[(size_t) band] = bandStrips[(size_t) band]->getBounds().toFloat().reduced (1.0f);
+        learnFx.setBounds (getLocalBounds());
+        learnFx.setTargets (panelBounds, crossoverEditorBounds, stripRects, learnProgressBounds);
+    }
 
     aboutOverlay.setBounds (getLocalBounds());
     optionsOverlay.setBounds (getLocalBounds());
@@ -1480,308 +1388,107 @@ void SixpackEditorContent::resized()
     rebuildBackgroundCache();
 }
 
-// Retour utilisateur explicite : "le compresseur doit prendre toute la
-// plaque sur laquelle il est" -- le contenu laissait ~50px de vide mort a
-// droite (l'espacement des 6 knobs, 155px, n'utilisait pas toute la
-// largeur disponible apres le decalage d'alignement +24) et un peu a
-// gauche. Redistribue pour REMPLIR la plaque (144x1394, INCHANGEE -- la
-// fenetre ne doit pas grandir) : espacement des knobs elargi 155 -> 164/177
-// (177 pour l'ecart Comp/Expand, plus large) pour que le dernier knob
-// touche (a la marge des vis pres) le bord droit de la plaque, coordonne
-// avec rebuildBackgroundCache() (chrome statique : dividers/douilles).
-void SixpackEditorContent::layoutBandRow (BandPanel& bp, juce::Rectangle<int> area)
+void SevenpackEditorContent::rebuildBackgroundCache()
 {
-    const int top = area.getY();
-
-    bp.soloSwitch->setBounds (area.getX() + 24, top + 34, 68, 90);
-
-    bp.grMeter->setBounds (area.getX() + 115, top + 17, 280, 45);
-
-    // Marge de halo REDUITE (3px, rangee de 24px de haut) -- voir
-    // ToggleSwitch::setHaloMargin().
-    constexpr float toggleMargin = 3.0f;
-    bp.opticalButton.setHaloMargin (toggleMargin);
-    bp.britishButton.setHaloMargin (toggleMargin);
-    bp.sidechainToggle.setHaloMargin (toggleMargin);
-    bp.opticalButton.setBounds  (juce::Rectangle<int> (area.getX() + 115, top + 64, 76, 24).expanded ((int) toggleMargin));
-    bp.britishButton.setBounds  (juce::Rectangle<int> (area.getX() + 197, top + 64, 76, 24).expanded ((int) toggleMargin));
-    bp.sidechainToggle.setBounds (juce::Rectangle<int> (area.getX() + 279, top + 64, 44, 24).expanded ((int) toggleMargin));
-
-    bp.ratioSelector.setBounds (juce::Rectangle<int> (area.getX() + 115, top + 93, 280, 44)
-                                     .expanded ((int) RatioSelector::buttonMargin));
-
-    // DETECTOR/COLOR/XY retires de la mise en page (caches en permanence,
-    // voir buildBandPanel()/setBandPanelVisible()) -- plus de bounds a leur
-    // donner, l'espace qu'ils occupaient sert desormais au Compresseur et a
-    // l'Expandeur cote a cote (voir ci-dessous).
-
-    auto layoutKnob = [] (KnobControl& knob, int cx, int cy, int diameter)
-    {
-        knob.slider.setBounds (cx - diameter / 2, cy - diameter / 2, diameter, diameter);
-        const int lw = 44, lh = 14;
-        // Decale vers la gauche (retour utilisateur : "il faut decaller un
-        // peu sur la gauche les ecritures sous les knobs ... surtout range
-        // car il est dans le knob", puis "decale encore un peu range", puis
-        // "c'est un tout petit peu trop pour range") -- a +2 la boite de
-        // label mordait sur le cercle du knob pres du bas (rayon local ~42px
-        // a cette hauteur, boite large de 44px). -12 insuffisant, -24 trop,
-        // -18 au final.
-        knob.label.setBounds (cx - diameter / 2 - 18, cy + diameter / 2 - lh - 2, lw, lh);
-    };
-
-    // Compresseur ET Expandeur : MEME diametre 124 pour les 6 knobs --
-    // espacement elargi (164, 177 pour l'ecart Comp/Expand) pour occuper
-    // toute la largeur disponible jusqu'au bord droit de la plaque.
-    layoutKnob (bp.inputKnob,   area.getX() + 485, top + 69, 124);
-    layoutKnob (bp.attackKnob,  area.getX() + 649, top + 69, 124);
-    layoutKnob (bp.releaseKnob, area.getX() + 813, top + 69, 124);
-    layoutKnob (bp.outputKnob,  area.getX() + 977, top + 69, 124);
-
-    layoutKnob (bp.expandRangeKnob,  area.getX() + 1154, top + 69, 124);
-    layoutKnob (bp.expandAttackKnob, area.getX() + 1318, top + 69, 124);
-}
-
-void SixpackEditorContent::rebuildBackgroundCache()
-{
-    const int w = getWidth();
-    const int h = getHeight();
-
+    const int w = juce::jmax (1, getWidth());
+    const int h = juce::jmax (1, getHeight());
     backgroundCache = juce::Image (juce::Image::ARGB, w, h, true);
     juce::Graphics g (backgroundCache);
+    const auto pal = AlphaPalette::get();
 
-    // Plaque de fond UNIQUE derriere TOUTES les autres plaques (barre de
-    // controle, crossover, bande, rack) -- retour utilisateur explicite :
-    // "remettre une plaque derriere toutes les plaques qui prend tout le
-    // VST, avec des petites marges sur les cotes". Rail de montage sombre
-    // (fixe, jamais retheme -- comme un vrai chassis rack) visible sur la
-    // petite marge, avant la plaque metal (elle, theme-reactive) inseree
-    // dedans avec sa propre bordure/vis de coin -- les plaques existantes
-    // (controlBarBounds, vuPlateBounds, bandPanelBounds) continuent de
-    // flotter par-dessus avec leurs propres marges, inchangees.
-    g.setColour (juce::Colour (0xff08090a));
-    g.fillRect (backgroundCache.getBounds());
-
-    constexpr float outerMargin = 6.0f;
-    const auto outerPlate = backgroundCache.getBounds().toFloat().reduced (outerMargin);
+    // Cadre bois (texture "boissunny", demande explicite : "on garde
+    // l'integration bois en AP") -- cadrage "cover", vignette legere.
+    if (woodImage.isValid())
+        g.drawImage (woodImage, backgroundCache.getBounds().toFloat(), juce::RectanglePlacement::fillDestination);
+    else
+        g.fillAll (juce::Colour (0xffb5803f));
     {
-        // renderMetalPanel() remplit un RECTANGLE (coins carres) -- clip sur
-        // un rectangle arrondi pour que le degrade brosse ne deborde pas des
-        // coins de la plaque (sinon de petits triangles de texture depassent
-        // de la bordure arrondie dessinee juste apres).
-        juce::Path clip;
-        clip.addRoundedRectangle (outerPlate, 6.0f);
+        juce::ColourGradient vignette (juce::Colours::transparentBlack, (float) w * 0.5f, (float) h * 0.5f,
+                                       juce::Colours::black.withAlpha (0.30f), 0.0f, 0.0f, true);
+        g.setGradientFill (vignette);
+        g.fillAll();
+    }
+
+    // Panneau metal (clair = argent brosse, sombre = graphite).
+    constexpr float corner = 12.0f;
+    {
+        juce::Path p; p.addRoundedRectangle (panelBounds, corner);
+        juce::DropShadow (juce::Colours::black.withAlpha (0.55f), 18, { 0, 6 }).drawForPath (g, p);
+
+        juce::ColourGradient grad (pal.panelTop, 0.0f, panelBounds.getY(), pal.panelBottom, 0.0f, panelBounds.getBottom(), false);
+        grad.addColour (0.20, pal.panelUpper);
+        grad.addColour (0.46, pal.panelMid);
+        grad.addColour (0.68, pal.panelLower);
+        g.setGradientFill (grad);
+        g.fillPath (p);
+
+        // Brossage horizontal fin.
         g.saveState();
-        g.reduceClipRegion (clip);
-        SixpackLookAndFeel::renderMetalPanel (g, outerPlate);
+        g.reduceClipRegion (p);
+        juce::Random rng (11);
+        for (int y = (int) panelBounds.getY(); y < (int) panelBounds.getBottom(); y += 2)
+        {
+            g.setColour ((rng.nextBool() ? juce::Colours::white : juce::Colours::black).withAlpha (0.012f + rng.nextFloat() * 0.018f));
+            g.fillRect (panelBounds.getX(), (float) y, panelBounds.getWidth(), 1.0f);
+        }
+        g.restoreState();
+
+        g.setColour (juce::Colours::black.withAlpha (0.35f));
+        g.drawRoundedRectangle (panelBounds.reduced (0.5f), corner, 1.0f);
+    }
+
+    // Filets de separation sous l'en-tete et au-dessus de la barre du bas.
+    auto rule = [&g, &pal] (float y, float x0, float x1)
+    {
+        g.setColour (pal.sep);
+        g.fillRect (x0, y, x1 - x0, 1.0f);
+        g.setColour (pal.sepHi);
+        g.fillRect (x0, y + 1.0f, x1 - x0, 1.0f);
+    };
+    rule (headerBounds.getBottom() - 5.0f, panelBounds.getX() + 22.0f, panelBounds.getRight() - 22.0f); // remonte : laisse la place a la cuvette de l'ecran
+    rule (footerBounds.getY() - 1.0f, panelBounds.getX() + 22.0f, panelBounds.getRight() - 22.0f);
+
+    // Ecran des crossovers ENFONCE dans le rack (demande explicite) : cuvette
+    // biseautee autour de l'ecran -- haut dans l'ombre du rebord, bas en
+    // levre claire. L'ombre interieure de l'ecran lui-meme est peinte par
+    // CrossoverSpectrumEditor::paintAlpha().
+    {
+        const auto well = crossoverEditorBounds.expanded (7.0f);
+        constexpr float wellCorner = 21.0f;
+        g.setColour (juce::Colours::white.withAlpha (pal.light ? 0.85f : 0.10f)); // levre : 1 px sous la cuvette
+        g.fillRoundedRectangle (well.translated (0.0f, 1.0f), wellCorner);
+        juce::ColourGradient wg (pal.light ? juce::Colour (0xff80878e) : juce::Colour (0xff0b0d0f), 0.0f, well.getY(),
+                                 pal.light ? juce::Colour (0xfff7f9fa) : juce::Colour (0xff3a4148), 0.0f, well.getBottom(), false);
+        wg.addColour (0.22, pal.light ? juce::Colour (0xffa9afb5) : juce::Colour (0xff15191d));
+        wg.addColour (0.70, pal.light ? juce::Colour (0xffd3d7db) : juce::Colour (0xff272d33));
+        g.setGradientFill (wg);
+        g.fillRoundedRectangle (well, wellCorner);
+        g.saveState();
+        juce::Path wp; wp.addRoundedRectangle (well, wellCorner);
+        g.reduceClipRegion (wp);
+        g.setGradientFill (juce::ColourGradient (juce::Colours::black.withAlpha (0.45f), 0.0f, well.getY(),
+                                                 juce::Colours::transparentBlack, 0.0f, well.getY() + 6.0f, false));
+        g.fillRect (well.withHeight (6.0f));
         g.restoreState();
     }
-    SixpackLookAndFeel::renderCornerScrews (g, outerPlate, 15.0f, 5.0f);
-    g.setColour (juce::Colours::black);
-    g.drawRoundedRectangle (outerPlate.reduced (0.5f), 6.0f, 1.0f);
 
-    // --- Barre de controle globale ---
-    // PAS de renderCornerScrews ici (retour utilisateur : "j'ai
-    // l'impression qu'il y a deux vis au dessus de tape") -- controlBarBounds
-    // n'est inset que de 3px par rapport a outerPlate (lui-meme inset de
-    // 6px du bord du canevas), donc ses vis de coin (inset 15px chacune)
-    // ne sont qu'a 3px de celles d'outerPlate juste au-dessus -- quasi
-    // superposees. C'etait cache jusqu'ici sous l'ancien bouton AI Learn
-    // en haut a droite ; expose depuis que ce coin est redevenu vide.
-    // Les vis d'outerPlate suffisent pour cette zone.
-    g.setColour (juce::Colours::black);
-    g.drawRoundedRectangle (controlBarBounds.reduced (0.5f), 6.0f, 1.0f);
+    // Filets verticaux graves entre les groupes de l'en-tete.
+    for (float sx : headerSeparatorX)
     {
-        const float barTop = controlBarBounds.getY();
-        // Les 2 lignes de separation (apres Power/AB/AI, avant Link/THD)
-        // sont RETIREES (retour utilisateur, variante B de la preview
-        // Artifact "Header — pistes de layout" : "meme groupement,
-        // espacement redistribue" -- l'espacement inter-groupes reequilibre
-        // dans resized() suffit desormais a lire les zones sans un trait).
-
-        // Plus de sockets de knobs ici -- l'ancien groupe XLO/XHI est
-        // remplace par CrossoverSpectrumEditor (son propre cadre/fond, voir
-        // CrossoverSpectrumEditor::paint()), qui dessine sa propre plaque.
-
-        // Signature, fond transparent, sous le logo SIXPACK (retour
-        // utilisateur explicite : "je souhaite que tu la mettes en fond
-        // transparent sous le logo sixpack"). Le logo (suppressorLogoButton,
-        // SixpackLogoButton) est affiche ~170x84 dans sa boite (617,
-        // barTop+18, 170x84), centre horizontal x=700 -- meme centre ici,
-        // juste sous le bas de sa boite (barTop+102).
-        //
-        // Historique (retour utilisateur : "ca fait une soupe de pixels") :
-        // la version precedente pre-redimensionnait le PNG maitre HORS-LIGNE
-        // avec un pipeline maison "min-pooling + seuil binaire alpha" (pour
-        // eviter tout pixel de bord semi-opaque, suite a un retour "elle doit
-        // etre completement noire, pas de transparence, pas d'opacite"), puis
-        // ne faisait qu'un flou 1px sur ce resultat deja casse. A un ratio
-        // d'echelle ~17:1 (1536px maitre -> 85px affiche), ce seuillage
-        // binaire AVANT reduction detruit les traits fins de la signature
-        // cursive (ils ne "survivent" que par a-coups suivant leur position
-        // dans la grille de reduction) : illisible, en "soupe de pixels".
-        // Fix : on NE seuille plus jamais en binaire. Le PNG maitre (encre
-        // noire sur fond blanc, deja lisse a 1536px) est converti UNE FOIS en
-        // ARGB avec alpha = couverture d'encre REELLE (alpha = 1-luminance,
-        // preserve l'anti-aliasing natif du maitre), recadre sur la bbox
-        // utile de l'encre (+marge), puis reduit via le resampler JUCE
-        // haute-qualite (area-averaging, pas un seuillage) jusqu'a la taille
-        // d'affichage. Les quelques pixels de bord semi-opaques que ca
-        // produit ne sont PAS un "halo gris" (ca, c'etait un flou large et
-        // mal cadre) -- c'est le meme anti-aliasing fin que n'importe quel
-        // texte/logo affiche en petit, indispensable pour que les traits
-        // fins restent visibles au lieu de disparaitre ou de baver.
-        {
-            constexpr int sigDisplayW = 100;
-            static const juce::Image sigImageBlack = SixpackLookAndFeel::buildSignatureImage (juce::Colours::black, sigDisplayW);
-            // Variante BLANCHE pour le theme sombre (retour utilisateur :
-            // "sur le dark theme la signature doit etre blanche").
-            static const juce::Image sigImageWhite = SixpackLookAndFeel::buildSignatureImage (juce::Colours::white, sigDisplayW);
-
-            const auto& sigImage = SixpackLookAndFeel::isLightThemeStatic() ? sigImageBlack : sigImageWhite;
-            if (! sigImage.isNull())
-            {
-                const float sigX = 700.0f - (float) sigImage.getWidth() * 0.5f;
-                const float sigY = barTop + 102.0f;
-                g.drawImageAt (sigImage, (int) sigX, (int) sigY);
-            }
-        }
-    }
-
-    // --- Plaque rack du bas -- chassis + vis, le contenu (BandMetersRack,
-    // vu-metres GR/Expand par bande) se dessine par-dessus comme enfant. ---
-    SixpackLookAndFeel::renderCornerScrews (g, vuPlateBounds, 15.0f, 5.0f);
-    g.setColour (juce::Colours::black);
-    g.drawRoundedRectangle (vuPlateBounds.reduced (0.5f), 6.0f, 1.0f);
-
-    // --- Panneau de detail de bande -- UN SEUL emplacement chrome desormais
-    // (voir BandPanel/selectedBand), quelle que soit la bande qui l'occupe. ---
-    {
-        const auto& pb = bandPanelBounds;
-        SixpackLookAndFeel::renderCornerScrews (g, pb, 15.0f, 5.0f);
-        g.setColour (juce::Colours::black);
-        g.drawRoundedRectangle (pb.reduced (0.5f), 6.0f, 1.0f);
-
-        const float top = pb.getY();
-        // Chrome recale (retour utilisateur : "le compresseur doit prendre
-        // toute la plaque" -- voir doc de layoutBandRow()) : contenu
-        // redistribue pour remplir toute la largeur de la plaque
-        // (1394x144, INCHANGEE), plus d'espace mort a droite.
-        SixpackLookAndFeel::renderDividerLine (g, pb.getX() + 107.0f,  top + 7.0f,  top + 55.0f);
-        SixpackLookAndFeel::renderDividerLine (g, pb.getX() + 107.0f,  top + 79.0f, top + 137.0f);
-        SixpackLookAndFeel::renderDividerLine (g, pb.getX() + 405.0f, top + 7.0f,  top + 137.0f);
-
-        // Separation Compresseur/Expandeur -- style "design" (halo lumineux,
-        // preview "style A" valide) au lieu du simple trait plat, retour
-        // utilisateur explicite (voir doc de classe BandPanel).
-        SixpackLookAndFeel::renderGlowDividerLine (g, pb.getX() + 1066.0f, top + 17.0f, top + 127.0f);
-
-        // 6 knobs, TOUS au meme diametre 124 -- espacement elargi (voir
-        // layoutBandRow()) pour occuper toute la largeur jusqu'au bord
-        // droit de la plaque.
-        for (int cx : { 485, 649, 813, 977, 1154, 1318 })
-            SixpackLookAndFeel::renderKnobSocket (g, { pb.getX() + (float) cx, top + 69.0f }, 63.0f);
+        const float y0 = headerBounds.getCentreY() - 36.0f, y1 = headerBounds.getCentreY() + 36.0f;
+        g.setColour (pal.sep);
+        g.fillRect (sx - 0.5f, y0, 1.0f, y1 - y0);
+        g.setColour (pal.sepHi);
+        g.fillRect (sx + 0.5f, y0, 1.0f, y1 - y0);
     }
 }
 
-void SixpackEditorContent::paint (juce::Graphics& g)
+void SevenpackEditorContent::paint (juce::Graphics& g)
 {
     if (backgroundCache.isValid())
         g.drawImageAt (backgroundCache, 0, 0);
     else
-        SixpackLookAndFeel::renderMetalPanel (g, getLocalBounds().toFloat());
-
-    const int barTop = (int) controlBarBounds.getY();
-
-    // Logo SUPPRESSOR desormais dessine par SixpackLogoButton (vrai
-    // composant cliquable, ouvre About) -- plus dessine ici.
-
-    // Repositionne au-dessus de powerButton (header v3, Power est passe a
-    // gauche) -- ce label texte fixe restait a son ancienne position en
-    // haut a droite, orpheline (retour utilisateur : capture montrant
-    // "POWER" flottant au-dessus de SOFT/TAPE/IRON/AIR sans plus aucun
-    // interrupteur a proximite).
-    // Descendu encore (etait barTop+5, retour utilisateur repete : "power
-    // est encore trop haute") -- powerButton recule d'autant en resized()
-    // pour degager la place sans rogner sur son propre espace.
-    g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)).withExtraKerningFactor (0.1f));
-    SixpackLookAndFeel::drawEngravedText (g, "POWER", { 29, barTop + 8, 70, 11 }, SixpackColours::textDim);
-
-    static const juce::Colour bandTintColours[kNumBands] =
-        { SixpackColours::ledCyan, SixpackColours::ledGreen, SixpackColours::ledAmber, SixpackColours::ledOrange, SixpackColours::ledPurple, SixpackColours::ledRed, SixpackColours::ledPink };
-
-    // Un seul en-tete a dessiner -- celui de la bande actuellement
-    // selectionnee (voir BandPanel/selectedBand), redessine a CHAQUE
-    // paint() (contrairement au chrome statique de rebuildBackgroundCache()
-    // ci-dessus) puisqu'il doit changer avec la selection.
-    {
-        const int band = selectedBand;
-        const auto& pb = bandPanelBounds;
-        const int x = (int) pb.getX();
-        const int top = (int) pb.getY();
-
-        // Plaque acier noir brosse TEINTEE couleur de bande, a la place du
-        // logo/texte LOW/MID/HIGH -- retour utilisateur explicite : "au
-        // lieu de mettre low, mid ... je souhaite avoir la couleur de la
-        // plaque en acier noir brosse ... avec la couleur de la bande"
-        // (preview validee via mcp__visualize avant implementation). Lavis
-        // + halo radial discrets (alpha faible) pour ne pas noyer le
-        // chrome statique (vis/bordure/dividers/sockets, deja dans
-        // backgroundCache) dessine juste en dessous.
-        {
-            const auto tint = bandTintColours[band];
-            // Lavis clippe a un rectangle ARRONDI (meme rayon 6 que la
-            // bordure dessinee juste au-dessus, drawRoundedRectangle (pb,
-            // 6.0f)) -- retour utilisateur : "la couleur depasse un peu a
-            // gauche". La bordure du plateau n'est qu'un TRAIT decoratif
-            // (pas un masque), le fond sous pb reste un rectangle A COINS
-            // CARRES ; le lavis (fillRect (pb), coins carres aussi)
-            // depassait donc legerement le trait arrondi a chaque coin. Un
-            // essai precedent avait resserre le lavis de 24px de chaque
-            // cote (pour s'aligner sur la marge de BandMetersRack en
-            // dessous) -- rejete ("tu as coupe trop court ... je demandais
-            // d'etre bien raccord avec le bord") : le lavis doit rester
-            // PLEINE largeur, seuls les 4 coins doivent etre arrondis.
-            juce::Path roundedClip;
-            roundedClip.addRoundedRectangle (pb.reduced (0.5f), 6.0f);
-            g.saveState();
-            g.reduceClipRegion (roundedClip);
-            g.setColour (tint.withAlpha (0.10f));
-            g.fillRect (pb);
-            const float cx = pb.getX() + pb.getWidth() * 0.15f;
-            const float cy = pb.getY() + pb.getHeight() * 0.35f;
-            juce::ColourGradient highlight (tint.withAlpha (0.30f), cx, cy,
-                                             tint.withAlpha (0.0f), cx + pb.getWidth() * 0.5f, cy, true);
-            g.setGradientFill (highlight);
-            g.fillRect (pb);
-            g.restoreState();
-            // Vis REDESSINEES par-dessus le lavis (retour utilisateur : "les
-            // vis des compresseurs doivent etre noire, pas de la couleur des
-            // bandes", puis "on dirait qu'il y a un cadre autour des vis...
-            // c'est pas beau" suite a une 1ere tentative par excludeClipRegion
-            // -- un rectangle dur autour d'une vis ronde laissait un carre
-            // visible). Repeindre la vis (cercle anti-aliase naturel) par-
-            // dessus le lavis evite tout artefact de decoupe. Memes positions
-            // que renderCornerScrews (g, pb, 15, 5) dans rebuildBackgroundCache().
-            {
-                constexpr float screwInset = 15.0f, screwRadius = 5.0f;
-                SixpackLookAndFeel::drawScrew (g, { pb.getX() + screwInset,     pb.getY() + screwInset },     screwRadius);
-                SixpackLookAndFeel::drawScrew (g, { pb.getRight() - screwInset, pb.getY() + screwInset },     screwRadius);
-                SixpackLookAndFeel::drawScrew (g, { pb.getX() + screwInset,     pb.getBottom() - screwInset }, screwRadius);
-                SixpackLookAndFeel::drawScrew (g, { pb.getRight() - screwInset, pb.getBottom() - screwInset }, screwRadius);
-            }
-        }
-        // Retour utilisateur : "pas besoin d'ecrire low mid ... sur les
-        // bandes" -- plus de label texte du tout, la couleur de la teinte
-        // suffit a identifier la bande.
-
-        g.setFont (juce::Font (juce::FontOptions (11.5f, juce::Font::bold)).withExtraKerningFactor (0.1f));
-        SixpackLookAndFeel::drawEngravedText (g, "GAIN REDUCTION / RATIO", { x + 115, top + 4, 280, 14 },
-                                                  SixpackColours::textBright);
-
-        // Libelles "DETECTOR"/"COLOR" retires -- retiraient dans le vide
-        // depuis que les boutons correspondants sont caches (voir doc de
-        // classe BandPanel dans PluginEditor.h).
-    }
+        g.fillAll (juce::Colour (0xffb5803f));
 }
 
 // ============================================================================
@@ -1793,19 +1500,19 @@ void SixpackEditorContent::paint (juce::Graphics& g)
 // ici (moteur DSP different).
 // ============================================================================
 
-void SixpackEditorContent::setParamValue (const juce::String& paramID, float rawValue)
+void SevenpackEditorContent::setParamValue (const juce::String& paramID, float rawValue)
 {
     if (auto* p = processorRef.apvts.getParameter (paramID))
         p->setValueNotifyingHost (p->convertTo0to1 (rawValue));
 }
 
-void SixpackEditorContent::rampParamTo (const juce::String& paramID, float rawValue, int durationMs)
+void SevenpackEditorContent::rampParamTo (const juce::String& paramID, float rawValue, int durationMs)
 {
     if (auto* p = processorRef.apvts.getParameter (paramID))
         knobRamper.rampTo (p, p->convertTo0to1 (rawValue), durationMs);
 }
 
-void SixpackEditorContent::buildPresetList()
+void SevenpackEditorContent::buildPresetList()
 {
     // Presets PORTES DEPUIS NUKE MEXT (memes noms, memes valeurs Input/
     // Ratio/Attack/Release/Output/Xover/Linear que le PluginEditor.cpp de
@@ -2013,7 +1720,7 @@ void SixpackEditorContent::buildPresetList()
     loadUserPresets();
 }
 
-void SixpackEditorContent::loadUserPresets()
+void SevenpackEditorContent::loadUserPresets()
 {
     auto dir = getUserPresetsDirectory();
     for (const auto& file : dir.findChildFiles (juce::File::findFiles, false, "*.xml"))
@@ -2024,7 +1731,7 @@ void SixpackEditorContent::loadUserPresets()
     }
 }
 
-void SixpackEditorContent::goToPreset (int delta)
+void SevenpackEditorContent::goToPreset (int delta)
 {
     if (presets.empty())
         return;
@@ -2038,7 +1745,7 @@ void SixpackEditorContent::goToPreset (int delta)
     refreshPresetDisplay();
 }
 
-void SixpackEditorContent::syncPresetBrowserEntries()
+void SevenpackEditorContent::syncPresetBrowserEntries()
 {
     std::vector<PresetBrowserOverlay::Entry> entries;
     entries.reserve (presets.size());
@@ -2049,18 +1756,19 @@ void SixpackEditorContent::syncPresetBrowserEntries()
     presetBrowser.setCurrentIndex (currentPresetIndex);
 }
 
-void SixpackEditorContent::openPresetBrowser()
+void SevenpackEditorContent::openPresetBrowser()
 {
     syncPresetBrowserEntries();
     presetBrowser.setBounds (getLocalBounds());
     presetBrowser.show();
 }
 
-void SixpackEditorContent::refreshPresetDisplay()
+void SevenpackEditorContent::refreshPresetDisplay()
 {
     if (currentPresetIndex < 0 || currentPresetIndex >= (int) presets.size())
     {
         presetNameButton.setButtonText ("Default");
+        presetNameButton.setAuthor ({});
         presetAuthorLabel.setText ({}, juce::dontSendNotification);
         deletePresetButton.setEnabled (false);
         return;
@@ -2068,68 +1776,69 @@ void SixpackEditorContent::refreshPresetDisplay()
 
     const auto& p = presets[(size_t) currentPresetIndex];
     presetNameButton.setButtonText (p.name);
+    presetNameButton.setAuthor (p.author);
     presetAuthorLabel.setText (p.author, juce::dontSendNotification);
     deletePresetButton.setEnabled (! p.isFactory);
 }
 
-void SixpackEditorContent::applyPresetData (const PresetData& preset)
+void SevenpackEditorContent::applyPresetData (const PresetData& preset)
 {
     // Knobs continus -- ANIMES (voir ParamRamper/rampParamTo()) pour que
     // les knobs tournent visiblement au lieu de teleporter (demande
     // explicite). Tout le reste (booleens/discrets : ratio, toggles
     // Detector/Audio, Mix/Width...) reste instantane, pas d'equivalent
     // visuel a animer.
-    for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
+    for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
     {
-        rampParamTo (SixpackAudioProcessor::idCrossover[x], preset.crossoverHz[(size_t) x]);
-        setParamValue (SixpackAudioProcessor::idCrossoverEnabled[x], preset.crossoverEnabled[(size_t) x] ? 1.0f : 0.0f);
+        rampParamTo (SevenpackAudioProcessor::idCrossover[x], preset.crossoverHz[(size_t) x]);
+        setParamValue (SevenpackAudioProcessor::idCrossoverEnabled[x], preset.crossoverEnabled[(size_t) x] ? 1.0f : 0.0f);
     }
-    setParamValue (SixpackAudioProcessor::idDigitalCrossover, preset.linearMode ? 1.0f : 0.0f);
-    setParamValue (SixpackAudioProcessor::idSoftClip, preset.softClipOn ? 1.0f : 0.0f);
-    setParamValue (SixpackAudioProcessor::idThdMode, (float) preset.thdMode);
+    setParamValue (SevenpackAudioProcessor::idDigitalCrossover, preset.linearMode ? 1.0f : 0.0f);
+    setParamValue (SevenpackAudioProcessor::idSoftClip, preset.softClipOn ? 1.0f : 0.0f);
+    setParamValue (SevenpackAudioProcessor::idThdMode, (float) preset.thdMode);
 
     for (int band = 0; band < kNumBands; ++band)
     {
-        auto id = [band] (const char* base) { return SixpackAudioProcessor::bandParamId (base, band); };
+        auto id = [band] (const char* base) { return SevenpackAudioProcessor::bandParamId (base, band); };
         const auto& bp = preset.bands[band];
 
-        rampParamTo (id (SixpackAudioProcessor::idInput), bp.input);
-        setParamValue (id (SixpackAudioProcessor::idRatioIndex), (float) bp.ratioIndex);
-        rampParamTo (id (SixpackAudioProcessor::idAttack), bp.attack);
-        rampParamTo (id (SixpackAudioProcessor::idRelease), bp.release);
-        rampParamTo (id (SixpackAudioProcessor::idOutput), bp.output);
+        rampParamTo (id (SevenpackAudioProcessor::idInput), bp.input);
+        setParamValue (id (SevenpackAudioProcessor::idRatioIndex), (float) bp.ratioIndex);
+        rampParamTo (id (SevenpackAudioProcessor::idAttack), bp.attack);
+        rampParamTo (id (SevenpackAudioProcessor::idRelease), bp.release);
+        rampParamTo (id (SevenpackAudioProcessor::idOutput), bp.output);
 
         // Above/Below/Both + jeu Expand dedie (demande explicite :
         // "recalibre les valeurs range").
-        setParamValue (id (SixpackAudioProcessor::idAboveBelow), (float) bp.aboveBelow);
-        rampParamTo (id (SixpackAudioProcessor::idInputExpand), bp.rangeExpand);
-        setParamValue (id (SixpackAudioProcessor::idRatioIndexExpand), (float) bp.ratioIndexExpand);
-        rampParamTo (id (SixpackAudioProcessor::idAttackExpand), bp.attackExpand);
-        rampParamTo (id (SixpackAudioProcessor::idReleaseExpand), bp.releaseExpand);
-        rampParamTo (id (SixpackAudioProcessor::idOutputExpand), bp.outputExpand);
+        setParamValue (id (SevenpackAudioProcessor::idAboveBelow), (float) bp.aboveBelow);
+        rampParamTo (id (SevenpackAudioProcessor::idInputExpand), bp.rangeExpand);
+        setParamValue (id (SevenpackAudioProcessor::idRatioIndexExpand), (float) bp.ratioIndexExpand);
+        rampParamTo (id (SevenpackAudioProcessor::idAttackExpand), bp.attackExpand);
+        rampParamTo (id (SevenpackAudioProcessor::idReleaseExpand), bp.releaseExpand);
+        rampParamTo (id (SevenpackAudioProcessor::idOutputExpand), bp.outputExpand);
 
-        setParamValue (id (SixpackAudioProcessor::idDetectorHp), bp.detectorHp ? 1.0f : 0.0f);
-        setParamValue (id (SixpackAudioProcessor::idDetectorHpFreq), bp.detectorHpFreq);
-        setParamValue (id (SixpackAudioProcessor::idDetectorHpSlope), (float) bp.detectorHpSlope);
-        setParamValue (id (SixpackAudioProcessor::idDetectorBell), bp.detectorBell ? 1.0f : 0.0f);
-        setParamValue (id (SixpackAudioProcessor::idDetectorBellFreq), bp.detectorBellFreq);
-        setParamValue (id (SixpackAudioProcessor::idDetectorBellGain), bp.detectorBellGain);
-        setParamValue (id (SixpackAudioProcessor::idDetectorBell2), bp.detectorBell2 ? 1.0f : 0.0f);
-        setParamValue (id (SixpackAudioProcessor::idDetectorBell2Freq), bp.detectorBell2Freq);
-        setParamValue (id (SixpackAudioProcessor::idDetectorBell2Gain), bp.detectorBell2Gain);
-        setParamValue (id (SixpackAudioProcessor::idDetectorLink), bp.detectorLink ? 1.0f : 0.0f);
-        setParamValue (id (SixpackAudioProcessor::idSidechainEnable), bp.sidechainEnable ? 1.0f : 0.0f);
-        setParamValue (id (SixpackAudioProcessor::idAudioHp), bp.audioHp ? 1.0f : 0.0f);
-        setParamValue (id (SixpackAudioProcessor::idAudioDist2), bp.audioDist2 ? 1.0f : 0.0f);
-        setParamValue (id (SixpackAudioProcessor::idAudioDist3), bp.audioDist3 ? 1.0f : 0.0f);
-        setParamValue (id (SixpackAudioProcessor::idOptical), bp.optical ? 1.0f : 0.0f);
-        setParamValue (id (SixpackAudioProcessor::idBritish), bp.british ? 1.0f : 0.0f);
-        setParamValue (id (SixpackAudioProcessor::idBandMix), bp.bandMix);
-        setParamValue (id (SixpackAudioProcessor::idBandWidth), bp.bandWidth);
+        setParamValue (id (SevenpackAudioProcessor::idDetectorHp), bp.detectorHp ? 1.0f : 0.0f);
+        setParamValue (id (SevenpackAudioProcessor::idDetectorHpFreq), bp.detectorHpFreq);
+        setParamValue (id (SevenpackAudioProcessor::idDetectorHpSlope), (float) bp.detectorHpSlope);
+        setParamValue (id (SevenpackAudioProcessor::idDetectorBell), bp.detectorBell ? 1.0f : 0.0f);
+        setParamValue (id (SevenpackAudioProcessor::idDetectorBellFreq), bp.detectorBellFreq);
+        setParamValue (id (SevenpackAudioProcessor::idDetectorBellGain), bp.detectorBellGain);
+        setParamValue (id (SevenpackAudioProcessor::idDetectorBell2), bp.detectorBell2 ? 1.0f : 0.0f);
+        setParamValue (id (SevenpackAudioProcessor::idDetectorBell2Freq), bp.detectorBell2Freq);
+        setParamValue (id (SevenpackAudioProcessor::idDetectorBell2Gain), bp.detectorBell2Gain);
+        setParamValue (id (SevenpackAudioProcessor::idDetectorLink), bp.detectorLink ? 1.0f : 0.0f);
+        setParamValue (id (SevenpackAudioProcessor::idSidechainEnable), bp.sidechainEnable ? 1.0f : 0.0f);
+        setParamValue (id (SevenpackAudioProcessor::idAudioHp), bp.audioHp ? 1.0f : 0.0f);
+        setParamValue (id (SevenpackAudioProcessor::idAudioDist2), bp.audioDist2 ? 1.0f : 0.0f);
+        setParamValue (id (SevenpackAudioProcessor::idAudioDist3), bp.audioDist3 ? 1.0f : 0.0f);
+        setParamValue (id (SevenpackAudioProcessor::idOptical), bp.optical ? 1.0f : 0.0f);
+        setParamValue (id (SevenpackAudioProcessor::idBritish), bp.british ? 1.0f : 0.0f);
+        setParamValue (id (SevenpackAudioProcessor::idBandMix), bp.bandMix);
+        setParamValue (id (SevenpackAudioProcessor::idBandWidth), bp.bandWidth);
     }
 }
 
-SixpackEditorContent::PresetData SixpackEditorContent::captureCurrentPresetData (
+SevenpackEditorContent::PresetData SevenpackEditorContent::captureCurrentPresetData (
     const juce::String& name, const juce::String& author, bool isFactory)
 {
     PresetData p;
@@ -2137,60 +1846,61 @@ SixpackEditorContent::PresetData SixpackEditorContent::captureCurrentPresetData 
     p.author = author;
     p.isFactory = isFactory;
 
-    for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
+    for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
     {
-        p.crossoverHz[(size_t) x] = processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idCrossover[x])->load();
-        p.crossoverEnabled[(size_t) x] = processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idCrossoverEnabled[x])->load() > 0.5f;
+        p.crossoverHz[(size_t) x] = processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idCrossover[x])->load();
+        p.crossoverEnabled[(size_t) x] = processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idCrossoverEnabled[x])->load() > 0.5f;
     }
-    p.linearMode    = processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idDigitalCrossover)->load() > 0.5f;
-    p.softClipOn    = processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idSoftClip)->load() > 0.5f;
-    p.thdMode       = (int) std::round (processorRef.apvts.getRawParameterValue (SixpackAudioProcessor::idThdMode)->load());
+    p.linearMode    = processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idDigitalCrossover)->load() > 0.5f;
+    p.softClipOn    = processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idSoftClip)->load() > 0.5f;
+    p.thdMode       = (int) std::round (processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idThdMode)->load());
 
     for (int band = 0; band < kNumBands; ++band)
     {
-        auto id = [band] (const char* base) { return SixpackAudioProcessor::bandParamId (base, band); };
+        auto id = [band] (const char* base) { return SevenpackAudioProcessor::bandParamId (base, band); };
         auto& bp = p.bands[band];
 
-        bp.input           = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idInput))->load();
-        bp.ratioIndex       = (int) std::round (processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idRatioIndex))->load());
-        bp.attack           = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idAttack))->load();
-        bp.release          = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idRelease))->load();
-        bp.output           = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idOutput))->load();
+        bp.input           = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idInput))->load();
+        bp.ratioIndex       = (int) std::round (processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idRatioIndex))->load());
+        bp.attack           = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idAttack))->load();
+        bp.release          = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idRelease))->load();
+        bp.output           = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idOutput))->load();
 
-        bp.aboveBelow       = (int) std::round (processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idAboveBelow))->load());
-        bp.rangeExpand      = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idInputExpand))->load();
-        bp.ratioIndexExpand = (int) std::round (processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idRatioIndexExpand))->load());
-        bp.attackExpand     = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idAttackExpand))->load();
-        bp.releaseExpand    = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idReleaseExpand))->load();
-        bp.outputExpand     = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idOutputExpand))->load();
+        bp.aboveBelow       = (int) std::round (processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idAboveBelow))->load());
+        bp.rangeExpand      = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idInputExpand))->load();
+        bp.ratioIndexExpand = (int) std::round (processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idRatioIndexExpand))->load());
+        bp.attackExpand     = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idAttackExpand))->load();
+        bp.releaseExpand    = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idReleaseExpand))->load();
+        bp.outputExpand     = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idOutputExpand))->load();
 
-        bp.detectorHp       = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idDetectorHp))->load() > 0.5f;
-        bp.detectorHpFreq   = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idDetectorHpFreq))->load();
-        bp.detectorHpSlope  = (int) std::round (processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idDetectorHpSlope))->load());
-        bp.detectorBell     = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idDetectorBell))->load() > 0.5f;
-        bp.detectorBellFreq = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idDetectorBellFreq))->load();
-        bp.detectorBellGain = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idDetectorBellGain))->load();
-        bp.detectorBell2     = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idDetectorBell2))->load() > 0.5f;
-        bp.detectorBell2Freq = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idDetectorBell2Freq))->load();
-        bp.detectorBell2Gain = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idDetectorBell2Gain))->load();
-        bp.detectorLink     = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idDetectorLink))->load() > 0.5f;
-        bp.sidechainEnable  = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idSidechainEnable))->load() > 0.5f;
-        bp.audioHp          = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idAudioHp))->load() > 0.5f;
-        bp.audioDist2       = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idAudioDist2))->load() > 0.5f;
-        bp.audioDist3       = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idAudioDist3))->load() > 0.5f;
-        bp.optical          = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idOptical))->load() > 0.5f;
-        bp.british          = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idBritish))->load() > 0.5f;
-        bp.bandMix          = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idBandMix))->load();
-        bp.bandWidth        = processorRef.apvts.getRawParameterValue (id (SixpackAudioProcessor::idBandWidth))->load();
+        bp.detectorHp       = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idDetectorHp))->load() > 0.5f;
+        bp.detectorHpFreq   = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idDetectorHpFreq))->load();
+        bp.detectorHpSlope  = (int) std::round (processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idDetectorHpSlope))->load());
+        bp.detectorBell     = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idDetectorBell))->load() > 0.5f;
+        bp.detectorBellFreq = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idDetectorBellFreq))->load();
+        bp.detectorBellGain = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idDetectorBellGain))->load();
+        bp.detectorBell2     = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idDetectorBell2))->load() > 0.5f;
+        bp.detectorBell2Freq = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idDetectorBell2Freq))->load();
+        bp.detectorBell2Gain = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idDetectorBell2Gain))->load();
+        bp.detectorLink     = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idDetectorLink))->load() > 0.5f;
+        bp.sidechainEnable  = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idSidechainEnable))->load() > 0.5f;
+        bp.audioHp          = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idAudioHp))->load() > 0.5f;
+        bp.audioDist2       = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idAudioDist2))->load() > 0.5f;
+        bp.audioDist3       = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idAudioDist3))->load() > 0.5f;
+        bp.optical          = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idOptical))->load() > 0.5f;
+        bp.british          = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idBritish))->load() > 0.5f;
+        bp.bandMix          = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idBandMix))->load();
+        bp.bandWidth        = processorRef.apvts.getRawParameterValue (id (SevenpackAudioProcessor::idBandWidth))->load();
     }
 
     return p;
 }
 
-void SixpackEditorContent::promptSavePreset()
+void SevenpackEditorContent::promptSavePreset()
 {
     auto* aw = new juce::AlertWindow ("Save Preset", "Enter a name and creator for this preset:",
                                        juce::MessageBoxIconType::NoIcon);
+    aw->setLookAndFeel (&lookAndFeel); // couleurs Alpha (voir AlphaDraw::styleAlertWindows)
     aw->addTextEditor ("presetName", "My Preset", "Name");
     aw->addTextEditor ("presetAuthor", "", "Creator");
     aw->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
@@ -2225,7 +1935,7 @@ void SixpackEditorContent::promptSavePreset()
         }), true); // true = JUCE supprime la fenetre automatiquement apres le callback
 }
 
-void SixpackEditorContent::promptDeletePreset()
+void SevenpackEditorContent::promptDeletePreset()
 {
     if (currentPresetIndex < 0 || currentPresetIndex >= (int) presets.size())
         return;
@@ -2239,7 +1949,7 @@ void SixpackEditorContent::promptDeletePreset()
         juce::MessageBoxIconType::WarningIcon, "Delete Preset",
         "Delete preset \"" + name + "\"? This cannot be undone.", "Delete", "Cancel");
 
-    juce::AlertWindow::showAsync (options, [this, name] (int result)
+    juce::AlertWindow::showAsync (options.withAssociatedComponent (this), [this, name] (int result)
     {
         if (result != 1)
             return;
@@ -2261,12 +1971,12 @@ void SixpackEditorContent::promptDeletePreset()
 // Copy/Paste : serialise tout l'etat APVTS (tous les parametres, comme un
 // mini-preset) via le presse-papier systeme -- permet de coller les
 // reglages d'une instance a une autre, ou entre pistes/sessions.
-void SixpackEditorContent::copyStateToClipboard()
+void SevenpackEditorContent::copyStateToClipboard()
 {
     juce::SystemClipboard::copyTextToClipboard (processorRef.apvts.copyState().toXmlString());
 }
 
-void SixpackEditorContent::pasteStateFromClipboard()
+void SevenpackEditorContent::pasteStateFromClipboard()
 {
     const auto text = juce::SystemClipboard::getTextFromClipboard();
     if (text.isEmpty())

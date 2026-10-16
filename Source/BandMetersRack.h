@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 #include "PluginProcessor.h"
 #include "ConsoleFader.h"
 #include "RackPushButton.h"
@@ -50,7 +50,7 @@ struct BandMixWidthFaders
 struct BandButtons
 {
     // Bordeaux dedie (retour utilisateur : "le rouge est pas assez bordeau
-    // dans le solo") plutot que SixpackColours::ledRed -- ce dernier reste
+    // dans le solo") plutot que SevenpackColours::ledRed -- ce dernier reste
     // INCHANGE (utilise ailleurs, ex. GRMeter, comme vraie diode fixe).
     explicit BandButtons (juce::Colour selAccent)
         : solo ("SOLO", juce::Colour (0xff8c1c2b), true), sel ("SEL", selAccent)
@@ -70,16 +70,16 @@ public:
     // Le 2e parametre indique si Ctrl (Cmd sur Mac) etait enfonce -- retour
     // utilisateur : "en appuyant sur control (cmd mac) on peut selectionner
     // plusieurs bandes avec Sel" (edition liee du knob Output, voir
-    // SixpackEditorContent::wireOutputLink()).
+    // SevenpackEditorContent::wireOutputLink()).
     std::function<void (int, bool)> onBandSelectRequested;
 
     // Les libelles WET/DRY/SPREAD/MONO "bakent" leur couleur a la
     // construction (setupEndLabel, voir ci-dessous) -- a rappeler par le
     // parent apres tout changement de theme en cours d'execution (meme
-    // bug que SixpackEditorContent::refreshThemeReactiveColours()).
+    // bug que SevenpackEditorContent::refreshThemeReactiveColours()).
     void refreshThemeReactiveColours()
     {
-        const auto colour = SixpackColours::textBright.withAlpha (0.75f);
+        const auto colour = SevenpackColours::textBright.withAlpha (0.75f);
         for (auto& mw : mixWidthFaders)
         {
             mw->mix.topLabel.setColour (juce::Label::textColourId, colour);
@@ -89,8 +89,8 @@ public:
         }
     }
 
-    explicit BandMetersRack (SixpackAudioProcessor& p)
-        : processorRef (p), powerParam (*p.apvts.getRawParameterValue (SixpackAudioProcessor::idPower))
+    explicit BandMetersRack (SevenpackAudioProcessor& p)
+        : processorRef (p), powerParam (*p.apvts.getRawParameterValue (SevenpackAudioProcessor::idPower))
     {
         // 30 -> 60Hz (retour utilisateur : "vraiment plus fluide" -- un
         // taux plus BAS ne peut jamais rendre l'affichage plus fluide qu'un
@@ -103,7 +103,7 @@ public:
         // ci-dessous).
         startTimerHz (60);
 
-        for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
+        for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
         {
             // Fader OUTPUT par bande -- meme parametre que le knob OUT du
             // panneau de detail (idOutput, -30..30dB).
@@ -117,7 +117,7 @@ public:
             fader->slider.setEdgePadding (edgePadding, edgePaddingTop, edgePadding); // voir resized() -- bounds agrandis d'autant
             addAndMakeVisible (fader->slider);
             fader->attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-                processorRef.apvts, SixpackAudioProcessor::bandParamId (SixpackAudioProcessor::idOutput, band), fader->slider);
+                processorRef.apvts, SevenpackAudioProcessor::bandParamId (SevenpackAudioProcessor::idOutput, band), fader->slider);
             faders[(size_t) band] = std::move (fader);
             lastFaderOutputValue[(size_t) band] = faders[(size_t) band]->slider.getValue();
 
@@ -140,14 +140,14 @@ public:
                 if (! outputSelectionLinkGuard && std::abs (delta) > 1.0e-9 && isInSelectionGroup (band))
                 {
                     int groupSize = 0;
-                    for (int b = 0; b < SixpackAudioProcessor::NumBands; ++b)
+                    for (int b = 0; b < SevenpackAudioProcessor::NumBands; ++b)
                         if (isInSelectionGroup (b))
                             ++groupSize;
 
                     if (groupSize > 1)
                     {
                         outputSelectionLinkGuard = true;
-                        for (int b = 0; b < SixpackAudioProcessor::NumBands; ++b)
+                        for (int b = 0; b < SevenpackAudioProcessor::NumBands; ++b)
                         {
                             if (b == band || ! isInSelectionGroup (b))
                                 continue;
@@ -164,27 +164,27 @@ public:
 
             // Dry/Wet (idBandMix) + Spread (idBandWidth) -- demenages ici
             // depuis BandPanel (voir doc de classe), meme setup qu'avant
-            // (SixpackEditorContent::setupFader(), desormais supprimee).
+            // (SevenpackEditorContent::setupFader(), desormais supprimee).
             auto mw = std::make_unique<BandMixWidthFaders>();
-            mw->mix.lookAndFeel.setAccentColour (SixpackColours::ledCyan);
+            mw->mix.lookAndFeel.setAccentColour (SevenpackColours::ledCyan);
             FaderVerticalLookAndFeel::setNeutralValue (mw->mix.slider, 0.0);
             addAndMakeVisible (mw->mix.slider);
             mw->mix.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-                processorRef.apvts, SixpackAudioProcessor::bandParamId (SixpackAudioProcessor::idBandMix, band), mw->mix.slider);
+                processorRef.apvts, SevenpackAudioProcessor::bandParamId (SevenpackAudioProcessor::idBandMix, band), mw->mix.slider);
 
-            mw->width.lookAndFeel.setAccentColour (SixpackColours::ledAmber);
-            mw->width.lookAndFeel.setAccentColourBelowNeutral (SixpackColours::ledCyan);
+            mw->width.lookAndFeel.setAccentColour (SevenpackColours::ledAmber);
+            mw->width.lookAndFeel.setAccentColourBelowNeutral (SevenpackColours::ledCyan);
             FaderVerticalLookAndFeel::setNeutralValue (mw->width.slider, 100.0);
             addAndMakeVisible (mw->width.slider);
             mw->width.attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (
-                processorRef.apvts, SixpackAudioProcessor::bandParamId (SixpackAudioProcessor::idBandWidth, band), mw->width.slider);
+                processorRef.apvts, SevenpackAudioProcessor::bandParamId (SevenpackAudioProcessor::idBandWidth, band), mw->width.slider);
 
             auto setupEndLabel = [this] (juce::Label& l, const juce::String& text)
             {
                 l.setText (text, juce::dontSendNotification);
                 l.setJustificationType (juce::Justification::centred);
                 l.setFont (juce::Font (juce::FontOptions (9.5f, juce::Font::bold)).withExtraKerningFactor (0.05f));
-                l.setColour (juce::Label::textColourId, SixpackColours::textBright.withAlpha (0.75f));
+                l.setColour (juce::Label::textColourId, SevenpackColours::textBright.withAlpha (0.75f));
                 addAndMakeVisible (l);
             };
             setupEndLabel (mw->mix.topLabel, "WET");
@@ -207,7 +207,7 @@ public:
             addAndMakeVisible (btns->solo);
             addAndMakeVisible (btns->sel);
             btns->soloAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (
-                processorRef.apvts, SixpackAudioProcessor::idSolo[band], btns->solo);
+                processorRef.apvts, SevenpackAudioProcessor::idSolo[band], btns->solo);
             btns->sel.onClick = [this, band]
             {
                 if (onBandSelectRequested != nullptr)
@@ -226,19 +226,19 @@ public:
     // (optionnel) allume AUSSI les bandes liees en edition (Ctrl/Cmd+clic
     // SEL) et alimente le "pairage console" des faders Output (voir
     // isInSelectionGroup()/wiring dans le constructeur).
-    void setSelectedBand (int band, const std::array<bool, (size_t) SixpackAudioProcessor::NumBands>* linkedBands = nullptr) noexcept
+    void setSelectedBand (int band, const std::array<bool, (size_t) SevenpackAudioProcessor::NumBands>* linkedBands = nullptr) noexcept
     {
         selectionPrimaryBand = band;
-        linkedBandsState = linkedBands != nullptr ? *linkedBands : std::array<bool, (size_t) SixpackAudioProcessor::NumBands> {};
+        linkedBandsState = linkedBands != nullptr ? *linkedBands : std::array<bool, (size_t) SevenpackAudioProcessor::NumBands> {};
 
-        for (int b = 0; b < SixpackAudioProcessor::NumBands; ++b)
+        for (int b = 0; b < SevenpackAudioProcessor::NumBands; ++b)
             bandButtons[(size_t) b]->sel.setSelected (isInSelectionGroup (b));
     }
 
     void resized() override
     {
         auto bounds = getLocalBounds().toFloat();
-        for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
+        for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
         {
             const auto layout = computeLayout (bounds, band);
             // Agrandit les bounds du COMPOSANT sans deplacer le rail
@@ -298,7 +298,7 @@ public:
         g.drawImageAt (backgroundCache, 0, 0);
 
         auto bounds = getLocalBounds().toFloat();
-        for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
+        for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
         {
             const auto layout = computeLayout (bounds, band);
 
@@ -312,14 +312,14 @@ public:
 
         // Retour utilisateur : "clignotte comme un neon a l'extinction
         // seulement" -- passe superposee, TOUTES les diodes/meters a pleine
-        // charge, opacite = powerFlickerMix (voir SixpackLookAndFeel::
+        // charge, opacite = powerFlickerMix (voir SevenpackLookAndFeel::
         // getPowerTransitionMix() -- 1.0 juste apres la coupure, tremblement
         // bref, puis fondu vers 0). Rien ne se dessine une fois la
         // transition terminee (mix==0) ou tant que powered==true.
         if (! powered && powerFlickerMix > 0.001f)
         {
             g.beginTransparencyLayer (powerFlickerMix);
-            for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
+            for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
             {
                 const auto layout = computeLayout (bounds, band);
                 drawMasterMeter (g, layout.meterArea, band, true, true);
@@ -331,17 +331,18 @@ public:
 
     void rebuildBackgroundCacheIfNeeded()
     {
-        const bool lightTheme = SixpackLookAndFeel::isLightThemeStatic();
+        const bool lightTheme = SevenpackLookAndFeel::isLightThemeStatic();
+        const int themeKey = SevenpackLookAndFeel::getUiThemeIndex(); // 0/1/2 -- inclut DOS
         if (backgroundCache.isValid()
             && backgroundCache.getWidth() == getWidth() && backgroundCache.getHeight() == getHeight()
-            && cachedLightTheme == lightTheme)
+            && cachedThemeIndex == themeKey)
             return; // deja a jour (voir doc de paint())
 
         backgroundCache = juce::Image (juce::Image::ARGB, juce::jmax (1, getWidth()), juce::jmax (1, getHeight()), true);
         juce::Graphics g (backgroundCache);
         auto bounds = getLocalBounds().toFloat();
 
-        for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
+        for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
         {
             auto colOuter = juce::Rectangle<float> (bounds.getX() + compactBandW * (float) band, bounds.getY(), compactBandW, bounds.getHeight());
             auto plate = colOuter.reduced (3.0f);
@@ -354,34 +355,49 @@ public:
             // "flotte" legerement sur le chassis), degrade acier noir
             // brosse teinte couleur de bande (meme base que
             // renderMetalPanel), bordure embossee double liseret + 4 vis
-            // d'angle (meme dessin que SixpackLookAndFeel::drawScrew,
+            // d'angle (meme dessin que SevenpackLookAndFeel::drawScrew,
             // celles du chassis principal).
-            juce::Path platePath;
-            platePath.addRoundedRectangle (plate, 4.0f);
-            juce::DropShadow (juce::Colours::black.withAlpha (0.55f), 5, { 0, 2 }).drawForPath (g, platePath);
-
             const auto accent = bandAccent (band);
-            // Theme CLAIR (retour utilisateur explicite, voir
-            // SixpackLookAndFeel::renderMetalPanel()) : meme degrade
-            // "metal brosse argente" que le chassis principal au lieu du
-            // brosse noir d'origine.
-            juce::ColourGradient base (lightTheme ? SixpackColours::lightPanelGradTop : juce::Colour (0xff262422), plate.getX(), plate.getY(),
-                                        lightTheme ? SixpackColours::lightPanelGradBottom : juce::Colour (0xff0e0d0c), plate.getX(), plate.getBottom(), false);
-            g.setGradientFill (base);
-            g.fillPath (platePath);
-            g.setColour (accent.withAlpha (0.16f));
-            g.fillPath (platePath);
+            const bool dosTheme = SevenpackLookAndFeel::isDosThemeStatic();
 
-            juce::Path outerBevel; outerBevel.addRoundedRectangle (plate.expanded (0.5f), 4.5f);
-            g.setColour (juce::Colours::black.withAlpha (0.6f));
-            g.strokePath (outerBevel, juce::PathStrokeType (1.2f));
-            juce::Path innerBevel; innerBevel.addRoundedRectangle (plate.reduced (1.2f), 3.3f);
-            g.setColour (juce::Colours::white.withAlpha (0.10f));
-            g.strokePath (innerBevel, juce::PathStrokeType (1.0f));
-            g.setColour (accent.withAlpha (0.55f));
-            g.strokePath (platePath, juce::PathStrokeType (1.0f));
+            if (dosTheme)
+            {
+                // DOS : plaque plate noire, bordure accent simple -- pas de
+                // vis/ombre/bevel/degrade.
+                g.setColour (juce::Colours::black);
+                g.fillRect (plate);
+                g.setColour (accent);
+                g.drawRect (plate, 1.5f);
+            }
+            else
+            {
+                juce::Path platePath;
+                platePath.addRoundedRectangle (plate, 4.0f);
+                juce::DropShadow (juce::Colours::black.withAlpha (0.55f), 5, { 0, 2 }).drawForPath (g, platePath);
 
-            // Vis aux 4 VRAIS coins de la plaque -- la rangee SOLO/SEL est
+                // Theme CLAIR (retour utilisateur explicite, voir
+                // SevenpackLookAndFeel::renderMetalPanel()) : meme degrade
+                // "metal brosse argente" que le chassis principal au lieu du
+                // brosse noir d'origine.
+                juce::ColourGradient base (lightTheme ? SevenpackColours::lightPanelGradTop : juce::Colour (0xff262422), plate.getX(), plate.getY(),
+                                            lightTheme ? SevenpackColours::lightPanelGradBottom : juce::Colour (0xff0e0d0c), plate.getX(), plate.getBottom(), false);
+                g.setGradientFill (base);
+                g.fillPath (platePath);
+                g.setColour (accent.withAlpha (0.16f));
+                g.fillPath (platePath);
+
+                juce::Path outerBevel; outerBevel.addRoundedRectangle (plate.expanded (0.5f), 4.5f);
+                g.setColour (juce::Colours::black.withAlpha (0.6f));
+                g.strokePath (outerBevel, juce::PathStrokeType (1.2f));
+                juce::Path innerBevel; innerBevel.addRoundedRectangle (plate.reduced (1.2f), 3.3f);
+                g.setColour (juce::Colours::white.withAlpha (0.10f));
+                g.strokePath (innerBevel, juce::PathStrokeType (1.0f));
+                g.setColour (accent.withAlpha (0.55f));
+                g.strokePath (platePath, juce::PathStrokeType (1.0f));
+            }
+
+            // Vis aux 4 VRAIS coins de la plaque (no-op en DOS, voir
+            // SevenpackLookAndFeel::drawScrew()) -- la rangee SOLO/SEL est
             // desormais EN HAUT (retour utilisateur explicite : "je pense
             // que les boutons solo et sel doivent etre au dessus du fader
             // ... pour eviter les grands deplacements de souris") avec sa
@@ -391,16 +407,16 @@ public:
             // console en bas").
             // Rayon 2.6 -> 3.4 (retour utilisateur : "les vis sont
             // noires" -- a 2.6px le degrade metallique/reflet de
-            // SixpackLookAndFeel::drawScrew() n'a presque plus de
+            // SevenpackLookAndFeel::drawScrew() n'a presque plus de
             // pixels pour exister et se voit comme un simple point plat,
             // surtout comparee aux grandes vis de renderCornerScrews()
             // (rayon 5) juste au-dessus depuis que les plaques se
             // touchent, voir resized()).
             constexpr float screwInset = 9.0f, screwRadius = 3.4f;
-            SixpackLookAndFeel::drawScrew (g, { plate.getX() + screwInset, plate.getY() + screwInset }, screwRadius);
-            SixpackLookAndFeel::drawScrew (g, { plate.getRight() - screwInset, plate.getY() + screwInset }, screwRadius);
-            SixpackLookAndFeel::drawScrew (g, { plate.getX() + screwInset, plate.getBottom() - screwInset }, screwRadius);
-            SixpackLookAndFeel::drawScrew (g, { plate.getRight() - screwInset, plate.getBottom() - screwInset }, screwRadius);
+            SevenpackLookAndFeel::drawScrew (g, { plate.getX() + screwInset, plate.getY() + screwInset }, screwRadius);
+            SevenpackLookAndFeel::drawScrew (g, { plate.getRight() - screwInset, plate.getY() + screwInset }, screwRadius);
+            SevenpackLookAndFeel::drawScrew (g, { plate.getX() + screwInset, plate.getBottom() - screwInset }, screwRadius);
+            SevenpackLookAndFeel::drawScrew (g, { plate.getRight() - screwInset, plate.getBottom() - screwInset }, screwRadius);
 
             const auto layout = computeLayout (bounds, band);
 
@@ -410,17 +426,17 @@ public:
             // reservee au separateur (jamais a l'interieur d'une des 2
             // sections -- c'etait le bug precedent : GR/EXPAND et le
             // vu-metre master se chevauchaient, voir computeLayout()).
-            SixpackLookAndFeel::renderDividerLine (g, layout.dividerX, layout.leftSection.getY(), layout.leftSection.getBottom());
+            SevenpackLookAndFeel::renderDividerLine (g, layout.dividerX, layout.leftSection.getY(), layout.leftSection.getBottom());
 
             // Separation VOLUME / WET+SPREAD -- meme style "design" (halo
             // lumineux) que la separation Comp/Expand du panneau de detail
             // (retour utilisateur explicite, voir BandMixWidthFaders).
-            SixpackLookAndFeel::renderGlowDividerLine (g, layout.mixWidthDividerX, layout.leftSection.getY(), layout.leftSection.getBottom());
+            SevenpackLookAndFeel::renderGlowDividerLine (g, layout.mixWidthDividerX, layout.leftSection.getY(), layout.leftSection.getBottom());
 
             drawBandStatic (g, layout.leftSection);
         }
 
-        cachedLightTheme = lightTheme;
+        cachedThemeIndex = themeKey;
     }
 
 private:
@@ -458,12 +474,12 @@ private:
         }
 
         // Retour utilisateur : "clignotte comme un neon a l'extinction
-        // seulement" -- voir SixpackLookAndFeel::getPowerTransitionMix() et
+        // seulement" -- voir SevenpackLookAndFeel::getPowerTransitionMix() et
         // la passe superposee dans paint(). Repeint TOUT le rack (pas
         // seulement la/les colonnes changees ci-dessous) tant que la
         // transition est en cours, puisque la passe de flicker couvre les
         // 6 bandes en une seule fois.
-        const auto* laf = dynamic_cast<SixpackLookAndFeel*> (&getLookAndFeel());
+        const auto* laf = dynamic_cast<SevenpackLookAndFeel*> (&getLookAndFeel());
         powerFlickerMix = laf != nullptr ? laf->getPowerTransitionMix() : 1.0f;
         if (std::abs (powerFlickerMix - lastPaintedFlickerMix) > 0.01f)
         {
@@ -472,7 +488,7 @@ private:
         }
 
         auto bounds = getLocalBounds().toFloat();
-        for (int band = 0; band < SixpackAudioProcessor::NumBands; ++band)
+        for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
         {
             const float gr  = processorRef.grMeterDb[(size_t) band].load();
             const float ex  = processorRef.grMeterExpandDb[(size_t) band].load();
@@ -498,13 +514,13 @@ private:
     // seulement" -- voir timerCallback()/paint().
     float powerFlickerMix = 1.0f;
     float lastPaintedFlickerMix = 1.0f;
-    std::array<float, (size_t) SixpackAudioProcessor::NumBands> lastGrDb {}, lastExDb {}, lastOutDb {};
+    std::array<float, (size_t) SevenpackAudioProcessor::NumBands> lastGrDb {}, lastExDb {}, lastOutDb {};
 
     // Cache d'arriere-plan des 6 plaques (voir doc de paint() /
     // rebuildBackgroundCacheIfNeeded()) -- invalide et reconstruit
     // automatiquement des que la taille ou le theme changent.
     juce::Image backgroundCache;
-    bool cachedLightTheme = false;
+    int cachedThemeIndex = -1; // force la reconstruction au 1er paint()
 
     // Largeurs de section EXPLICITES (pas de centrage/soustractions en
     // chaine, qui avaient fini par faire chevaucher EXPAND et le vu-metre
@@ -640,8 +656,8 @@ private:
 
     static juce::Colour bandAccent (int band) noexcept
     {
-        static const std::array<juce::Colour, (size_t) SixpackAudioProcessor::NumBands> colours =
-            { SixpackColours::ledCyan, SixpackColours::ledGreen, SixpackColours::ledAmber, SixpackColours::ledOrange, SixpackColours::ledPurple, SixpackColours::ledRed, SixpackColours::ledPink };
+        static const std::array<juce::Colour, (size_t) SevenpackAudioProcessor::NumBands> colours =
+            { SevenpackColours::ledCyan, SevenpackColours::ledGreen, SevenpackColours::ledAmber, SevenpackColours::ledOrange, SevenpackColours::ledPurple, SevenpackColours::ledRed, SevenpackColours::ledPink };
         return colours[(size_t) band];
     }
 
@@ -654,17 +670,17 @@ private:
     // forceFullyLit (retour utilisateur : "clignotte comme un neon a
     // l'extinction seulement") : ignore powered/la valeur reelle et dessine
     // comme a pleine charge -- utilise UNIQUEMENT pour la passe de flicker
-    // superposee dans paint() (voir SixpackLookAndFeel::
+    // superposee dans paint() (voir SevenpackLookAndFeel::
     // getPowerTransitionMix()), jamais en usage normal.
     void drawMasterMeter (juce::Graphics& g, juce::Rectangle<float> track, int band, bool powered, bool forceFullyLit = false)
     {
         g.setColour (juce::Colours::black.withAlpha (0.5f));
         g.fillRoundedRectangle (track, 2.0f);
 
-        juce::ColourGradient grad (SixpackColours::ledGreen, track.getX(), track.getBottom(),
-                                    SixpackColours::ledRed, track.getX(), track.getY(), false);
-        grad.addColour (0.72, SixpackColours::ledGreen);
-        grad.addColour (0.90, SixpackColours::ledYellow);
+        juce::ColourGradient grad (SevenpackColours::ledGreen, track.getX(), track.getBottom(),
+                                    SevenpackColours::ledRed, track.getX(), track.getY(), false);
+        grad.addColour (0.72, SevenpackColours::ledGreen);
+        grad.addColour (0.90, SevenpackColours::ledYellow);
 
         constexpr float minDb = -48.0f, maxDb = 3.0f;
         const float outDb = powered ? processorRef.bandOutputLevelDb[(size_t) band].load() : minDb;
@@ -709,8 +725,8 @@ private:
             const int ledIndex = juce::jlimit (0, numLeds - 1, (int) std::round (dbToFraction (scaleMarksDb[m]) * (float) numLeds) - 1);
             const float y = bottom - dotSize * 0.5f - (float) ledIndex * step;
             const juce::String text = scaleMarksDb[m] <= 0.0f ? juce::String (0) : "-" + juce::String ((int) scaleMarksDb[m]);
-            SixpackLookAndFeel::drawEngravedText (g, text, juce::Rectangle<float> (x, y - 5.0f, scaleW, 10.0f).toNearestInt(),
-                                                      SixpackColours::textBright.withAlpha (0.6f), juce::Justification::centredLeft);
+            SevenpackLookAndFeel::drawEngravedText (g, text, juce::Rectangle<float> (x, y - 5.0f, scaleW, 10.0f).toNearestInt(),
+                                                      SevenpackColours::textBright.withAlpha (0.6f), juce::Justification::centredLeft);
         }
     }
 
@@ -749,23 +765,23 @@ private:
         float x = col.getX();
 
         // --- Colonne GR (compression), bas -> haut, degrade identique au
-        // GRMeter existant (SixpackLookAndFeel::ledGradientColour). ---
+        // GRMeter existant (SevenpackLookAndFeel::ledGradientColour). ---
         for (int i = 0; i < numLeds; ++i)
         {
             const float t = (float) i / (float) (numLeds - 1);
             const float y = bottom - dotSize - (float) i * step;
             auto dot = juce::Rectangle<float> (x, y, dotSize, dotSize);
             if (i < litCount)
-                g.setColour (SixpackLookAndFeel::ledGradientColour (t));
+                g.setColour (SevenpackLookAndFeel::ledGradientColour (t));
             else
-                g.setColour (SixpackColours::ledOff);
+                g.setColour (SevenpackColours::ledOff);
             g.fillEllipse (dot);
         }
         x += dotSize + colGap;
         x += scaleW + colGap; // saute la colonne des reperes chiffres (statique, voir drawBandStatic())
 
         // --- Colonne EXPAND dediee, bas -> haut, degrade bleu/cyan/violet
-        // (SixpackLookAndFeel::ledGradientColourExpand), meme principe
+        // (SevenpackLookAndFeel::ledGradientColourExpand), meme principe
         // que la rangee fine du GRMeter existant. ---
         for (int i = 0; i < numLeds; ++i)
         {
@@ -773,9 +789,9 @@ private:
             const float y = bottom - dotSize - (float) i * step;
             auto dot = juce::Rectangle<float> (x, y, exWidth, dotSize);
             if (i < litExpand)
-                g.setColour (SixpackLookAndFeel::ledGradientColourExpand (t));
+                g.setColour (SevenpackLookAndFeel::ledGradientColourExpand (t));
             else
-                g.setColour (SixpackColours::ledOff);
+                g.setColour (SevenpackColours::ledOff);
             g.fillRoundedRectangle (dot, 1.0f);
         }
     }
@@ -790,15 +806,15 @@ private:
     }
 
     int selectionPrimaryBand = -1;
-    std::array<bool, (size_t) SixpackAudioProcessor::NumBands> linkedBandsState {};
+    std::array<bool, (size_t) SevenpackAudioProcessor::NumBands> linkedBandsState {};
     bool outputSelectionLinkGuard = false;
-    std::array<double, (size_t) SixpackAudioProcessor::NumBands> lastFaderOutputValue {};
+    std::array<double, (size_t) SevenpackAudioProcessor::NumBands> lastFaderOutputValue {};
 
-    SixpackAudioProcessor& processorRef;
+    SevenpackAudioProcessor& processorRef;
     std::atomic<float>& powerParam;
-    std::array<std::unique_ptr<BandVolumeFader>, (size_t) SixpackAudioProcessor::NumBands> faders;
-    std::array<std::unique_ptr<BandMixWidthFaders>, (size_t) SixpackAudioProcessor::NumBands> mixWidthFaders;
-    std::array<std::unique_ptr<BandButtons>, (size_t) SixpackAudioProcessor::NumBands> bandButtons;
+    std::array<std::unique_ptr<BandVolumeFader>, (size_t) SevenpackAudioProcessor::NumBands> faders;
+    std::array<std::unique_ptr<BandMixWidthFaders>, (size_t) SevenpackAudioProcessor::NumBands> mixWidthFaders;
+    std::array<std::unique_ptr<BandButtons>, (size_t) SevenpackAudioProcessor::NumBands> bandButtons;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BandMetersRack)
 };

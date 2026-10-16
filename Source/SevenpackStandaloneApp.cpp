@@ -1,8 +1,8 @@
 /*
-    SixpackStandaloneApp
+    SevenpackStandaloneApp
     --------------------
     Application standalone PERSONNALISEE (activee par le define projet
-    JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1, voir Sixpack.jucer).
+    JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1, voir Sevenpack.jucer).
 
     Raison d'etre : le routage multi-sorties par bande (voir idBandRouteOut /
     mainOutPairIndex / bandOutPairIndex dans PluginProcessor). L'app
@@ -41,11 +41,11 @@
 namespace juce
 {
 
-class SixpackStandaloneApp final : public JUCEApplication,
+class SevenpackStandaloneApp final : public JUCEApplication,
                                    private ChangeListener
 {
 public:
-    SixpackStandaloneApp()
+    SevenpackStandaloneApp()
     {
         PropertiesFile::Options options;
         options.applicationName     = CharPointer_UTF8 (JucePlugin_Name);
@@ -176,7 +176,7 @@ private:
             }
         }
 
-        if (auto* proc = dynamic_cast<SixpackAudioProcessor*> (mainWindow->getAudioProcessor()))
+        if (auto* proc = dynamic_cast<SevenpackAudioProcessor*> (mainWindow->getAudioProcessor()))
             proc->setStandaloneOutputChannelNames (outNames);
     }
 
@@ -191,6 +191,6 @@ private:
 // standalone fait `extern juce::JUCEApplicationBase* juce_CreateApplication();`
 // et appelle cette fonction depuis son point d'entree genere).
 juce::JUCEApplicationBase* juce_CreateApplication();
-juce::JUCEApplicationBase* juce_CreateApplication()   { return new juce::SixpackStandaloneApp(); }
+juce::JUCEApplicationBase* juce_CreateApplication()   { return new juce::SevenpackStandaloneApp(); }
 
 #endif

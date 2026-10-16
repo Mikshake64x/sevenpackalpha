@@ -1,11 +1,11 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
-constexpr float SixpackAudioProcessor::ratioTable[7];
-constexpr float SixpackAudioProcessor::kneeTable[7];
-constexpr const char* SixpackAudioProcessor::idCrossover[NumCrossovers];
-constexpr const char* SixpackAudioProcessor::idCrossoverEnabled[NumCrossovers];
-constexpr const char* SixpackAudioProcessor::idSolo[NumBands];
+constexpr float SevenpackAudioProcessor::ratioTable[7];
+constexpr float SevenpackAudioProcessor::kneeTable[7];
+constexpr const char* SevenpackAudioProcessor::idCrossover[NumCrossovers];
+constexpr const char* SevenpackAudioProcessor::idCrossoverEnabled[NumCrossovers];
+constexpr const char* SevenpackAudioProcessor::idSolo[NumBands];
 
 // Correction de calibration fixe PAR BANDE, mesuree via PluginDoctor
 // (Linear Analysis, Release au plus court pour eviter tout artefact
@@ -23,21 +23,21 @@ constexpr const char* SixpackAudioProcessor::idSolo[NumBands];
 // reconduire par erreur des chiffres qui ne correspondent a rien ici, les
 // 5 trims sont remis A PLAT (0.0) en attendant une nouvelle campagne de
 // mesure sur le crossover 4 points -- a refaire avant une sortie publique
-// de sixpack, voir note de suivi laissee au demandeur.
-static constexpr float kInputCalibrationTrimDbAnalog[(size_t) SixpackAudioProcessor::NumBands]  = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
-static constexpr float kOutputCalibrationTrimDbAnalog[(size_t) SixpackAudioProcessor::NumBands] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
-static constexpr float kInputCalibrationTrimDbLinear[(size_t) SixpackAudioProcessor::NumBands]  = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
-static constexpr float kOutputCalibrationTrimDbLinear[(size_t) SixpackAudioProcessor::NumBands] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+// de sevenpack, voir note de suivi laissee au demandeur.
+static constexpr float kInputCalibrationTrimDbAnalog[(size_t) SevenpackAudioProcessor::NumBands]  = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+static constexpr float kOutputCalibrationTrimDbAnalog[(size_t) SevenpackAudioProcessor::NumBands] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+static constexpr float kInputCalibrationTrimDbLinear[(size_t) SevenpackAudioProcessor::NumBands]  = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+static constexpr float kOutputCalibrationTrimDbLinear[(size_t) SevenpackAudioProcessor::NumBands] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
 
-juce::String SixpackAudioProcessor::bandParamId (const char* baseId, int band)
+juce::String SevenpackAudioProcessor::bandParamId (const char* baseId, int band)
 {
     if (band == Mid)
         return juce::String (baseId); // compat presets/sessions Suppressor mono-bande
-    static const char* suffix[SixpackAudioProcessor::NumBands] = { "_low", "_lowmid", "", "_highmid", "_presence", "_high", "_air" };
+    static const char* suffix[SevenpackAudioProcessor::NumBands] = { "_low", "_lowmid", "", "_highmid", "_presence", "_high", "_air" };
     return juce::String (baseId) + suffix[band];
 }
 
-SixpackAudioProcessor::SixpackAudioProcessor()
+SevenpackAudioProcessor::SevenpackAudioProcessor()
      : AudioProcessor (BusesProperties()
                        #if ! JucePlugin_IsMidiEffect
                         #if ! JucePlugin_IsSynth
@@ -148,12 +148,12 @@ SixpackAudioProcessor::SixpackAudioProcessor()
     startTimerHz (10);
 }
 
-SixpackAudioProcessor::~SixpackAudioProcessor()
+SevenpackAudioProcessor::~SevenpackAudioProcessor()
 {
     stopTimer();
 }
 
-void SixpackAudioProcessor::timerCallback()
+void SevenpackAudioProcessor::timerCallback()
 {
     const juce::uint32 now = juce::Time::getMillisecondCounter();
     const juce::uint32 last = lastProcessBlockMs.load();
@@ -183,7 +183,7 @@ void SixpackAudioProcessor::timerCallback()
     }
 }
 
-juce::AudioProcessorValueTreeState::ParameterLayout SixpackAudioProcessor::createParameterLayout()
+juce::AudioProcessorValueTreeState::ParameterLayout SevenpackAudioProcessor::createParameterLayout()
 {
     using namespace juce;
     std::vector<std::unique_ptr<RangedAudioParameter>> params;
@@ -493,7 +493,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SixpackAudioProcessor::creat
     return { params.begin(), params.end() };
 }
 
-void SixpackAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
+void SevenpackAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     const int numChannels = juce::jmax (1, getTotalNumInputChannels());
 
@@ -537,6 +537,8 @@ void SixpackAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
     outputRemapScratch.setSize (juce::jmax (2, getTotalNumOutputChannels()), samplesPerBlock);
 
     spectrumAnalyzer.prepare (sampleRate);
+    gonioDecimation = juce::jmax (1, juce::roundToInt (sampleRate / 12000.0));
+    gonioCounter = 0;
 
     // Coefficient de retombee PAR ECHANTILLON pour bandOutputEnvLin (voir
     // doc du membre, PluginProcessor.h) -- meme taux que l'ancienne
@@ -551,28 +553,28 @@ void SixpackAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBloc
     lastReportedLatencySamples = -1; // force la premiere mise a jour dans processBlock()
 }
 
-void SixpackAudioProcessor::releaseResources() {}
+void SevenpackAudioProcessor::releaseResources() {}
 
-void SixpackAudioProcessor::setStandaloneOutputChannelNames (const juce::StringArray& names)
+void SevenpackAudioProcessor::setStandaloneOutputChannelNames (const juce::StringArray& names)
 {
     const juce::ScopedLock sl (standaloneOutNamesLock);
     standaloneOutChannelNames = names;
 }
 
-juce::StringArray SixpackAudioProcessor::getStandaloneOutputChannelNames() const
+juce::StringArray SevenpackAudioProcessor::getStandaloneOutputChannelNames() const
 {
     const juce::ScopedLock sl (standaloneOutNamesLock);
     return standaloneOutChannelNames;
 }
 
-int SixpackAudioProcessor::getStandaloneOutputPairCount() const
+int SevenpackAudioProcessor::getStandaloneOutputPairCount() const
 {
     const juce::ScopedLock sl (standaloneOutNamesLock);
     return standaloneOutChannelNames.size() / 2;
 }
 
 #ifndef JucePlugin_PreferredChannelConfigurations
-bool SixpackAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+bool SevenpackAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
     if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
      && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
@@ -599,7 +601,7 @@ bool SixpackAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) 
 }
 #endif
 
-void SixpackAudioProcessor::updateDspFromParams()
+void SevenpackAudioProcessor::updateDspFromParams()
 {
     const bool xoLinear = digitalCrossoverParam->load() > 0.5f;
     const float* inputTrim  = xoLinear ? kInputCalibrationTrimDbLinear  : kInputCalibrationTrimDbAnalog;
@@ -726,7 +728,7 @@ void SixpackAudioProcessor::updateDspFromParams()
     }
 }
 
-std::array<int, (size_t) SixpackAudioProcessor::NumBands> SixpackAudioProcessor::computeGroupOwners() const noexcept
+std::array<int, (size_t) SevenpackAudioProcessor::NumBands> SevenpackAudioProcessor::computeGroupOwners() const noexcept
 {
     std::array<int, (size_t) NumBands> owner {};
     owner[0] = 0;
@@ -742,7 +744,7 @@ std::array<int, (size_t) SixpackAudioProcessor::NumBands> SixpackAudioProcessor:
     return owner;
 }
 
-std::array<float, (size_t) SixpackAudioProcessor::NumCrossovers> SixpackAudioProcessor::sanitizeCrossoverFrequencies() const noexcept
+std::array<float, (size_t) SevenpackAudioProcessor::NumCrossovers> SevenpackAudioProcessor::sanitizeCrossoverFrequencies() const noexcept
 {
     std::array<float, (size_t) NumCrossovers> hz {};
     for (int x = 0; x < NumCrossovers; ++x)
@@ -774,7 +776,7 @@ std::array<float, (size_t) SixpackAudioProcessor::NumCrossovers> SixpackAudioPro
     return hz;
 }
 
-void SixpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void SevenpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     lastProcessBlockMs.store (juce::Time::getMillisecondCounter());
 
@@ -988,6 +990,9 @@ void SixpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     auto* residR = dataR != nullptr && thdResidualBuffer.getNumChannels() > 1
                         ? thdResidualBuffer.getWritePointer (1) : nullptr;
 
+    // Goniometre de l'interface Alpha : capture seulement en mode GONIO.
+    const bool gonioOn = meterMode.load (std::memory_order_relaxed) == 2;
+
     for (int i = 0; i < numSamples; ++i)
     {
         const float dryL = dataL != nullptr ? dataL[i] : 0.0f;
@@ -1004,6 +1009,13 @@ void SixpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
         }
 
         float sumL = 0.0f, sumR = 0.0f;
+
+        bool gonioTake = false;
+        if (gonioOn && ++gonioCounter >= gonioDecimation)
+        {
+            gonioCounter = 0;
+            gonioTake = true;
+        }
 
         for (int band = 0; band < (int) NumBands; ++band)
         {
@@ -1054,6 +1066,23 @@ void SixpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
                 auto& env = bandOutputEnvLin[(size_t) band];
                 const float instant = juce::jmax (std::abs (wetL), std::abs (wetR));
                 env = instant > env ? instant : env * bandOutputPerSampleDecay;
+            }
+
+            // Goniometre : ce que la bande envoie au mix (apres Mix et
+            // Spread, meme calcul que ci-dessous), meme si elle est muette
+            // par un solo.
+            if (gonioTake)
+            {
+                if (compR[(size_t) band] != nullptr)
+                {
+                    const float mid  = (wetL + wetR) * 0.5f;
+                    const float side = (wetL - wetR) * 0.5f * bandWidthLin[(size_t) band];
+                    bandScopes[(size_t) band].push (mid + side, mid - side);
+                }
+                else
+                {
+                    bandScopes[(size_t) band].push (wetL, wetL);
+                }
             }
 
             // Fader Width : encodage Mid/Side sur le signal WET de la bande
@@ -1229,9 +1258,10 @@ void SixpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     clipMeterAmountR.store (clipAmountR);
     clipMeterAmount.store (juce::jmax (clipAmountL, clipAmountR));
 
+
     // --- Redispatch des sorties (STANDALONE uniquement) ---
     // Le buffer de process fait 16 canaux en standalone (channelConfig
-    // {2,16} de SixpackStandaloneApp). On les traite comme 8 paires stereo
+    // {2,16} de SevenpackStandaloneApp). On les traite comme 8 paires stereo
     // a plat et on place : le mix principal sur la paire mainOutPairIndex,
     // chaque bande routee sur bandOutPairIndex[b]. Plusieurs sources sur la
     // meme paire se somment. En VST3/AU on ne touche a rien (l'hote route
@@ -1276,9 +1306,9 @@ void SixpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce
     }
 }
 
-juce::AudioProcessorEditor* SixpackAudioProcessor::createEditor()
+juce::AudioProcessorEditor* SevenpackAudioProcessor::createEditor()
 {
-    return new SixpackAudioProcessorEditor (*this);
+    return new SevenpackAudioProcessorEditor (*this);
 }
 
 // Tous les parametres de compression des 3 bandes (+ faders Mix/Width) + les
@@ -1292,47 +1322,47 @@ static const std::vector<juce::String>& getABParamIds()
         std::vector<juce::String> v;
         static constexpr const char* bandBaseIds[] =
         {
-            SixpackAudioProcessor::idInput, SixpackAudioProcessor::idRatioIndex,
-            SixpackAudioProcessor::idAttack, SixpackAudioProcessor::idRelease,
-            SixpackAudioProcessor::idOutput,
-            SixpackAudioProcessor::idInputExpand, SixpackAudioProcessor::idRatioIndexExpand,
-            SixpackAudioProcessor::idAttackExpand, SixpackAudioProcessor::idReleaseExpand,
-            SixpackAudioProcessor::idOutputExpand,
-            SixpackAudioProcessor::idDetectorHp, SixpackAudioProcessor::idDetectorHpFreq,
-            SixpackAudioProcessor::idDetectorHpSlope, SixpackAudioProcessor::idDetectorBell,
-            SixpackAudioProcessor::idDetectorBellFreq, SixpackAudioProcessor::idDetectorBellGain,
-            SixpackAudioProcessor::idDetectorBell2, SixpackAudioProcessor::idDetectorBell2Freq,
-            SixpackAudioProcessor::idDetectorBell2Gain,
-            SixpackAudioProcessor::idDetectorLink, SixpackAudioProcessor::idSidechainEnable,
-            SixpackAudioProcessor::idAudioHp, SixpackAudioProcessor::idAudioDist2,
-            SixpackAudioProcessor::idAudioDist3, SixpackAudioProcessor::idOptical,
-            SixpackAudioProcessor::idBritish, SixpackAudioProcessor::idAboveBelow,
-            SixpackAudioProcessor::idBandMix, SixpackAudioProcessor::idBandWidth,
-            SixpackAudioProcessor::idBandRouteOut,
+            SevenpackAudioProcessor::idInput, SevenpackAudioProcessor::idRatioIndex,
+            SevenpackAudioProcessor::idAttack, SevenpackAudioProcessor::idRelease,
+            SevenpackAudioProcessor::idOutput,
+            SevenpackAudioProcessor::idInputExpand, SevenpackAudioProcessor::idRatioIndexExpand,
+            SevenpackAudioProcessor::idAttackExpand, SevenpackAudioProcessor::idReleaseExpand,
+            SevenpackAudioProcessor::idOutputExpand,
+            SevenpackAudioProcessor::idDetectorHp, SevenpackAudioProcessor::idDetectorHpFreq,
+            SevenpackAudioProcessor::idDetectorHpSlope, SevenpackAudioProcessor::idDetectorBell,
+            SevenpackAudioProcessor::idDetectorBellFreq, SevenpackAudioProcessor::idDetectorBellGain,
+            SevenpackAudioProcessor::idDetectorBell2, SevenpackAudioProcessor::idDetectorBell2Freq,
+            SevenpackAudioProcessor::idDetectorBell2Gain,
+            SevenpackAudioProcessor::idDetectorLink, SevenpackAudioProcessor::idSidechainEnable,
+            SevenpackAudioProcessor::idAudioHp, SevenpackAudioProcessor::idAudioDist2,
+            SevenpackAudioProcessor::idAudioDist3, SevenpackAudioProcessor::idOptical,
+            SevenpackAudioProcessor::idBritish, SevenpackAudioProcessor::idAboveBelow,
+            SevenpackAudioProcessor::idBandMix, SevenpackAudioProcessor::idBandWidth,
+            SevenpackAudioProcessor::idBandRouteOut,
         };
-        for (int band = 0; band < (int) SixpackAudioProcessor::NumBands; ++band)
+        for (int band = 0; band < (int) SevenpackAudioProcessor::NumBands; ++band)
             for (auto* base : bandBaseIds)
-                v.push_back (SixpackAudioProcessor::bandParamId (base, band));
+                v.push_back (SevenpackAudioProcessor::bandParamId (base, band));
 
-        for (int x = 0; x < SixpackAudioProcessor::NumCrossovers; ++x)
+        for (int x = 0; x < SevenpackAudioProcessor::NumCrossovers; ++x)
         {
-            v.push_back (SixpackAudioProcessor::idCrossover[x]);
-            v.push_back (SixpackAudioProcessor::idCrossoverEnabled[x]);
+            v.push_back (SevenpackAudioProcessor::idCrossover[x]);
+            v.push_back (SevenpackAudioProcessor::idCrossoverEnabled[x]);
         }
-        v.push_back (SixpackAudioProcessor::idSoftClip);
-        v.push_back (SixpackAudioProcessor::idThdMode);
-        v.push_back (SixpackAudioProcessor::idThdOutput);
+        v.push_back (SevenpackAudioProcessor::idSoftClip);
+        v.push_back (SevenpackAudioProcessor::idThdMode);
+        v.push_back (SevenpackAudioProcessor::idThdOutput);
         // Analog/Linear -- INCLUS (chaque slot A/B memorise et
         // restaure son propre mode de crossover, sur demande explicite --
         // pas exclu comme Power/Solo, contrairement au comportement par
         // defaut copie de Nuke Mext).
-        v.push_back (SixpackAudioProcessor::idDigitalCrossover);
+        v.push_back (SevenpackAudioProcessor::idDigitalCrossover);
         return v;
     }();
     return ids;
 }
 
-void SixpackAudioProcessor::toggleABCompare()
+void SevenpackAudioProcessor::toggleABCompare()
 {
     auto& activeSlot = usingSlotB ? abSlotB : abSlotA;
 
@@ -1351,11 +1381,26 @@ void SixpackAudioProcessor::toggleABCompare()
             p->setValueNotifyingHost (value);
 }
 
-void SixpackAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
+void SevenpackAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     apvts.state.setProperty ("needleModeIndex1", needleModeIndex1, nullptr);
     apvts.state.setProperty ("needleModeIndex2", needleModeIndex2, nullptr);
-    apvts.state.setProperty ("lightTheme", lightTheme.load() > 0.5f, nullptr);
+    apvts.state.setProperty ("uiTheme", uiTheme.load(), nullptr);
+    apvts.state.setProperty ("needleBounce", needleBounce.load(), nullptr);
+    apvts.state.setProperty ("needleReturn", needleReturn.load(), nullptr);
+    apvts.state.setProperty ("bandColourMode", bandColourMode.load(), nullptr);
+    apvts.state.setProperty ("meterMode", meterMode.load(), nullptr);
+    apvts.state.setProperty ("highContrast", highContrast.load(), nullptr);
+    apvts.state.setProperty ("needleGlass", needleGlass.load(), nullptr);
+    apvts.state.setProperty ("needleRedTip", needleRedTip.load(), nullptr);
+    apvts.state.setProperty ("gonioLines", gonioLines.load(), nullptr);
+    apvts.state.setProperty ("gonioRedPhase", gonioRedPhase.load(), nullptr);
+    apvts.state.setProperty ("uiFinish", uiFinish.load(), nullptr);
+    apvts.state.setProperty ("faderStyle", faderStyle.load(), nullptr);
+    apvts.state.setProperty ("attRelIcons", attRelIcons.load(), nullptr);
+    apvts.state.setProperty ("spectrumStyle", spectrumStyle.load(), nullptr);
+    apvts.state.setProperty ("spectrumSmooth", spectrumSmooth.load(), nullptr);
+    apvts.state.setProperty ("spectrumPeak", spectrumPeak.load(), nullptr);
 
     // Routage multi-sorties standalone (voir mainOutPairIndex/bandOutPairIndex).
     apvts.state.setProperty ("mainOutPair", mainOutPairIndex.load(), nullptr);
@@ -1379,7 +1424,7 @@ void SixpackAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     state.writeToStream (stream);
 }
 
-void SixpackAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
+void SevenpackAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     auto tree = juce::ValueTree::readFromData (data, (size_t) sizeInBytes);
     if (! tree.isValid())
@@ -1407,7 +1452,29 @@ void SixpackAudioProcessor::setStateInformation (const void* data, int sizeInByt
     apvts.replaceState (tree);
     needleModeIndex1 = apvts.state.getProperty ("needleModeIndex1", 1);
     needleModeIndex2 = apvts.state.getProperty ("needleModeIndex2", 1);
-    lightTheme.store ((bool) apvts.state.getProperty ("lightTheme", true) ? 1.0f : 0.0f);
+    // "uiTheme" (int, 0/1/2) est la propriete canonique depuis la v1.19 ;
+    // repli sur l'ancienne "lightTheme" (bool) pour une session sauvegardee
+    // par une version anterieure qui n'a jamais connu le theme DOS.
+    if (apvts.state.hasProperty ("uiTheme"))
+        uiTheme.store (juce::jlimit (0, 2, (int) apvts.state.getProperty ("uiTheme", 1)));
+    else
+        uiTheme.store ((bool) apvts.state.getProperty ("lightTheme", true) ? 1 : 0);
+
+    needleBounce.store (juce::jlimit (0.0f, 100.0f, (float) apvts.state.getProperty ("needleBounce", 55.0f)));
+    needleReturn.store (juce::jlimit (0.0f, 100.0f, (float) apvts.state.getProperty ("needleReturn", 50.0f)));
+    bandColourMode.store (juce::jlimit (0, 2, (int) apvts.state.getProperty ("bandColourMode", 0)));
+    meterMode.store (juce::jlimit (0, 2, (int) apvts.state.getProperty ("meterMode", 0)));
+    highContrast.store ((bool) apvts.state.getProperty ("highContrast", false));
+    needleGlass.store (juce::jlimit (0, 1, (int) apvts.state.getProperty ("needleGlass", 0)));
+    needleRedTip.store ((bool) apvts.state.getProperty ("needleRedTip", true));
+    gonioLines.store ((bool) apvts.state.getProperty ("gonioLines", false));
+    gonioRedPhase.store ((bool) apvts.state.getProperty ("gonioRedPhase", true));
+    uiFinish.store (juce::jlimit (0, 3, (int) apvts.state.getProperty ("uiFinish", 0)));
+    faderStyle.store (juce::jlimit (0, 2, (int) apvts.state.getProperty ("faderStyle", 0)));
+    attRelIcons.store (juce::jlimit (0, 3, (int) apvts.state.getProperty ("attRelIcons", 1)));
+    spectrumStyle.store (juce::jlimit (0, 4, (int) apvts.state.getProperty ("spectrumStyle", 1)));
+    spectrumSmooth.store (juce::jlimit (0, 1, (int) apvts.state.getProperty ("spectrumSmooth", 0)));
+    spectrumPeak.store ((bool) apvts.state.getProperty ("spectrumPeak", false));
 
     mainOutPairIndex.store ((int) apvts.state.getProperty ("mainOutPair", 0));
     for (int b = 0; b < (int) NumBands; ++b)
@@ -1416,5 +1483,5 @@ void SixpackAudioProcessor::setStateInformation (const void* data, int sizeInByt
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    return new SixpackAudioProcessor();
+    return new SevenpackAudioProcessor();
 }

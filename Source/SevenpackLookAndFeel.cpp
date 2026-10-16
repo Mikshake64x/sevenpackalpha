@@ -1,6 +1,6 @@
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 
-SixpackLookAndFeel::SixpackLookAndFeel()
+SevenpackLookAndFeel::SevenpackLookAndFeel()
 {
     refreshFixedColours();
     setColour (juce::Slider::textBoxBackgroundColourId, juce::Colours::transparentBlack);
@@ -8,14 +8,14 @@ SixpackLookAndFeel::SixpackLookAndFeel()
 }
 
 // Repousse les juce::Colour IDs fixes par le constructeur vers les valeurs
-// COURANTES de SixpackColours -- appele une fois a la construction, puis
+// COURANTES de SevenpackColours -- appele une fois a la construction, puis
 // a chaque bascule de theme (voir setLightTheme()) pour que les composants
 // JUCE standard (juce::Label par defaut, etc.) qui lisent findColour() au
 // lieu de peindre directement suivent le theme actif.
-void SixpackLookAndFeel::refreshFixedColours()
+void SevenpackLookAndFeel::refreshFixedColours()
 {
-    setColour (juce::Slider::textBoxTextColourId, SixpackColours::textBright);
-    setColour (juce::Label::textColourId, SixpackColours::textDim);
+    setColour (juce::Slider::textBoxTextColourId, SevenpackColours::textBright);
+    setColour (juce::Label::textColourId, SevenpackColours::textDim);
 }
 
 // ---------------------------------------------------------------------
@@ -26,7 +26,7 @@ void SixpackLookAndFeel::refreshFixedColours()
 // juste au-dessus du knob : le chiffre aligne avec ce repere indique la
 // valeur courante.
 // ---------------------------------------------------------------------
-void SixpackLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
+void SevenpackLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
                                                float sliderPos, float rotaryStartAngle,
                                                float rotaryEndAngle, juce::Slider& slider)
 {
@@ -39,6 +39,52 @@ void SixpackLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int 
     const float angle  = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
 
     const float R = radius * 0.92f;
+
+    // Knob compact (tranches Sevenpack, voir KnobSlider::setCompact()) :
+    // pas d'ecran LCD central, la valeur est ecrite sous le knob.
+    const bool compactKnob = (bool) slider.getProperties().getWithDefault ("compactKnob", false);
+
+    // --- Theme DOS retro : cadran plat, sans biseau/halo/degrade/rotation
+    // du corps (lu comme un afficheur, pas manipule comme un objet
+    // physique -- coherent avec l'esthetique "boite ASCII" du reste du
+    // chrome, voir renderMetalPanel()/renderGlassPanel() plus bas). ---
+    if (isDosThemeStatic())
+    {
+        g.setColour (juce::Colour (0xff55ffff));
+        g.drawEllipse (centre.x - R, centre.y - R, R * 2.0f, R * 2.0f, 2.0f);
+
+        for (int k = 0; k <= 10; ++k)
+        {
+            const float a = rotaryStartAngle + (float) k * 0.1f * (rotaryEndAngle - rotaryStartAngle);
+            const bool isFive = (k == 5);
+            const auto p1 = centre.getPointOnCircumference (R * (isFive ? 0.62f : 0.8f), a);
+            const auto p2 = centre.getPointOnCircumference (R * 0.98f, a);
+            g.setColour (isFive ? juce::Colours::white : juce::Colour (0xff00aaaa));
+            g.drawLine ({ p1, p2 }, isFive ? 2.0f : 1.0f);
+        }
+
+        const auto needleEnd = centre.getPointOnCircumference (R * 0.6f, angle);
+        g.setColour (juce::Colour (0xffffff55));
+        g.drawLine ({ centre, needleEnd }, 2.0f);
+
+        if (powered && ! compactKnob)
+        {
+            const float boxR = R * 0.5f;
+            auto box = juce::Rectangle<float> (boxR * 2.0f, boxR * 1.1f).withCentre (centre);
+            g.setColour (juce::Colours::black);
+            g.fillRect (box);
+            g.setColour (juce::Colour (0xff55ffff));
+            g.drawRect (box, 1.0f);
+
+            const double rawValue = slider.getValue();
+            const int decimalsToShow = (std::abs (rawValue) >= 100.0) ? 0 : slider.getNumDecimalPlacesToDisplay();
+            const juce::String numberText = juce::String (rawValue, decimalsToShow);
+            g.setColour (juce::Colour (0xffffff55));
+            g.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(), juce::jmax (9.0f, boxR * 0.55f), juce::Font::plain));
+            g.drawFittedText (numberText, box.toNearestInt(), juce::Justification::centred, 1);
+        }
+        return;
+    }
 
     // -- 1. Halo d'assise + ombre portee (fixes, ne tournent pas) -- retour
     // utilisateur : "j'aime bien le B avec l'ombre portee" (variante B de
@@ -77,7 +123,7 @@ void SixpackLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int 
 
     // Bague noire texturee -- teinte tres legere si le slider porte les
     // proprietes "knobAccentAtMin"/"knobAccentAtMax" (voir
-    // SixpackLookAndFeel::setKnobAccentGradient(), utilise seulement par
+    // SevenpackLookAndFeel::setKnobAccentGradient(), utilise seulement par
     // les knobs Xover) : le MELANGE des 2 suit sliderPos (position REELLE
     // du knob dans sa plage), pas un degrade spatial fixe -- sinon
     // comportement d'origine inchange.
@@ -203,7 +249,9 @@ void SixpackLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int 
 
     // -- 5. Afficheur LCD au centre : FIXE, ne tourne JAMAIS -- valeur sur
     // une ligne, unite (dB/ms) plus petite en dessous. Eteint (ecran noir,
-    // pas de texte) si Power est off -- comme une machine debranchee. --
+    // pas de texte) si Power est off -- comme une machine debranchee.
+    // Absent en mode compact (voir compactKnob plus haut). --
+    if (! compactKnob)
     {
         const float lcdR = R * 0.62f * 0.62f; // meme proportion que l'ancienne face LCD (0.62 de capR)
         g.setColour (juce::Colour (0xff0a1620));
@@ -224,13 +272,13 @@ void SixpackLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int 
             auto numberArea = lcdArea.removeFromTop (lcdArea.getHeight() * 0.5f);
             auto unitArea = lcdArea;
 
-            g.setColour (SixpackColours::lcdText);
+            g.setColour (SevenpackColours::lcdText);
             g.setFont (juce::Font (juce::FontOptions (juce::jmax (9.0f, lcdR * 0.5f), juce::Font::bold)));
             g.drawFittedText (numberText, numberArea.toNearestInt(), juce::Justification::centred, 1);
 
             // Unite (dB/ms) : encore agrandie (2e demande) -- doit se lire
             // aussi facilement que le chiffre.
-            g.setColour (SixpackColours::lcdText.withAlpha (0.85f));
+            g.setColour (SevenpackColours::lcdText.withAlpha (0.85f));
             g.setFont (juce::Font (juce::FontOptions (juce::jmax (12.0f, lcdR * 0.55f), juce::Font::bold)));
             g.drawFittedText (unitText, unitArea.toNearestInt(), juce::Justification::centred, 1);
         }
@@ -240,12 +288,14 @@ void SixpackLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int 
     // tension -- seul l'ecran LCD (etape 5 ci-dessus) s'eteint.
 }
 
-juce::Font SixpackLookAndFeel::getLabelFont (juce::Label&)
+juce::Font SevenpackLookAndFeel::getLabelFont (juce::Label&)
 {
+    if (isDosThemeStatic())
+        return juce::Font (juce::Font::getDefaultMonospacedFontName(), 12.0f, juce::Font::plain);
     return juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.06f);
 }
 
-void SixpackLookAndFeel::drawLabel (juce::Graphics& g, juce::Label& label)
+void SevenpackLookAndFeel::drawLabel (juce::Graphics& g, juce::Label& label)
 {
     if (label.isColourSpecified (juce::Label::backgroundColourId))
     {
@@ -269,14 +319,14 @@ void SixpackLookAndFeel::drawLabel (juce::Graphics& g, juce::Label& label)
                        label.findColour (juce::Label::textColourId), label.getJustificationType());
 }
 
-void SixpackLookAndFeel::renderAnthraciteBackground (juce::Graphics& g, juce::Rectangle<float> bounds)
+void SevenpackLookAndFeel::renderAnthraciteBackground (juce::Graphics& g, juce::Rectangle<float> bounds)
 {
     juce::ColourGradient grad (juce::Colour (0xff121417), bounds.getX(), bounds.getY(),
                                 juce::Colour (0xff1a1d21), bounds.getX(), bounds.getBottom(), false);
     g.setGradientFill (grad);
     g.fillRect (bounds);
 
-    juce::ColourGradient ambient (SixpackColours::ledBlue.withAlpha (0.04f),
+    juce::ColourGradient ambient (SevenpackColours::ledBlue.withAlpha (0.04f),
                                    bounds.getCentreX(), bounds.getY(),
                                    juce::Colours::transparentBlack,
                                    bounds.getCentreX(), bounds.getY() + bounds.getHeight() * 0.6f, true);
@@ -284,17 +334,30 @@ void SixpackLookAndFeel::renderAnthraciteBackground (juce::Graphics& g, juce::Re
     g.fillRect (bounds);
 }
 
-void SixpackLookAndFeel::renderMetalPanel (juce::Graphics& g, juce::Rectangle<float> bounds)
+void SevenpackLookAndFeel::renderMetalPanel (juce::Graphics& g, juce::Rectangle<float> bounds)
 {
-    // Theme CLAIR (retour utilisateur explicite, voir SixpackColours::
+    // Theme DOS retro : plaque plate noire + bordure "double-ligne ASCII"
+    // cyan (pas de degrade brosse -- une boite DOS est un aplat de
+    // couleur, jamais un relief).
+    if (isDosThemeStatic())
+    {
+        g.setColour (SevenpackColours::panel);
+        g.fillRect (bounds);
+        g.setColour (juce::Colour (0xff55ffff));
+        g.drawRect (bounds, 2.0f);
+        g.drawRect (bounds.reduced (4.0f), 1.0f);
+        return;
+    }
+
+    // Theme CLAIR (retour utilisateur explicite, voir SevenpackColours::
     // applyLightTheme()) : degrade "metal brosse argente" gris moyen au
     // lieu du noir metal d'origine -- meme relief brosse (traits blancs
     // fins), juste beaucoup plus clair.
-    if (SixpackLookAndFeel::isLightThemeStatic())
+    if (SevenpackLookAndFeel::isLightThemeStatic())
     {
-        juce::ColourGradient grad (SixpackColours::lightPanelGradTop, bounds.getX(), bounds.getY(),
-                                    SixpackColours::lightPanelGradBottom, bounds.getX(), bounds.getBottom(), false);
-        grad.addColour (0.5, SixpackColours::lightPanelGradMid);
+        juce::ColourGradient grad (SevenpackColours::lightPanelGradTop, bounds.getX(), bounds.getY(),
+                                    SevenpackColours::lightPanelGradBottom, bounds.getX(), bounds.getBottom(), false);
+        grad.addColour (0.5, SevenpackColours::lightPanelGradMid);
         g.setGradientFill (grad);
         g.fillRect (bounds);
 
@@ -328,17 +391,30 @@ void SixpackLookAndFeel::renderMetalPanel (juce::Graphics& g, juce::Rectangle<fl
     g.restoreState();
 }
 
-void SixpackLookAndFeel::renderDividerLine (juce::Graphics& g, float x, float top, float bottom)
+void SevenpackLookAndFeel::renderDividerLine (juce::Graphics& g, float x, float top, float bottom)
 {
-    const auto colour = SixpackLookAndFeel::isLightThemeStatic() ? juce::Colour (0xff2a2c2e).withAlpha (0.35f)
+    if (isDosThemeStatic())
+    {
+        g.setColour (juce::Colour (0xff55ffff));
+        g.drawLine (x, top, x, bottom, 1.0f);
+        return;
+    }
+    const auto colour = SevenpackLookAndFeel::isLightThemeStatic() ? juce::Colour (0xff2a2c2e).withAlpha (0.35f)
                                                                      : juce::Colour (0xffe8e8e6).withAlpha (0.2f);
     g.setColour (colour);
     g.drawLine (x, top, x, bottom, 1.0f);
 }
 
-void SixpackLookAndFeel::renderGlowDividerLine (juce::Graphics& g, float x, float top, float bottom)
+void SevenpackLookAndFeel::renderGlowDividerLine (juce::Graphics& g, float x, float top, float bottom)
 {
-    const auto colour = SixpackLookAndFeel::isLightThemeStatic() ? juce::Colour (0xff1c1d1e).withAlpha (0.55f)
+    // Pas de lueur en DOS -- juste un trait plein, pas de DropShadow.
+    if (isDosThemeStatic())
+    {
+        g.setColour (juce::Colour (0xffffffff));
+        g.drawLine (x, top, x, bottom, 1.5f);
+        return;
+    }
+    const auto colour = SevenpackLookAndFeel::isLightThemeStatic() ? juce::Colour (0xff1c1d1e).withAlpha (0.55f)
                                                                      : juce::Colour (0xffe8e8e6).withAlpha (0.5f);
     juce::Path line;
     line.startNewSubPath (x, top);
@@ -349,16 +425,41 @@ void SixpackLookAndFeel::renderGlowDividerLine (juce::Graphics& g, float x, floa
 }
 
 
-void SixpackLookAndFeel::renderGlassPanel (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius)
+void SevenpackLookAndFeel::renderGlassPanel (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius)
 {
-    juce::ColourGradient grad (SixpackColours::panelLight.withAlpha (0.92f), bounds.getX(), bounds.getY(),
-                                SixpackColours::panel.withAlpha (0.92f), bounds.getX(), bounds.getBottom(), false);
+    // DOS : boite noire plate, coins carres (jamais arrondis), double
+    // bordure blanche -- meme vocabulaire que renderMetalPanel().
+    if (isDosThemeStatic())
+    {
+        g.setColour (juce::Colours::black);
+        g.fillRect (bounds);
+        g.setColour (juce::Colours::white);
+        g.drawRect (bounds, 2.0f);
+        g.drawRect (bounds.reduced (4.0f), 1.0f);
+        return;
+    }
+
+    juce::ColourGradient grad (SevenpackColours::panelLight.withAlpha (0.92f), bounds.getX(), bounds.getY(),
+                                SevenpackColours::panel.withAlpha (0.92f), bounds.getX(), bounds.getBottom(), false);
     g.setGradientFill (grad);
     g.fillRoundedRectangle (bounds, cornerRadius);
 }
 
-void SixpackLookAndFeel::renderGlossyWhitePanel (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius)
+void SevenpackLookAndFeel::renderGlossyWhitePanel (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius)
 {
+    // DOS : meme boite plate que renderGlassPanel(), en bordure jaune (la
+    // plaque THD Valve reste "differente" du reste du chassis, comme en
+    // theme normal, mais sans plastique glossy).
+    if (isDosThemeStatic())
+    {
+        g.setColour (juce::Colours::black);
+        g.fillRect (bounds);
+        g.setColour (juce::Colour (0xffffff55));
+        g.drawRect (bounds, 2.0f);
+        g.drawRect (bounds.reduced (4.0f), 1.0f);
+        return;
+    }
+
     // Base plastique moulee : degrade vertical blanc casse -> gris clair.
     juce::ColourGradient base (juce::Colour (0xfff6f6f4), bounds.getX(), bounds.getY(),
                                 juce::Colour (0xffd4d4d0), bounds.getX(), bounds.getBottom(), false);
@@ -383,10 +484,14 @@ void SixpackLookAndFeel::renderGlossyWhitePanel (juce::Graphics& g, juce::Rectan
     g.drawRoundedRectangle (bounds.reduced (1.6f), cornerRadius - 1.0f, 1.0f);
 }
 
-void SixpackLookAndFeel::renderGroupOutline (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius,
+void SevenpackLookAndFeel::renderGroupOutline (juce::Graphics& g, juce::Rectangle<float> bounds, float cornerRadius,
                                                  const juce::String& labelText)
 {
-    g.setColour (SixpackColours::textDim.withAlpha (0.45f));
+    // Coins CARRES en DOS -- une boite ASCII n'a jamais de coin arrondi.
+    if (isDosThemeStatic())
+        cornerRadius = 0.0f;
+
+    g.setColour (SevenpackColours::textDim.withAlpha (isDosThemeStatic() ? 1.0f : 0.45f));
     g.drawRoundedRectangle (bounds.reduced (0.5f), cornerRadius, 1.0f);
 
     if (labelText.isNotEmpty())
@@ -400,14 +505,14 @@ void SixpackLookAndFeel::renderGroupOutline (juce::Graphics& g, juce::Rectangle<
         const float textW = juce::jmin (bounds.getWidth() - 16.0f, ga.getBoundingBox (0, -1, true).getWidth() + 12.0f);
         auto labelArea = juce::Rectangle<float> (textW, 14.0f).withCentre ({ bounds.getCentreX(), bounds.getY() });
 
-        g.setColour (SixpackColours::bg);
+        g.setColour (SevenpackColours::bg);
         g.fillRect (labelArea);
-        g.setColour (SixpackColours::textBright);
+        g.setColour (SevenpackColours::textBright);
         g.drawFittedText (labelText, labelArea.toNearestInt(), juce::Justification::centred, 1);
     }
 }
 
-void SixpackLookAndFeel::renderBrushedMetal (juce::Graphics& g, juce::Rectangle<float> bounds)
+void SevenpackLookAndFeel::renderBrushedMetal (juce::Graphics& g, juce::Rectangle<float> bounds)
 {
     juce::ColourGradient grad (juce::Colour (0xff4a4d52), bounds.getX(), bounds.getY(),
                                 juce::Colour (0xff2a2c30), bounds.getX(), bounds.getBottom(), false);
@@ -425,8 +530,11 @@ void SixpackLookAndFeel::renderBrushedMetal (juce::Graphics& g, juce::Rectangle<
     g.drawRect (bounds, 1.0f);
 }
 
-void SixpackLookAndFeel::renderGlossySheen (juce::Graphics& g, juce::Rectangle<float> bounds)
+void SevenpackLookAndFeel::renderGlossySheen (juce::Graphics& g, juce::Rectangle<float> bounds)
 {
+    if (isDosThemeStatic())
+        return; // aucun reflet sur une boite ASCII plate
+
     juce::Path sheen;
     sheen.startNewSubPath (bounds.getX() - bounds.getWidth() * 0.1f, bounds.getY() + bounds.getHeight() * 0.04f);
     sheen.lineTo (bounds.getX() + bounds.getWidth() * 0.62f, bounds.getY() - bounds.getHeight() * 0.08f);
@@ -446,8 +554,14 @@ void SixpackLookAndFeel::renderGlossySheen (juce::Graphics& g, juce::Rectangle<f
                                           bounds.getWidth(), bounds.getHeight() * 0.16f));
 }
 
-void SixpackLookAndFeel::drawScrew (juce::Graphics& g, juce::Point<float> centre, float radius)
+void SevenpackLookAndFeel::drawScrew (juce::Graphics& g, juce::Point<float> centre, float radius)
 {
+    // Aucune vis en DOS, meme sur les appels directs (voir BandMetersRack::
+    // rebuildBackgroundCacheIfNeeded()) -- centralise ici plutot que dans
+    // renderCornerScrews() seulement.
+    if (isDosThemeStatic())
+        return;
+
     const float angle = std::fmod (centre.x * 0.37f + centre.y * 0.61f, juce::MathConstants<float>::pi);
 
     g.setColour (juce::Colours::black.withAlpha (0.55f));
@@ -474,8 +588,13 @@ void SixpackLookAndFeel::drawScrew (juce::Graphics& g, juce::Point<float> centre
     g.restoreState();
 }
 
-void SixpackLookAndFeel::renderCornerScrews (juce::Graphics& g, juce::Rectangle<float> bounds, float inset, float screwRadius)
+void SevenpackLookAndFeel::renderCornerScrews (juce::Graphics& g, juce::Rectangle<float> bounds, float inset, float screwRadius)
 {
+    // Aucune vis sur un chassis DOS -- une boite ASCII n'a pas de coque
+    // vissee, juste sa bordure double-ligne (voir renderMetalPanel()).
+    if (isDosThemeStatic())
+        return;
+
     if (bounds.getWidth() < inset * 3.0f || bounds.getHeight() < inset * 3.0f)
         return;
 
@@ -491,8 +610,13 @@ void SixpackLookAndFeel::renderCornerScrews (juce::Graphics& g, juce::Rectangle<
         drawScrew (g, c, screwRadius);
 }
 
-void SixpackLookAndFeel::renderKnobSocket (juce::Graphics& g, juce::Point<float> centre, float radius)
+void SevenpackLookAndFeel::renderKnobSocket (juce::Graphics& g, juce::Point<float> centre, float radius)
 {
+    // Le cadran DOS dessine deja son propre cercle plat (voir
+    // drawRotarySlider()) -- pas de rainure/socle en creux en plus.
+    if (isDosThemeStatic())
+        return;
+
     // Discret : juste une fine rainure en creux au ras du knob (pas de
     // disque degrade ni de halo d'ombre etendu -- ca faisait trop lourd).
     g.setColour (juce::Colours::black.withAlpha (0.35f));
@@ -501,16 +625,16 @@ void SixpackLookAndFeel::renderKnobSocket (juce::Graphics& g, juce::Point<float>
     g.drawEllipse (centre.x - radius - 1.2f, centre.y - radius - 1.2f, (radius + 1.2f) * 2.0f, (radius + 1.2f) * 2.0f, 0.8f);
 }
 
-juce::Colour SixpackLookAndFeel::ledGradientColour (float t)
+juce::Colour SevenpackLookAndFeel::ledGradientColour (float t)
 {
     struct Stop { float pos; juce::Colour colour; };
     static const Stop stops[] =
     {
-        { 0.0f,  SixpackColours::ledGreen  },
-        { 0.35f, SixpackColours::ledGreen  },
-        { 0.6f,  SixpackColours::ledYellow },
-        { 0.8f,  SixpackColours::ledOrange },
-        { 1.0f,  SixpackColours::ledRed    }
+        { 0.0f,  SevenpackColours::ledGreen  },
+        { 0.35f, SevenpackColours::ledGreen  },
+        { 0.6f,  SevenpackColours::ledYellow },
+        { 0.8f,  SevenpackColours::ledOrange },
+        { 1.0f,  SevenpackColours::ledRed    }
     };
 
     t = juce::jlimit (0.0f, 1.0f, t);
@@ -525,14 +649,14 @@ juce::Colour SixpackLookAndFeel::ledGradientColour (float t)
     return stops[4].colour;
 }
 
-juce::Colour SixpackLookAndFeel::ledGradientColourExpand (float t)
+juce::Colour SevenpackLookAndFeel::ledGradientColourExpand (float t)
 {
     struct Stop { float pos; juce::Colour colour; };
     static const Stop stops[] =
     {
-        { 0.0f, SixpackColours::ledBlue   },
-        { 0.5f, SixpackColours::ledCyan   },
-        { 1.0f, SixpackColours::ledPurple }
+        { 0.0f, SevenpackColours::ledBlue   },
+        { 0.5f, SevenpackColours::ledCyan   },
+        { 1.0f, SevenpackColours::ledPurple }
     };
 
     t = juce::jlimit (0.0f, 1.0f, t);
@@ -547,16 +671,16 @@ juce::Colour SixpackLookAndFeel::ledGradientColourExpand (float t)
     return stops[2].colour;
 }
 
-juce::Colour SixpackLookAndFeel::ratioLedColour (float t)
+juce::Colour SevenpackLookAndFeel::ratioLedColour (float t)
 {
     struct Stop { float pos; juce::Colour colour; };
     static const Stop stops[] =
     {
-        { 0.0f,  SixpackColours::ledCyan   },
-        { 0.25f, SixpackColours::ledGreen  },
-        { 0.5f,  SixpackColours::ledYellow },
-        { 0.75f, SixpackColours::ledOrange },
-        { 1.0f,  SixpackColours::ledRed    }
+        { 0.0f,  SevenpackColours::ledCyan   },
+        { 0.25f, SevenpackColours::ledGreen  },
+        { 0.5f,  SevenpackColours::ledYellow },
+        { 0.75f, SevenpackColours::ledOrange },
+        { 1.0f,  SevenpackColours::ledRed    }
     };
 
     t = juce::jlimit (0.0f, 1.0f, t);
@@ -571,17 +695,34 @@ juce::Colour SixpackLookAndFeel::ratioLedColour (float t)
     return stops[4].colour;
 }
 
-float SixpackLookAndFeel::meterDisplayRatio (float db, float minDb, float maxDb)
+float SevenpackLookAndFeel::meterDisplayRatio (float db, float minDb, float maxDb)
 {
     db = juce::jlimit (minDb, maxDb, db);
     return (db - minDb) / (maxDb - minDb);
 }
 
-void SixpackLookAndFeel::drawGlossyDot (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour colour, bool lit)
+void SevenpackLookAndFeel::drawGlossyDot (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour colour, bool lit)
 {
+    // DOS : carre plat (aplat de couleur ou contour eteint), pas de sphere
+    // glossy -- coherent avec le reste du chrome plat.
+    if (isDosThemeStatic())
+    {
+        if (lit)
+        {
+            g.setColour (colour);
+            g.fillRect (bounds);
+        }
+        else
+        {
+            g.setColour (juce::Colour (0xff003333));
+            g.drawRect (bounds, 1.0f);
+        }
+        return;
+    }
+
     if (! lit)
     {
-        g.setColour (SixpackColours::ledOff);
+        g.setColour (SevenpackColours::ledOff);
         g.fillEllipse (bounds);
         return;
     }
@@ -605,7 +746,7 @@ void SixpackLookAndFeel::drawGlossyDot (juce::Graphics& g, juce::Rectangle<float
                        .withCentre ({ centre.x - r * 0.32f, centre.y - r * 0.36f }));
 }
 
-void SixpackLookAndFeel::paintNeumorphicButton (juce::Graphics& g, juce::Rectangle<float> bounds, bool lit, bool isDown,
+void SevenpackLookAndFeel::paintNeumorphicButton (juce::Graphics& g, juce::Rectangle<float> bounds, bool lit, bool isDown,
                                                   juce::Colour accent, const juce::String& text, float textAlphaMultiplier,
                                                   float haloMargin)
 {
@@ -615,6 +756,32 @@ void SixpackLookAndFeel::paintNeumorphicButton (juce::Graphics& g, juce::Rectang
     // (plus grand) est tout ce que ce composant peut peindre SANS jamais
     // avoir besoin de deborder de ses propres limites.
     auto b = bounds.reduced (haloMargin);
+
+    // DOS : rectangle carre plat -- rempli (accent) quand lit, contour
+    // simple sinon. Pas de halo/ombre/degrade quel que soit isDown.
+    if (isDosThemeStatic())
+    {
+        if (lit)
+        {
+            g.setColour (accent);
+            g.fillRect (b);
+            g.setColour (juce::Colours::black);
+        }
+        else
+        {
+            g.setColour (juce::Colours::black);
+            g.fillRect (b);
+            g.setColour (isDown ? juce::Colours::white : accent);
+            g.drawRect (b, 1.0f);
+        }
+        g.setFont (juce::Font (juce::Font::getDefaultMonospacedFontName(),
+                                juce::jmin (15.0f, b.getHeight() * 0.55f), juce::Font::plain));
+        if (! lit)
+            g.setColour (isDown ? juce::Colours::white : accent);
+        g.drawFittedText (text, b.toNearestInt(), juce::Justification::centred, 1);
+        return;
+    }
+
     const bool recessed = lit || isDown;
     // Rayon agrandi (8 -> jusqu'a 10) : sur les petits boutons du header
     // (26-30px de haut), un rayon de 8 face a un flou de DropShadow de
@@ -635,11 +802,11 @@ void SixpackLookAndFeel::paintNeumorphicButton (juce::Graphics& g, juce::Rectang
     // puis teinte HSB a luminosite egale) donnaient un resultat different
     // d'une bande a l'autre selon la teinte de l'accent (cyan/vert
     // versus ambre) -- exactement l'inconsistance rapportee. Base
-    // alignee sur SixpackColours::lightPanelGradTop (haut du degrade
+    // alignee sur SevenpackColours::lightPanelGradTop (haut du degrade
     // metal, voir BandMetersRack::rebuildBackgroundCacheIfNeeded())
     // SANS aucune teinte d'accent : rendu strictement IDENTIQUE partout
     // (chaque bande + le header), garanti par construction.
-    const juce::Colour base = lightTheme ? SixpackColours::lightPanelGradTop : juce::Colour (0xff262422);
+    const juce::Colour base = lightTheme ? SevenpackColours::lightPanelGradTop : juce::Colour (0xff262422);
 
     juce::Path shape;
     shape.addRoundedRectangle (b, corner);
@@ -695,7 +862,7 @@ void SixpackLookAndFeel::paintNeumorphicButton (juce::Graphics& g, juce::Rectang
     g.drawFittedText (text, b.toNearestInt(), juce::Justification::centred, 1);
 }
 
-juce::Image SixpackLookAndFeel::buildSignatureImage (juce::Colour ink, int targetW)
+juce::Image SevenpackLookAndFeel::buildSignatureImage (juce::Colour ink, int targetW)
 {
     auto master = juce::ImageCache::getFromMemory (BinaryData::signature_mikshake_master_png,
                                                      BinaryData::signature_mikshake_master_pngSize);
@@ -714,7 +881,7 @@ juce::Image SixpackLookAndFeel::buildSignatureImage (juce::Colour ink, int targe
                 // Alpha = couverture d'encre reelle (encre noire sur fond
                 // blanc dans le maitre), preserve l'anti-aliasing natif du
                 // fichier source au lieu de le detruire par un seuillage
-                // binaire (voir doc de declaration dans SixpackLookAndFeel.h).
+                // binaire (voir doc de declaration dans SevenpackLookAndFeel.h).
                 const float alpha = juce::jlimit (0.0f, 1.0f, 1.0f - s.getPixelColour (x, y).getPerceivedBrightness());
                 d.setPixelColour (x, y, ink.withAlpha (alpha));
                 if (alpha > 0.03f)

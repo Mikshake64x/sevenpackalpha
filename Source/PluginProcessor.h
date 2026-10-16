@@ -11,7 +11,7 @@
 #include "SpectrumAnalyzerState.h"
 
 /**
-    SixpackAudioProcessor (multibande 5 bandes)
+    SevenpackAudioProcessor (multibande 5 bandes)
     ------------------------------------------------
     Le signal est separe en 5 bandes (Low / LowMid / Mid / HighMid / High)
     par un Crossover a 4 points (voir Crossover.h, generalise depuis le
@@ -52,14 +52,14 @@
     - Le bouton Sidechain externe (chaque bande decide independamment si
       son detecteur ecoute le bus sidechain externe)
 */
-class SixpackAudioProcessor : public juce::AudioProcessor, private juce::Timer
+class SevenpackAudioProcessor : public juce::AudioProcessor, private juce::Timer
 {
 public:
     enum Band { Low = 0, LowMid = 1, Mid = 2, HighMid = 3, Presence = 4, High = 5, Air = 6, NumBands = 7 };
     static constexpr int NumCrossovers = NumBands - 1; // 6 points de crossover
 
-    SixpackAudioProcessor();
-    ~SixpackAudioProcessor() override;
+    SevenpackAudioProcessor();
+    ~SevenpackAudioProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
@@ -96,7 +96,7 @@ public:
 
     juce::AudioProcessorValueTreeState apvts { *this, nullptr, "PARAMETERS", createParameterLayout() };
 
-    LicenseManager licenseManager { "sixpack-pro" };
+    LicenseManager licenseManager { "sevenpack-alpha" };
 
     // --- Lus par le GUI (thread-safe, pas d'allocation) ---
 
@@ -149,7 +149,7 @@ public:
     int needleModeIndex1 = 0, needleModeIndex2 = 0;
 
     // Facteur d'echelle de la fenetre (menu Options, engrenage) -- 1.0 /
-    // 0.75 / 0.5, proportions conservees (voir SixpackAudioProcessorEditor::
+    // 0.75 / 0.5, proportions conservees (voir SevenpackAudioProcessorEditor::
     // applyUiScale()). Vit sur le processeur pour la meme raison que
     // linkInEnabled ci-dessous : l'editeur peut etre detruit et
     // recree par l'hote sans que ce choix ne se perde.
@@ -157,12 +157,114 @@ public:
     // defaut (pas 100%, pas 95%).
     std::atomic<float> uiScale { 0.90f };
 
-    // Theme SOMBRE (0)/CLAIR (1, DEFAUT -- retour utilisateur explicite :
-    // "je veux que le plugin s'ouvre de base avec le light theme").
-    // Persiste dans apvts.state (meme mecanisme que needleModeIndex1/2,
-    // voir getStateInformation()/setStateInformation()) -- pas un
-    // AudioParameter (preference d'affichage, pas automatable).
-    std::atomic<float> lightTheme { 1.0f };
+    // Theme SOMBRE (0) / CLAIR (1, DEFAUT -- retour utilisateur explicite :
+    // "je veux que le plugin s'ouvre de base avec le light theme") / DOS
+    // retro (2, demande explicite : "vieille machine qui tourne en MSDOS")
+    // -- voir SevenpackLookAndFeel::applyGlobalTheme(int). Persiste dans
+    // apvts.state sous la propriete "uiTheme" (meme mecanisme que
+    // needleModeIndex1/2) -- pas un AudioParameter (preference d'affichage,
+    // pas automatable). La propriete "lightTheme" (bool) d'avant la v1.19
+    // reste lue en repli pour les sessions plus anciennes, voir
+    // setStateInformation().
+    std::atomic<int> uiTheme { 1 };
+
+    // --- Sevenpack Alpha (interface v2) : preferences d'affichage, memes
+    // regles que uiTheme (pas des AudioParameter, persistees dans
+    // apvts.state, voir getStateInformation()). ---
+    // Ballistique des 7 aiguilles THD par bande (menu 3 points -> AIGUILLES THD,
+    // demande explicite : "gestion du rebond des aiguilles dans les
+    // options"). 0..100 : rebond 0 = amorti critique, 100 = depassement
+    // marque ; retour = vitesse de l'aiguille.
+    std::atomic<float> needleBounce { 55.0f };
+    std::atomic<float> needleReturn { 50.0f };
+    // Couleurs pastel des tranches : 0 = bandeau (defaut), 1 = teinte sur
+    // toute la carte, 2 = aucune.
+    std::atomic<int> bandColourMode { 0 };
+
+    // Mode des aiguilles de l'interface Alpha (demande explicite : boutons
+    // THD / GR / GONIO a gauche des aiguilles, valables pour les 7 bandes) :
+    // 0 = THD, 1 = GR (zero au centre : compression a droite, expansion a
+    // gauche), 2 = GONIO (goniometre par bande). Persiste dans apvts.state
+    // ("meterMode"), comme needleBounce.
+    std::atomic<int> meterMode { 0 };
+
+    // Contraste renforce de l'interface Alpha (bouton sous A/B, demande
+    // explicite : "pour les ecrans pourris"). Persiste dans apvts.state
+    // ("highContrast"), comme uiTheme.
+    std::atomic<bool> highContrast { false };
+
+    // Vitre des cadrans a aiguille (demande explicite : "il manque une
+    // vitre", variantes B et C de l'apercu au choix dans les Options) :
+    // 0 = ARC (reflet en croissant), 1 = SMOKED (verre teinte). Persiste
+    // dans apvts.state ("needleGlass").
+    std::atomic<int> needleGlass { 0 };
+    // Bout des aiguilles : rouge (defaut) ou blanc, au choix dans les
+    // Options. Persiste dans apvts.state ("needleRedTip").
+    std::atomic<bool> needleRedTip { true };
+    // Goniometre : points (defaut) ou lignes ; hors phase en rouge (defaut)
+    // ou en blanc. Finition de l'interface : 0 MATTE, 1 SATIN, 2 GLOSS,
+    // 3 MOLDED. Tous persistes dans apvts.state, au choix dans les Options.
+    std::atomic<bool> gonioLines { false };
+    std::atomic<bool> gonioRedPhase { true };
+    std::atomic<int> uiFinish { 0 };
+    // Fader OUT des bandes : 0 BLACK, 1 VINTAGE, 2 ALU (Options), persiste
+    // dans apvts.state ("faderStyle").
+    std::atomic<int> faderStyle { 0 };
+
+    // Pictogrammes animes ATT / REL des bandes (Options > Appearance, voir
+    // AlphaAttRel.h) : 0 = aucun (version d'origine), 1 = courbe de gain
+    // (defaut), 2 = forme d'onde, 3 = diodes. Persiste dans apvts.state
+    // ("attRelIcons").
+    std::atomic<int> attRelIcons { 1 };
+
+    // Spectre de l'ecran des crossovers (Options > Meters > Spectrum, voir
+    // CrossoverSpectrumEditor::paintAlpha()) : style 0 = CLASSIC (d'origine),
+    // 1 = LINE (defaut), 2 = GLOW, 3 = BANDS, 4 = FILLED ; lissage 0 = d'origine,
+    // 1 = plus doux ; ligne des cretes. Persistes dans apvts.state.
+    std::atomic<int> spectrumStyle { 1 };
+    std::atomic<int> spectrumSmooth { 0 };
+    std::atomic<bool> spectrumPeak { false };
+
+    // Goniometre par bande : derniers echantillons stereo de la bande
+    // (apres Mix et Spread, ce qu'elle envoie au mix), decimes a ~12 kHz,
+    // alimentes UNIQUEMENT quand meterMode == 2 (aucun cout sinon).
+    // Tampon circulaire sans verrou (1 ecrivain audio, 1 lecteur UI) : la
+    // lecture peut chevaucher une ecriture, sans consequence pour un
+    // affichage.
+    struct BandScope
+    {
+        static constexpr int size = 1024; // puissance de 2
+
+        void push (float l, float r) noexcept
+        {
+            const auto w = write.load (std::memory_order_relaxed);
+            left[(size_t) (w & (size - 1))].store (l, std::memory_order_relaxed);
+            right[(size_t) (w & (size - 1))].store (r, std::memory_order_relaxed);
+            write.store (w + 1, std::memory_order_release);
+        }
+
+        // Copie les n derniers points (au plus size / 2), du plus ancien au
+        // plus recent ; renvoie le nombre copie.
+        int copyLatest (float* outL, float* outR, int n) const noexcept
+        {
+            const auto w = write.load (std::memory_order_acquire);
+            n = (int) juce::jmin ((juce::uint32) n, w, (juce::uint32) (size / 2));
+            for (int k = 0; k < n; ++k)
+            {
+                const auto idx = (size_t) ((w - (juce::uint32) n + (juce::uint32) k) & (size - 1));
+                outL[k] = left[idx].load (std::memory_order_relaxed);
+                outR[k] = right[idx].load (std::memory_order_relaxed);
+            }
+            return n;
+        }
+
+        juce::uint32 writeCount() const noexcept { return write.load (std::memory_order_acquire); }
+
+    private:
+        std::array<std::atomic<float>, (size_t) size> left {}, right {};
+        std::atomic<juce::uint32> write { 0 };
+    };
+    std::array<BandScope, (size_t) NumBands> bandScopes;
 
     // --- THD Valve GLOBAL (plaque du bas) : UN SEUL etage de saturation
     // (post-sommation des 3 bandes, un seul Drive/Engage), mais mesure sur
@@ -195,7 +297,7 @@ public:
     std::array<std::atomic<int>, (size_t) NumBands> bandOutPairIndex { {} };
 
     // Noms des canaux de sortie de l'interface audio courante, pousses par
-    // SixpackStandaloneApp a chaque (re)configuration du peripherique. Lu
+    // SevenpackStandaloneApp a chaque (re)configuration du peripherique. Lu
     // UNIQUEMENT par l'editeur (thread message) pour peupler les menus de
     // l'overlay Options -- jamais par processBlock. Vide hors standalone.
     void setStandaloneOutputChannelNames (const juce::StringArray& names);
@@ -207,7 +309,7 @@ public:
     // depart pour Crossover Low/High + Input/Ratio/Attack/Release par
     // bande -- voir AiLearnAnalyzer.h pour le detail de l'analyse et le
     // cycle d'etats. L'editeur poll getState()/getResult() (meme mecanisme
-    // de "polling" que le reste du GUI, voir SixpackEditorContent::
+    // de "polling" que le reste du GUI, voir SevenpackEditorContent::
     // timerCallback()) et applique le resultat via un ramp de knob, comme
     // un chargement de preset.
     AiLearnAnalyzer aiLearnAnalyzer;
@@ -234,7 +336,7 @@ public:
         // ET Expand) pour les 3 bandes a chaque fois (demande explicite :
         // "je veux que AI regle en meme temps le comp et l'expand") -- plus
         // besoin de lire l'etat Comp/Expand manuel actuel des bandes ici,
-        // voir AiLearnAnalyzer::run() et SixpackEditorContent::
+        // voir AiLearnAnalyzer::run() et SevenpackEditorContent::
         // applyAiLearnResult().
         aiLearnAnalyzer.beginCapture (getSampleRate(), targetIndex, compressionModeIndex, attackReleaseCharIndex,
                                        gainReductionIndex,
@@ -264,7 +366,7 @@ public:
     // explicite : "quand on passe sur both on mets les reglage de
     // compression"). Les knobs de la plaque de bande sont RE-attaches a ce
     // jeu de parametres quand on bascule sur Expand (voir
-    // SixpackEditorContent::rebindBandKnobsForMode()).
+    // SevenpackEditorContent::rebindBandKnobsForMode()).
     static constexpr const char* idInputExpand      = "inputExpand";
     static constexpr const char* idRatioIndexExpand = "ratioIndexExpand";
     static constexpr const char* idAttackExpand     = "attackExpand";
@@ -492,6 +594,10 @@ private:
     std::array<float, (size_t) NumBands> bandOutputEnvLin {};
     float bandOutputPerSampleDecay = 1.0f; // recalcule dans prepareToPlay()
 
+    // Goniometre (bandScopes) : 1 echantillon sur gonioDecimation (~12 kHz
+    // quelle que soit la frequence d'echantillonnage, voir prepareToPlay()).
+    int gonioDecimation = 4, gonioCounter = 0;
+
     // --- Analyse THD par bande (voir ThdValveModule.h) : le residu de
     // distorsion (signal avant clip moins signal apres clip, voir
     // processBlock()) est passe dans un 2e crossover DEDIE A L'ANALYSE
@@ -518,7 +624,7 @@ private:
     juce::AudioBuffer<float> outputRemapScratch;
 
     // Noms des sorties de l'interface (voir accesseurs publics). Protege par
-    // un lock : ecrit par le thread message (SixpackStandaloneApp), lu par
+    // un lock : ecrit par le thread message (SevenpackStandaloneApp), lu par
     // le thread message (editeur) -- jamais l'audio.
     juce::StringArray standaloneOutChannelNames;
     juce::CriticalSection standaloneOutNamesLock;
@@ -584,5 +690,5 @@ private:
     // ne traite rien -- voir processBlock()).
     std::array<int, (size_t) NumBands> computeGroupOwners() const noexcept;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SixpackAudioProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SevenpackAudioProcessor)
 };

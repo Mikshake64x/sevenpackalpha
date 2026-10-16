@@ -1,7 +1,7 @@
 #pragma once
 #include <JuceHeader.h>
 
-namespace SixpackColours
+namespace SevenpackColours
 {
     // Chassis rack anthracite/brosse, esthetique "unite hardware montee en
     // baie" -- remplace l'ancien theme "labo cyberpunk" de Nuke Mk1.
@@ -11,7 +11,7 @@ namespace SixpackColours
     // l'engrenage" -- ce sont les SEULES teintes qui different entre le
     // theme SOMBRE (par defaut) et le theme CLAIR "metal brosse argente"
     // (voir applyDarkTheme()/applyLightTheme() plus bas et
-    // SixpackLookAndFeel::setLightTheme()). Les couleurs de DIODE/LCD
+    // SevenpackLookAndFeel::setLightTheme()). Les couleurs de DIODE/LCD
     // ci-dessous restent volontairement CONST (jamais retheme -- un
     // afficheur/meter reste sombre et vif quelle que soit la couleur du
     // chassis, comme sur du vrai hardware -- voir preview validee).
@@ -65,7 +65,7 @@ namespace SixpackColours
 
     // Chassis METAL BROSSE ARGENTE, gris moyen (preview "palette B"
     // validee par l'utilisateur) -- degrade de fond utilise par
-    // SixpackLookAndFeel::renderMetalPanel() et la plaque par-bande de
+    // SevenpackLookAndFeel::renderMetalPanel() et la plaque par-bande de
     // BandMetersRack.
     inline juce::Colour lightPanelGradTop    { 0xff9c9d9f };
     inline juce::Colour lightPanelGradMid    { 0xff868789 };
@@ -90,10 +90,31 @@ namespace SixpackColours
         textDim = juce::Colour (0xff2c2d2e);
         textBright = juce::Colour (0xff1c1d1e);
     }
+
+    // Theme retro "MS-DOS / CGA" (3e theme, demande explicite : "vieille
+    // machine qui tourne en MSDOS. avec un design vieille OS", palette
+    // validee sur preview Artifact -- "CGA 16 couleurs"). Fond quasi noir
+    // plat (pas de degrade brosse), cyan vif pour les traits/labels
+    // secondaires, blanc pour le texte principal -- les diodes/LEDs
+    // (SevenpackColours::ledXxx, jamais rethemees) restent EN L'ETAT et
+    // fournissent deja la palette multicolore CGA (vert/jaune/orange/
+    // rouge, cyan/bleu/violet) sans rien changer ici. Les primitives de
+    // rendu "chrome" (renderMetalPanel, drawRotarySlider, etc., voir le
+    // .cpp) ont chacune leur PROPRE branche plate des qu'active -- ce
+    // bloc ne fait que fournir les teintes de base.
+    inline void applyDosTheme() noexcept
+    {
+        bg = juce::Colour (0xff000000);
+        panel = juce::Colour (0xff000000);
+        panelLight = juce::Colour (0xff0a0a0a);
+        gridLine = juce::Colour (0xff55ffff);
+        textDim = juce::Colour (0xff55ffff);
+        textBright = juce::Colour (0xffffffff);
+    }
 }
 
 /**
-    SixpackLookAndFeel
+    SevenpackLookAndFeel
     ----------------------
     Habillage "unite hardware rack" pour Suppressor (clone d'apparence d'un
     compresseur feedback classique de type 1176/Distressor) :
@@ -103,10 +124,10 @@ namespace SixpackColours
       coin, degrade des LEDs, dot glossy) conserve tel quel pour les
       composants reutilises (GRMeter, ToggleSwitch, AboutOverlay).
 */
-class SixpackLookAndFeel : public juce::LookAndFeel_V4
+class SevenpackLookAndFeel : public juce::LookAndFeel_V4
 {
 public:
-    SixpackLookAndFeel();
+    SevenpackLookAndFeel();
 
     // Etat POWER centralise : chaque composant (knobs, ToggleSwitch,
     // RatioSelector, DetectorFilterGraph...) l'interroge dans son paint()
@@ -167,20 +188,20 @@ public:
 
     // Theme SOMBRE (par defaut)/CLAIR -- retour utilisateur explicite : "je
     // souhaite faire un design plus clair qu'on peut changer dans
-    // l'engrenage". Met a jour les teintes MUTABLES de SixpackColours
+    // l'engrenage". Met a jour les teintes MUTABLES de SevenpackColours
     // (bg/panel/panelLight/gridLine/textDim/textBright -- voir applyDarkTheme()/
     // applyLightTheme()) et repousse les juce::Colour IDs fixes par le
     // constructeur (Slider/Label) vers l'instance courante -- l'appelant
-    // (SixpackEditorContent) doit ensuite invalider son cache de fond et
+    // (SevenpackEditorContent) doit ensuite invalider son cache de fond et
     // repaint() pour que le nouveau theme s'affiche (voir
     // rebuildBackgroundCache()).
     // static (pas besoin d'instance) : n'agit QUE sur l'etat GLOBAL/STATIQUE
-    // (SixpackColours::bg/panel/.../textBright/textDim + lightThemeActive)
+    // (SevenpackColours::bg/panel/.../textBright/textDim + lightThemeActive)
     // -- separee de setLightTheme() ci-dessous pour pouvoir etre appelee
-    // AVANT qu'aucune instance de SixpackLookAndFeel (ni aucun autre
+    // AVANT qu'aucune instance de SevenpackLookAndFeel (ni aucun autre
     // composant) n'existe. Necessaire car de nombreux composants
     // (KnobControl, FaderControl...) sont des MEMBRES DIRECTS de
-    // SixpackEditorContent/BandMetersRack et capturent SixpackColours
+    // SevenpackEditorContent/BandMetersRack et capturent SevenpackColours
     // via setColour() DANS LEUR PROPRE CONSTRUCTEUR -- execute pendant la
     // phase d'initialisation des membres, donc potentiellement AVANT que le
     // corps d'AUCUN constructeur n'ait tourne. Voir le membre sentinelle
@@ -190,9 +211,21 @@ public:
     // trop tard).
     static void applyGlobalTheme (bool shouldBeLight) noexcept
     {
-        lightThemeActive = shouldBeLight;
-        if (shouldBeLight) SixpackColours::applyLightTheme();
-        else                SixpackColours::applyDarkTheme();
+        applyGlobalTheme (shouldBeLight ? 1 : 0);
+    }
+
+    // Point d'entree CANONIQUE (3 themes) : 0=Sombre, 1=Clair, 2=DOS retro
+    // (voir SevenpackColours::applyDosTheme()). Meme raisonnement "static,
+    // pas besoin d'instance" que ci-dessus.
+    static void applyGlobalTheme (int themeIndex) noexcept
+    {
+        themeIndex = juce::jlimit (0, 2, themeIndex);
+        lightThemeActive = (themeIndex == 1);
+        dosThemeActive   = (themeIndex == 2);
+
+        if (dosThemeActive)        SevenpackColours::applyDosTheme();
+        else if (lightThemeActive) SevenpackColours::applyLightTheme();
+        else                       SevenpackColours::applyDarkTheme();
     }
 
     // Theme SOMBRE (par defaut)/CLAIR -- retour utilisateur explicite : "je
@@ -200,28 +233,47 @@ public:
     // l'engrenage". Version INSTANCE : fait tout ce que fait
     // applyGlobalTheme() ci-dessus, PLUS repousse les juce::Colour IDs fixes
     // par le constructeur (Slider/Label) vers l'instance courante --
-    // l'appelant (SixpackEditorContent) doit ensuite invalider son cache
+    // l'appelant (SevenpackEditorContent) doit ensuite invalider son cache
     // de fond et repaint() pour que le nouveau theme s'affiche (voir
     // rebuildBackgroundCache()).
     void setLightTheme (bool shouldBeLight)
     {
-        applyGlobalTheme (shouldBeLight);
+        setUiTheme (shouldBeLight ? 1 : 0);
+    }
+
+    // Version instance du point d'entree canonique (voir applyGlobalTheme(int)
+    // ci-dessus) -- 0=Sombre, 1=Clair, 2=DOS retro.
+    void setUiTheme (int themeIndex)
+    {
+        applyGlobalTheme (themeIndex);
         refreshFixedColours();
     }
 
     static bool isLightThemeStatic() noexcept { return lightThemeActive; }
     bool isLightTheme() const noexcept { return lightThemeActive; }
 
+    // Theme DOS retro actif -- voir applyGlobalTheme(int)/SevenpackColours::
+    // applyDosTheme(). Verifie AVANT isLightThemeStatic() par les
+    // primitives de rendu (voir .cpp) : DOS a toujours priorite, jamais
+    // combine avec le rendu clair/sombre.
+    static bool isDosThemeStatic() noexcept { return dosThemeActive; }
+
+    static int getUiThemeIndex() noexcept
+    {
+        return dosThemeActive ? 2 : (lightThemeActive ? 1 : 0);
+    }
+
     // Bleu de TEXTE (titres de section, liens -- AboutOverlay/OptionsOverlay)
-    // -- contrairement aux LEDs/diodes fixes de SixpackColours (jamais
+    // -- contrairement aux LEDs/diodes fixes de SevenpackColours (jamais
     // rethemees, un afficheur reste sombre quel que soit le chassis), un
     // libelle ecrit DIRECTEMENT sur le panneau doit rester lisible une fois
     // ce panneau devenu gris clair (retour utilisateur : "le bleu cyan sur
     // gris c'est pas visible" en theme clair) -- variante nettement plus
-    // foncee dans ce cas, identique a SixpackColours::ledBlue en sombre.
+    // foncee dans ce cas, identique a SevenpackColours::ledBlue en sombre.
     static juce::Colour textAccentBlue() noexcept
     {
-        return isLightThemeStatic() ? juce::Colour (0xff0d6a9e) : SixpackColours::ledBlue;
+        if (isDosThemeStatic())   return juce::Colour (0xffff55ff); // magenta CGA, pop sur fond noir
+        return isLightThemeStatic() ? juce::Colour (0xff0d6a9e) : SevenpackColours::ledBlue;
     }
 
     // Knob "anneau metal" : chiffres 0-10 imprimes sur l'anneau brosse
@@ -282,7 +334,7 @@ public:
                                    juce::Colour colour, juce::Justification justification = juce::Justification::centred,
                                    int maximumNumberOfLines = 1)
     {
-        if (isLightThemeStatic())
+        if (isLightThemeStatic() || isDosThemeStatic())
             colour = colour.withAlpha (1.0f);
         g.setColour (colour);
         g.drawFittedText (text, bounds, justification, maximumNumberOfLines);
@@ -397,9 +449,12 @@ private:
     bool powered = true;
     juce::uint32 powerOffFlickerStartMs = 0;
     // static : le theme est un choix GLOBAL du plugin (voir OptionsOverlay),
-    // pas par instance -- une seule instance de SixpackLookAndFeel existe
-    // de toute facon (SixpackAudioProcessorEditor::lookAndFeel), mais
+    // pas par instance -- une seule instance de SevenpackLookAndFeel existe
+    // de toute facon (SevenpackAudioProcessorEditor::lookAndFeel), mais
     // isLightThemeStatic() doit rester accessible sans instance (utilise
     // par des methodes static comme renderMetalPanel()).
     static inline bool lightThemeActive = false;
+    // Theme DOS retro -- mutuellement exclusif avec lightThemeActive (voir
+    // applyGlobalTheme(int), seul point d'entree qui touche les 2 flags).
+    static inline bool dosThemeActive = false;
 };

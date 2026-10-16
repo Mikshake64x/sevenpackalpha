@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 
 /**
     XoverModeButton
@@ -18,7 +18,7 @@
     2". Le composant redevient un simple toggle 2 voies.)
 
     Porte depuis Nuke Mext (meme fichier, couleurs/LookAndFeel adaptes a
-    SixpackColours / SixpackLookAndFeel).
+    SevenpackColours / SevenpackLookAndFeel).
 
     Lit directement le parametre APVTS via un petit Timer interne, pour
     rester synchronise meme si la valeur change par un autre biais que le
@@ -37,8 +37,8 @@ public:
         linearSegment.setButtonText ("LINEAR");
         analogSegment.setName ("Analog Crossover");
         linearSegment.setName ("Linear Crossover");
-        analogSegment.accent = SixpackColours::ledBlue;
-        linearSegment.accent = SixpackColours::ledRed;
+        analogSegment.accent = SevenpackColours::ledBlue;
+        linearSegment.accent = SevenpackColours::ledRed;
 
         analogSegment.onClick = [this] { if (onSelect) onSelect (Mode::Analog); };
         linearSegment.onClick = [this] { if (onSelect) onSelect (Mode::Linear); };
@@ -98,7 +98,7 @@ private:
 
         void paintButton (juce::Graphics& g, bool /*isHighlighted*/, bool isDown) override
         {
-            SixpackLookAndFeel::paintNeumorphicButton (g, getLocalBounds().toFloat(), getToggleState(), isDown,
+            SevenpackLookAndFeel::paintNeumorphicButton (g, getLocalBounds().toFloat(), getToggleState(), isDown,
                                                          accent, getButtonText().toUpperCase(), 1.0f, haloMargin);
         }
 

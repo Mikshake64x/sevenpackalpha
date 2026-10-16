@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 
 /**
     RackPushButton
@@ -49,7 +49,7 @@ public:
     // Espace REEL reserve autour du bouton visuel pour que le halo puisse
     // deborder SANS jamais sortir des bounds du composant (retour
     // utilisateur, reference visuelle "C -- extreme" : le halo doit
-    // vraiment deborder hors du bouton) -- voir SixpackLookAndFeel::
+    // vraiment deborder hors du bouton) -- voir SevenpackLookAndFeel::
     // paintNeumorphicButton(). L'appelant (mise en page) DOIT agrandir
     // les bounds du composant de ce meme montant (voir BandMetersRack.h/
     // ThdHeaderModule.h/etc, meme idiome que ConsoleFader::
@@ -95,7 +95,7 @@ public:
             textAlpha = 0.75f + wave * 0.25f;
         }
 
-        SixpackLookAndFeel::paintNeumorphicButton (g, getLocalBounds().toFloat(), lit, isDown,
+        SevenpackLookAndFeel::paintNeumorphicButton (g, getLocalBounds().toFloat(), lit, isDown,
                                                      accent, getButtonText().toUpperCase(), textAlpha, haloMargin);
     }
 

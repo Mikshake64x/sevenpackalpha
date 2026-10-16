@@ -1,6 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
-#include "SixpackLookAndFeel.h"
+#include "SevenpackLookAndFeel.h"
 #include "RackPushButton.h"
 
 /**
@@ -37,7 +37,7 @@ public:
 
         for (int i = 0; i < numModes; ++i)
         {
-            buttons[i] = std::make_unique<RackPushButton> (names[i], SixpackColours::ledAmber);
+            buttons[i] = std::make_unique<RackPushButton> (names[i], SevenpackColours::ledAmber);
             // RackPushButton ne configure pas ceci par defaut (SEL en
             // depend pour rester momentane, voir RackPushButton.h) -- ici
             // un vrai radio group exclusif a besoin du toggle au clic,
