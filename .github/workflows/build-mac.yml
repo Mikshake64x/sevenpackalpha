@@ -86,7 +86,8 @@ jobs:
       - name: Assembler le DMG
         run: |
           set -e
-          VERSION=$(grep -o 'version="[0-9.]*"' SevenpackAlpha.jucer | head -1 | cut -d'"' -f2)
+          # Ligne 1 sautee : c'est la declaration XML (<?xml version="1.0" ...>).
+          VERSION=$(tail -n +2 SevenpackAlpha.jucer | grep -o 'version="[0-9.]*"' | head -1 | cut -d'"' -f2)
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
           # Les artefacts perdent le bit executable : on le remet.
