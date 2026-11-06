@@ -155,9 +155,13 @@ jobs:
             pkgbuild --analyze --root "pkgroot/$part" "$part.plist"
             i=0
             while /usr/libexec/PlistBuddy -c "Print :$i" "$part.plist" >/dev/null 2>&1; do
-              /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" "$part.plist"
+              # La cle n'existe pas pour tous les bundles (ex. .vst3) : on la
+              # retire si elle est la, puis on la cree a false.
+              /usr/libexec/PlistBuddy -c "Delete :$i:BundleIsRelocatable" "$part.plist" >/dev/null 2>&1 || true
+              /usr/libexec/PlistBuddy -c "Add :$i:BundleIsRelocatable bool false" "$part.plist"
               i=$((i+1))
             done
+            echo "::notice::$part : $i bundle(s) non relocalisable(s)"
           done
 
           pkgbuild --root pkgroot/vst3 --component-plist vst3.plist --install-location / \
