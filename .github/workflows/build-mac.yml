@@ -1,4 +1,4 @@
-name: Build macOS VST3 + Standalone (DMG)
+name: Build macOS VST3 + Standalone (DMG + PKG)
 
 on:
   workflow_dispatch:
@@ -109,3 +109,71 @@ jobs:
         with:
           name: SevenpackAlpha-${{ env.VERSION }}-DMG
           path: "SevenpackAlpha-${{ env.VERSION }}.dmg"
+
+  # Installeur .pkg (demande explicite : "render mac en pkg avec le vst, et
+  # le standalone") : 2 composants coches par defaut, "Customize" pour n'en
+  # garder qu'un (installer-mac/distribution.xml). Les fichiers poses par
+  # Installer n'ont pas l'attribut de quarantaine : le plugin se charge sans
+  # "Open Anyway". Le .pkg n'est pas signe (pas de Developer ID) : seul son
+  # premier lancement demande Reglages > Confidentialite et securite.
+  build-pkg:
+    needs: build-mac
+    runs-on: macos-latest
+
+    steps:
+      - name: Récupérer le code (pour le Readme, la distribution et la version)
+        uses: actions/checkout@v4
+
+      - name: Télécharger le VST3
+        uses: actions/download-artifact@v4
+        with:
+          name: SevenpackAlpha-macOS-VST3
+          path: pkgroot/vst3/Library/Audio/Plug-Ins/VST3/SevenpackAlpha.vst3
+
+      - name: Télécharger le Standalone
+        uses: actions/download-artifact@v4
+        with:
+          name: SevenpackAlpha-macOS-Standalone
+          path: pkgroot/app/Applications/SevenpackAlpha.app
+
+      - name: Assembler le PKG
+        run: |
+          set -e
+          VERSION=$(tail -n +2 SevenpackAlpha.jucer | grep -o 'version="[0-9.]*"' | head -1 | cut -d'"' -f2)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+          # Les artefacts perdent le bit executable : on le remet.
+          chmod +x pkgroot/app/Applications/SevenpackAlpha.app/Contents/MacOS/* || true
+          chmod +x pkgroot/vst3/Library/Audio/Plug-Ins/VST3/SevenpackAlpha.vst3/Contents/MacOS/* || true
+
+          # Bundles NON relocalisables : sinon Installer "suit" une autre copie
+          # du meme bundle ailleurs sur le disque et installe la-bas.
+          for part in vst3 app; do
+            pkgbuild --analyze --root "pkgroot/$part" "$part.plist"
+            i=0
+            while /usr/libexec/PlistBuddy -c "Print :$i" "$part.plist" >/dev/null 2>&1; do
+              /usr/libexec/PlistBuddy -c "Set :$i:BundleIsRelocatable false" "$part.plist"
+              i=$((i+1))
+            done
+          done
+
+          pkgbuild --root pkgroot/vst3 --component-plist vst3.plist --install-location / \
+            --identifier com.SideKeySystem.SevenpackAlpha.vst3.pkg --version "$VERSION" SevenpackAlpha-VST3.pkg
+          pkgbuild --root pkgroot/app --component-plist app.plist --install-location / \
+            --identifier com.SideKeySystem.SevenpackAlpha.app.pkg --version "$VERSION" SevenpackAlpha-App.pkg
+
+          mkdir -p pkgres
+          cp installer-mac/Readme.txt pkgres/Readme.txt
+          sed "s/@VERSION@/$VERSION/g" installer-mac/distribution.xml > distribution.xml
+          productbuild --distribution distribution.xml --package-path . --resources pkgres \
+            "SevenpackAlpha-$VERSION.pkg"
+
+          # Controle : contenu du paquet final.
+          pkgutil --payload-files SevenpackAlpha-VST3.pkg | head -5
+          pkgutil --payload-files SevenpackAlpha-App.pkg | head -5
+
+      - name: Uploader le PKG
+        uses: actions/upload-artifact@v4
+        with:
+          name: SevenpackAlpha-${{ env.VERSION }}-PKG
+          path: "SevenpackAlpha-${{ env.VERSION }}.pkg"

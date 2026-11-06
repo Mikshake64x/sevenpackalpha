@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Installeur macOS .pkg (productbuild, voir .github/workflows/build-mac.yml) :
+     deux composants au choix, coches par defaut. @VERSION@ est remplace par
+     la version du .jucer au moment du build. -->
+<installer-gui-script minSpecVersion="2">
+    <title>Sevenpack Alpha @VERSION@</title>
+    <readme file="Readme.txt" mime-type="text/plain"/>
+    <options customize="allow" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <allowed-os-versions>
+        <os-version min="11.0"/>
+    </allowed-os-versions>
+    <choices-outline>
+        <line choice="vst3"/>
+        <line choice="app"/>
+    </choices-outline>
+    <choice id="vst3" visible="true" start_selected="true" title="VST3 plugin"
+            description="SevenpackAlpha.vst3, installed in /Library/Audio/Plug-Ins/VST3.">
+        <pkg-ref id="com.SideKeySystem.SevenpackAlpha.vst3.pkg"/>
+    </choice>
+    <choice id="app" visible="true" start_selected="true" title="Standalone application"
+            description="Sevenpack Alpha, installed in /Applications.">
+        <pkg-ref id="com.SideKeySystem.SevenpackAlpha.app.pkg"/>
+    </choice>
+    <pkg-ref id="com.SideKeySystem.SevenpackAlpha.vst3.pkg" version="@VERSION@" onConclusion="none">SevenpackAlpha-VST3.pkg</pkg-ref>
+    <pkg-ref id="com.SideKeySystem.SevenpackAlpha.app.pkg" version="@VERSION@" onConclusion="none">SevenpackAlpha-App.pkg</pkg-ref>
+</installer-gui-script>
