@@ -136,9 +136,12 @@ jobs:
           name: SevenpackAlpha-macOS-Standalone
           path: pkgroot/app/Applications/SevenpackAlpha.app
 
+      # Les "::notice::" / "::error::" sont des annotations du run, lisibles
+      # sans compte (contrairement au journal) : diagnostic en cas d'echec.
       - name: Assembler le PKG
         run: |
           set -e
+          trap 'echo "::error::PKG : echec ligne $LINENO : $BASH_COMMAND"' ERR
           VERSION=$(tail -n +2 SevenpackAlpha.jucer | grep -o 'version="[0-9.]*"' | head -1 | cut -d'"' -f2)
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
@@ -168,9 +171,11 @@ jobs:
           productbuild --distribution distribution.xml --package-path . --resources pkgres \
             "SevenpackAlpha-$VERSION.pkg"
 
-          # Controle : contenu du paquet final.
-          pkgutil --payload-files SevenpackAlpha-VST3.pkg | head -5
-          pkgutil --payload-files SevenpackAlpha-App.pkg | head -5
+          # Controle (sans tube vers head : le shell des Actions est en
+          # pipefail, un SIGPIPE ferait echouer l'etape).
+          pkgutil --payload-files SevenpackAlpha-VST3.pkg > vst3-files.txt
+          pkgutil --payload-files SevenpackAlpha-App.pkg > app-files.txt
+          echo "::notice::PKG $VERSION : VST3 $(wc -l < vst3-files.txt | tr -d ' ') fichiers, App $(wc -l < app-files.txt | tr -d ' ') fichiers, $(du -h "SevenpackAlpha-$VERSION.pkg" | cut -f1)"
 
       - name: Uploader le PKG
         uses: actions/upload-artifact@v4
