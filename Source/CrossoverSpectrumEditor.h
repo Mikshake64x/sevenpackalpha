@@ -758,6 +758,19 @@ private:
         g.saveState();
         juce::Path clip; clip.addRoundedRectangle (bounds, corner);
         g.reduceClipRegion (clip);
+        if (pal.sunny)
+        {
+            // Design de Sunny : turquoise tres sombre au centre, lueur claire
+            // sur les bords haut et bas.
+            juce::ColourGradient base (juce::Colour (0xff0c787a), 0.0f, bounds.getY(), juce::Colour (0xff289090), 0.0f, bounds.getBottom(), false);
+            base.addColour (0.16, juce::Colour (0xff0a3c3d));
+            base.addColour (0.30, juce::Colour (0xff092d2d));
+            base.addColour (0.72, juce::Colour (0xff092d2d));
+            base.addColour (0.90, juce::Colour (0xff165f60));
+            g.setGradientFill (base);
+            g.fillRect (bounds);
+        }
+        else
         {
             juce::ColourGradient base (juce::Colour (0xff198d8b), bounds.getX(), 0.0f,
                                        juce::Colour (0xff128f91), bounds.getRight(), 0.0f, false);
@@ -966,6 +979,7 @@ private:
         g.setFont (AlphaDraw::font (9.0f));
         g.setColour (juce::Colours::white.withAlpha (0.5f));
         for (float f : { 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
+            if (! pal.sunny || kSunnyShowScale)
         {
             const float x = plot.getX() + freqToXFrac (f) * plot.getWidth();
             g.drawText (f >= 1000.0f ? juce::String ((int) (f / 1000.0f)) + "K" : juce::String ((int) f),
@@ -994,6 +1008,9 @@ private:
                 g.setColour (lineColour.withAlpha (0.55f));
                 g.fillPath (stroked);
             }
+
+            if (pal.sunny && ! kSunnyShowScale)
+                continue;
 
             const float hy = crossoverHandleY (plot);
             auto handle = juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ lx, hy });
@@ -1051,13 +1068,25 @@ private:
                 if (! started) { line.startNewSubPath (p); started = true; }
                 else line.lineTo (p);
             }
-            g.setColour (juce::Colours::white.withAlpha (0.7f));
-            g.strokePath (line, juce::PathStrokeType (1.8f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded));
+            g.setColour (pal.sunny ? juce::Colour (0xff4fd0f5) : juce::Colours::white.withAlpha (0.7f));
+            g.strokePath (line, juce::PathStrokeType (pal.sunny ? 2.4f : 1.8f, juce::PathStrokeType::mitered, juce::PathStrokeType::rounded));
             for (int band = 0; band < SevenpackAudioProcessor::NumBands; ++band)
             {
                 const auto& p = pts[(size_t) band];
                 if (p.x < plot.getX()) continue;
                 const auto colour = pastelOf (band);
+                if (pal.sunny)
+                {
+                    // Design de Sunny : pastille pastel, fin contour clair.
+                    auto dot = juce::Rectangle<float> (14.0f, 14.0f).withCentre (p);
+                    g.setColour (juce::Colours::black.withAlpha (0.3f));
+                    g.fillEllipse (dot.translated (0.0f, 1.0f));
+                    g.setColour (colour);
+                    g.fillEllipse (dot);
+                    g.setColour (draggingPoint == band ? pal.accent : juce::Colours::white.withAlpha (0.7f));
+                    g.drawEllipse (dot, draggingPoint == band ? 2.2f : 1.2f);
+                    continue;
+                }
                 g.setColour (colour.withAlpha (0.3f));
                 g.fillEllipse (juce::Rectangle<float> (21.0f, 21.0f).withCentre (p));
                 auto dot = juce::Rectangle<float> (14.0f, 14.0f).withCentre (p);
@@ -1077,6 +1106,9 @@ private:
             AlphaDraw::spacedText (g, "LEARNING", tag, juce::Colours::white.withAlpha (learnEnv), AlphaType::label, 0.35f);
         }
 
+        if (pal.sunny)
+            paintSunnyGlass (g, bounds);
+        else
         // Encastrement : ombre interieure (forte en haut, sous le rebord du
         // rack), arete sombre en haut, reflet discret sur l'arete basse.
         {
@@ -1139,6 +1171,31 @@ private:
         g.restoreState();
         g.setColour (juce::Colour (0xb3141c20));
         g.drawRoundedRectangle (bounds, corner, 1.5f);
+    }
+
+    // Vitre du design de Sunny : voile clair et bandes de reflet en biais sur
+    // la gauche, tache de lumiere en haut a gauche.
+    static void paintSunnyGlass (juce::Graphics& g, juce::Rectangle<float> b)
+    {
+        const auto slant = [&g, b] (float topX0, float topX1, float botX0, float botX1, float alpha)
+        {
+            juce::Path p;
+            p.startNewSubPath (b.getX() + b.getWidth() * topX0, b.getY());
+            p.lineTo (b.getX() + b.getWidth() * topX1, b.getY());
+            p.lineTo (b.getX() + b.getWidth() * botX1, b.getBottom());
+            p.lineTo (b.getX() + b.getWidth() * botX0, b.getBottom());
+            p.closeSubPath();
+            g.setColour (juce::Colours::white.withAlpha (alpha));
+            g.fillPath (p);
+        };
+        slant (0.0f, 0.10f, 0.0f, 0.02f, 0.15f);
+        slant (0.12f, 0.14f, 0.04f, 0.06f, 0.15f);
+        slant (0.145f, 0.158f, 0.065f, 0.078f, 0.09f);
+
+        const juce::Point<float> spot (b.getX() + b.getWidth() * 0.05f, b.getY() + b.getHeight() * 0.17f);
+        g.setGradientFill (juce::ColourGradient (juce::Colours::white.withAlpha (0.5f), spot,
+                                                 juce::Colours::white.withAlpha (0.0f), spot.translated (b.getWidth() * 0.055f, 0.0f), true));
+        g.fillEllipse (juce::Rectangle<float> (b.getWidth() * 0.11f, b.getHeight() * 0.3f).withCentre (spot));
     }
 
     void drawCrossoverLine (juce::Graphics& g, const Layout& lay, int x, float freq, float& prevPillRight)
@@ -1374,6 +1431,9 @@ private:
 
     // Spectre de l'interface Alpha (voir paintAlpha()) : 256 points, ligne
     // des cretes (dB par point, maintien restant en s).
+    // Design de Sunny : pas de graduations, de frequences ni de poignees sur
+    // l'ecran (gardees dans le code : passer a true pour les remettre).
+    static constexpr bool kSunnyShowScale = false;
     static constexpr int kSpectrumPoints = 256;
     static constexpr int kSmoothRadius = 6;
     std::array<float, kSpectrumPoints> peakDb = [] { std::array<float, kSpectrumPoints> a {}; a.fill (-54.0f); return a; }();

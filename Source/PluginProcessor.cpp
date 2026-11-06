@@ -100,6 +100,7 @@ SevenpackAudioProcessor::SevenpackAudioProcessor()
         bandMixParam[b]          = apvts.getRawParameterValue (bandParamId (idBandMix, band));
         bandWidthParam[b]        = apvts.getRawParameterValue (bandParamId (idBandWidth, band));
         bandRouteOutParam[b]     = apvts.getRawParameterValue (bandParamId (idBandRouteOut, band));
+        bandHardClipParam[b]     = apvts.getRawParameterValue (bandParamId (idBandHardClip, band));
         bandOutPairIndex[b].store (band + 1); // defaut : Low->3-4, Low-Mid->5-6, ... Air->15-16
     }
 
@@ -123,6 +124,10 @@ SevenpackAudioProcessor::SevenpackAudioProcessor()
     softClipParam         = apvts.getRawParameterValue (idSoftClip);
     thdModeParam          = apvts.getRawParameterValue (idThdMode);
     thdOutputParam        = apvts.getRawParameterValue (idThdOutput);
+    thdOversamplingParam  = apvts.getRawParameterValue (idThdOversampling);
+    thdOsFilterParam      = apvts.getRawParameterValue (idThdOsFilter);
+    thdClipShapeParam     = apvts.getRawParameterValue (idThdClipShape);
+    thdTruePeakParam      = apvts.getRawParameterValue (idThdTruePeak);
     aiMasteringTargetParam = apvts.getRawParameterValue (idAiMasteringTarget);
     aiScopeCrossoverParam   = apvts.getRawParameterValue (idAiScopeCrossover);
     aiScopeDetectorsParam   = apvts.getRawParameterValue (idAiScopeDetectors);
@@ -368,6 +373,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout SevenpackAudioProcessor::cre
         // defaut : comportement inchange, la bande va dans le mix principal.
         params.push_back (std::make_unique<AudioParameterBool> (
             ParameterID { bandParamId (idBandRouteOut, band), 1 }, prefix + "Separate Out", false));
+
+        // Ecretage dur de la bande seule avant le clip final (voir
+        // idBandHardClip) -- LOW par defaut (grosse caisse).
+        params.push_back (std::make_unique<AudioParameterBool> (
+            ParameterID { bandParamId (idBandHardClip, band), 1 }, prefix + "Hard Clip", band == 0));
     }
 
     // --- Parametres globaux ---
@@ -389,22 +399,32 @@ juce::AudioProcessorValueTreeState::ParameterLayout SevenpackAudioProcessor::cre
         NormalisableRange<float> (-3.0f, -0.5f, 0.1f), -0.5f,
         AudioParameterFloatAttributes().withLabel ("dB")));
 
+    // Etage THD sur-echantillonne (voir idThdOversampling).
+    params.push_back (std::make_unique<AudioParameterChoice> (
+        ParameterID { idThdOversampling, 1 }, "THD Oversampling", StringArray { "Off", "x2", "x4", "x8" }, 2));
+    params.push_back (std::make_unique<AudioParameterChoice> (
+        ParameterID { idThdOsFilter, 1 }, "THD Oversampling Filter", StringArray { "Linear Phase", "Minimum Phase" }, 0));
+    params.push_back (std::make_unique<AudioParameterChoice> (
+        ParameterID { idThdClipShape, 1 }, "THD Clip Shape", StringArray { "Soft", "Hard" }, 0));
+    params.push_back (std::make_unique<AudioParameterBool> (
+        ParameterID { idThdTruePeak, 1 }, "THD True Peak Ceiling", true));
+
     // Defaut "Match" (dernier choix, index 9) au lieu de "Off" (retour
     // utilisateur : screenshots des options a l'ouverture montrant MATCH
     // coche par defaut, avec les 3 autres reglages AI Expand ci-dessous).
     params.push_back (std::make_unique<AudioParameterChoice> (
-        ParameterID { idAiMasteringTarget, 1 }, "AI Mastering Target",
+        ParameterID { idAiMasteringTarget, 1 }, "Calculator Mastering Target",
         StringArray { "Off", "Apple Music", "YouTube", "Spotify", "Deezer", "SoundCloud", "TV", "CD", "Side Key", "Match" }, 9));
 
     // Coche par defaut (retour utilisateur : "il faut qu'il soit active
     // dans AI scope [crossover]") -- coherent avec Compression, deja ON
     // par defaut ci-dessous.
     params.push_back (std::make_unique<AudioParameterBool> (
-        ParameterID { idAiScopeCrossover, 1 }, "AI Scope: Crossover", true));
+        ParameterID { idAiScopeCrossover, 1 }, "Calculator Scope: Crossover", true));
     params.push_back (std::make_unique<AudioParameterBool> (
-        ParameterID { idAiScopeDetectors, 1 }, "AI Scope: Detectors", false));
+        ParameterID { idAiScopeDetectors, 1 }, "Calculator Scope: Detectors", false));
     params.push_back (std::make_unique<AudioParameterBool> (
-        ParameterID { idAiScopeCompression, 1 }, "AI Scope: Compression", true));
+        ParameterID { idAiScopeCompression, 1 }, "Calculator Scope: Compression", true));
 
     // Chaque axe a maintenant un choix "Off" (index 0) -- demande explicite :
     // "on doit pouvoir agir que sur les points AI qui ne vont pas". Off ne
@@ -412,17 +432,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout SevenpackAudioProcessor::cre
     // Result::pushInput/pushRatio/pushAttackRelease), le reste de la portee
     // Compression (voir idAiScopeCompression) continue de fonctionner.
     params.push_back (std::make_unique<AudioParameterChoice> (
-        ParameterID { idAiCompressionMode, 1 }, "AI Compression Mode",
+        ParameterID { idAiCompressionMode, 1 }, "Calculator Compression Mode",
         StringArray { "Off", "Soft", "Medium", "Hard" }, 2));
 
     // Punchy par defaut a l'ouverture du plugin (demande explicite : "on
     // coche AI attaque punchy ... a l'etat de demarrage").
     params.push_back (std::make_unique<AudioParameterChoice> (
-        ParameterID { idAiAttackReleaseCharacter, 1 }, "AI Attack/Release Character",
+        ParameterID { idAiAttackReleaseCharacter, 1 }, "Calculator Attack/Release Character",
         StringArray { "Off", "Smooth", "Medium", "Punchy" }, 3));
 
     params.push_back (std::make_unique<AudioParameterChoice> (
-        ParameterID { idAiGainReductionMode, 1 }, "AI Gain Reduction",
+        ParameterID { idAiGainReductionMode, 1 }, "Calculator Gain Reduction",
         StringArray { "Off", "Smooth", "Mid", "Hard" }, 2));
 
     // Triade AI Expand (demande explicite : "pour l'ia de expand, il faut
@@ -438,13 +458,13 @@ juce::AudioProcessorValueTreeState::ParameterLayout SevenpackAudioProcessor::cre
     // defautaient a Off precisement pour eviter ca (opt-in strict), mais
     // l'utilisateur a confirme vouloir ce basculement automatique.
     params.push_back (std::make_unique<AudioParameterChoice> (
-        ParameterID { idAiExpandMode, 1 }, "AI Expand Mode",
+        ParameterID { idAiExpandMode, 1 }, "Calculator Expand Mode",
         StringArray { "Off", "Soft", "Medium", "Hard" }, 3));
     params.push_back (std::make_unique<AudioParameterChoice> (
-        ParameterID { idAiExpandCharacter, 1 }, "AI Expand Attack/Release Character",
+        ParameterID { idAiExpandCharacter, 1 }, "Calculator Expand Attack/Release Character",
         StringArray { "Off", "Smooth", "Medium", "Punchy" }, 1));
     params.push_back (std::make_unique<AudioParameterChoice> (
-        ParameterID { idAiExpandAmount, 1 }, "AI Expand Amount",
+        ParameterID { idAiExpandAmount, 1 }, "Calculator Expand Amount",
         StringArray { "Off", "Smooth", "Mid", "Hard" }, 3));
 
     // Style musical (menu Options, section AI, demande explicite : "je
@@ -452,7 +472,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SevenpackAudioProcessor::cre
     // balance des outputs en fonction du style") -- offset statique par
     // bande, voir AiLearnAnalyzer::kStyleOutputBiasDb. "Off" par defaut.
     params.push_back (std::make_unique<AudioParameterChoice> (
-        ParameterID { idAiStyle, 1 }, "AI Style",
+        ParameterID { idAiStyle, 1 }, "Calculator Style",
         StringArray { "Off", "Bass", "Loud", "Rock", "Pop", "Electronic" }, 0));
 
     // Fidelity (menu Options, section AI, demande explicite : "une fonction
@@ -460,7 +480,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SevenpackAudioProcessor::cre
     // apres compression") -- ON par defaut a l'ouverture du plugin (demande
     // explicite : "ai fidelity activé à l'etat de demarrage").
     params.push_back (std::make_unique<AudioParameterBool> (
-        ParameterID { idAiFidelity, 1 }, "AI Fidelity", true));
+        ParameterID { idAiFidelity, 1 }, "Calculator Fidelity", true));
 
     static const char* crossoverName[NumCrossovers] = { "Crossover A", "Crossover B", "Crossover C", "Crossover D", "Crossover E", "Crossover F" };
     for (int x = 0; x < NumCrossovers; ++x)
@@ -513,6 +533,43 @@ void SevenpackAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
 
     clipperL.reset();
     clipperR.reset();
+
+    // Etage THD sur-echantillonne : tous les sur-echantillonneurs (2 filtres
+    // x 3 facteurs, mix + 7 bandes) prets d'avance, latence entiere.
+    {
+        const int osChannels = juce::jlimit (1, 2, numChannels);
+        int maxOsLatency = 0;
+        for (int f = 0; f < 2; ++f)
+            for (int k = 0; k < 3; ++k)
+            {
+                const auto type = f == 0 ? juce::dsp::Oversampling<float>::filterHalfBandFIREquiripple
+                                         : juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR;
+                auto make = [&]
+                {
+                    auto os = std::make_unique<juce::dsp::Oversampling<float>> ((size_t) osChannels, (size_t) (k + 1), type, true, true);
+                    os->initProcessing ((size_t) juce::jmax (1, samplesPerBlock));
+                    return os;
+                };
+                thdOversamplers[f][k] = make();
+                maxOsLatency = juce::jmax (maxOsLatency, (int) std::ceil (thdOversamplers[f][k]->getLatencyInSamples()));
+                for (int band = 0; band < (int) NumBands; ++band)
+                    bandOversamplers[(size_t) band][f][k] = make();
+            }
+        thdOsMaxBlock = juce::jmax (1, samplesPerBlock);
+        for (auto& b : bandClipBuffers)
+            b.setSize (osChannels, thdOsMaxBlock);
+        thdPreClipBuffer.setSize (osChannels, thdOsMaxBlock);
+        tpLimiter.prepare (sampleRate, thdOsMaxBlock, osChannels);
+        for (auto& d : thdMainDelay) d.prepare (maxOsLatency);
+        for (auto& d : thdPreDelay)  d.prepare (maxOsLatency);
+        for (auto& d : thdTpBypassDelay) d.prepare (tpLimiter.getLatency());
+        for (auto& band : bandRouteDelay)
+            for (auto& d : band)
+                d.prepare (maxOsLatency + tpLimiter.getLatency());
+        activeOsIdx = activeOsFilter = -2; // reconfiguration au premier bloc
+        activeTruePeak = -1;
+        thdOsLatency = tpLatency = 0;
+    }
 
     for (auto& buf : rawBandBuffers)
         buf.setSize (numChannels, samplesPerBlock);
@@ -867,8 +924,49 @@ void SevenpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const auto latencyMode = (Crossover::LatencyMode) latencyModeIndex;
 
     const bool softClipOn = softClipParam->load() > 0.5f;
-    clipperL.setHardLimitEnabled (softClipOn);
-    clipperR.setHardLimitEnabled (softClipOn);
+
+    // --- Etage THD sur-echantillonne (voir idThdOversampling) ---
+    const int osIdx    = juce::jlimit (0, 3, (int) std::round (thdOversamplingParam->load())) - 1; // -1 = Off
+    const int osFilter = juce::jlimit (0, 1, (int) std::round (thdOsFilterParam->load()));
+    const bool truePeakOn = thdTruePeakParam->load() > 0.5f;
+    if (osIdx != activeOsIdx || osFilter != activeOsFilter || (truePeakOn ? 1 : 0) != activeTruePeak)
+    {
+        activeOsIdx = osIdx;
+        activeOsFilter = osFilter;
+        activeTruePeak = truePeakOn ? 1 : 0;
+        tpLatency = truePeakOn ? tpLimiter.getLatency() : 0;
+        tpLimiter.reset();
+        for (auto& d : thdTpBypassDelay) d.setDelay (tpLatency);
+        thdOsLatency = 0;
+        if (osIdx >= 0 && thdOversamplers[osFilter][osIdx] != nullptr)
+        {
+            thdOversamplers[osFilter][osIdx]->reset();
+            for (int band = 0; band < (int) NumBands; ++band)
+                bandOversamplers[(size_t) band][osFilter][osIdx]->reset();
+            thdOsLatency = juce::roundToInt (thdOversamplers[osFilter][osIdx]->getLatencyInSamples());
+        }
+        for (auto& d : thdMainDelay) d.setDelay (thdOsLatency);
+        for (auto& d : thdPreDelay)  d.setDelay (thdOsLatency);
+        for (auto& band : bandRouteDelay)
+            for (auto& d : band)
+                d.setDelay (thdOsLatency + tpLatency);
+        clipperL.reset();
+        clipperR.reset();
+    }
+    const bool osLatencyOn = thdOsLatency > 0;
+    // Chemin sur-echantillonne : THD engage, facteur choisi, bloc dans la
+    // taille preparee (sinon : clip au rythme normal puis retard, la latence
+    // reste la meme).
+    const bool useOsPath = softClipOn && osIdx >= 0 && osLatencyOn && numSamples <= thdOsMaxBlock;
+    const int osFactor = useOsPath ? (1 << (osIdx + 1)) : 1;
+    clipperL.setOversamplingFactor (osFactor);
+    clipperR.setOversamplingFactor (osFactor);
+    const auto clipShape = thdClipShapeParam->load() > 0.5f ? SoftClipper::Shape::Hard : SoftClipper::Shape::Soft;
+    clipperL.setShape (clipShape);
+    clipperR.setShape (clipShape);
+    bool bandHard[(size_t) NumBands];
+    for (int band = 0; band < (int) NumBands; ++band)
+        bandHard[(size_t) band] = softClipOn && bandHardClipParam[(size_t) band]->load() > 0.5f;
 
     const auto satMode = (SoftClipper::SatMode) juce::jlimit (0, 3, (int) std::round (thdModeParam->load()));
     clipperL.setMode (satMode);
@@ -880,6 +978,7 @@ void SevenpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const float thdCeilingDb = juce::jlimit (-3.0f, -0.5f, thdOutputParam->load());
     clipperL.setCeilingDb (thdCeilingDb);
     clipperR.setCeilingDb (thdCeilingDb);
+    const float thdCeilingLin = juce::Decibels::decibelsToGain (thdCeilingDb);
 
     // Calcule UNE SEULE FOIS ici (reutilise plus bas pour la fusion des
     // buffers) -- necessaire des maintenant pour le Solo ci-dessous : une
@@ -992,6 +1091,26 @@ void SevenpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     // Goniometre de l'interface Alpha : capture seulement en mode GONIO.
     const bool gonioOn = meterMode.load (std::memory_order_relaxed) == 2;
+
+    // Bandes ecretees en dur SEULES (idBandHardClip) : sur le chemin
+    // sur-echantillonne, leur signal est mis de cote (bandClipBuffers) au
+    // lieu d'aller dans la somme, puis ecrete au rythme sur-echantillonne
+    // apres la boucle. Au rythme normal, l'ecretage se fait dans la boucle.
+    bool divertBand[(size_t) NumBands];
+    float* clipBandL[(size_t) NumBands] = {};
+    float* clipBandR[(size_t) NumBands] = {};
+    for (int band = 0; band < (int) NumBands; ++band)
+    {
+        divertBand[(size_t) band] = useOsPath && bandHard[(size_t) band] && bandIsOwner[(size_t) band]
+                                    && playBand[(size_t) band] && ! bandRouteOut[(size_t) band];
+        if (divertBand[(size_t) band])
+        {
+            auto& cb = bandClipBuffers[(size_t) band];
+            cb.clear (0, numSamples);
+            clipBandL[(size_t) band] = cb.getWritePointer (0);
+            clipBandR[(size_t) band] = cb.getNumChannels() > 1 ? cb.getWritePointer (1) : nullptr;
+        }
+    }
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -1109,6 +1228,17 @@ void SevenpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
                     if (bandOutR[(size_t) band] != nullptr)
                         bandOutR[(size_t) band][i] += outR;
                 }
+                else if (divertBand[(size_t) band])
+                {
+                    clipBandL[(size_t) band][i] = outL;
+                    if (clipBandR[(size_t) band] != nullptr)
+                        clipBandR[(size_t) band][i] = outR;
+                }
+                else if (bandHard[(size_t) band] && ! useOsPath)
+                {
+                    sumL += juce::jlimit (-thdCeilingLin, thdCeilingLin, outL);
+                    sumR += juce::jlimit (-thdCeilingLin, thdCeilingLin, outR);
+                }
                 else
                 {
                     sumL += outL;
@@ -1119,6 +1249,10 @@ void SevenpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
             {
                 if (bandRouteOut[(size_t) band])
                     bandOutL[(size_t) band][i] += wetL;
+                else if (divertBand[(size_t) band])
+                    clipBandL[(size_t) band][i] = wetL;
+                else if (bandHard[(size_t) band] && ! useOsPath)
+                    sumL += juce::jlimit (-thdCeilingLin, thdCeilingLin, wetL);
                 else
                     sumL += wetL;
             }
@@ -1137,7 +1271,7 @@ void SevenpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
                 bandOutputLevelDb[(size_t) band].store (juce::Decibels::gainToDecibels (bandOutputEnvLin[(size_t) band], -100.0f));
         }
 
-        const bool applyClip = softClipOn;
+        const bool applyClip = softClipOn && ! useOsPath; // chemin sur-echantillonne : clip apres la boucle
         if (dataL != nullptr)
         {
             dataL[i] = applyClip ? clipperL.processSample (sumL) : sumL;
@@ -1150,6 +1284,107 @@ void SevenpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
                 residR[i] = sumR - dataR[i];
         }
     }
+
+    // --- Etage THD sur-echantillonne : montee du mix (sans les bandes
+    // deviees), montee + ecretage dur de chaque bande deviee, ajout au mix
+    // sur-echantillonne, clip final (forme Soft/Hard, modes Tape/Iron/Air)
+    // au rythme sur-echantillonne, une seule redescente. ---
+    if (useOsPath && dataL != nullptr)
+    {
+        const int osCh = juce::jmin (thdPreClipBuffer.getNumChannels(), dataR != nullptr ? 2 : 1);
+        float* mainChans[2] = { dataL, dataR };
+
+        // Signal avant clip (mix + bandes deviees) pour le residu des aiguilles.
+        for (int ch = 0; ch < osCh; ++ch)
+        {
+            thdPreClipBuffer.copyFrom (ch, 0, mainChans[ch], numSamples);
+            for (int band = 0; band < (int) NumBands; ++band)
+                if (divertBand[(size_t) band] && ch < bandClipBuffers[(size_t) band].getNumChannels())
+                    thdPreClipBuffer.addFrom (ch, 0, bandClipBuffers[(size_t) band], ch, 0, numSamples);
+        }
+
+        auto& os = *thdOversamplers[osFilter][osIdx];
+        juce::dsp::AudioBlock<float> mainBlock (mainChans, (size_t) osCh, (size_t) numSamples);
+        auto up = os.processSamplesUp (mainBlock);
+        const auto upN = (int) up.getNumSamples();
+
+        for (int band = 0; band < (int) NumBands; ++band)
+        {
+            if (! divertBand[(size_t) band])
+                continue;
+            juce::dsp::AudioBlock<float> bandBlock (bandClipBuffers[(size_t) band].getArrayOfWritePointers(), (size_t) osCh, (size_t) numSamples);
+            auto upB = bandOversamplers[(size_t) band][osFilter][osIdx]->processSamplesUp (bandBlock);
+            for (int ch = 0; ch < osCh; ++ch)
+            {
+                auto* dst = up.getChannelPointer ((size_t) ch);
+                const auto* src = upB.getChannelPointer ((size_t) ch);
+                for (int i = 0; i < upN; ++i)
+                    dst[i] += juce::jlimit (-thdCeilingLin, thdCeilingLin, src[i]);
+            }
+        }
+
+        {
+            auto* upL = up.getChannelPointer (0);
+            for (int i = 0; i < upN; ++i)
+                upL[i] = clipperL.processSample (upL[i]);
+            if (osCh > 1)
+            {
+                auto* upR = up.getChannelPointer (1);
+                for (int i = 0; i < upN; ++i)
+                    upR[i] = clipperR.processSample (upR[i]);
+            }
+        }
+        os.processSamplesDown (mainBlock);
+
+        // Residu (avant clip, retarde de la latence) - apres clip, mesure
+        // AVANT le limiteur (il ne fait qu'ajuster le gain).
+        for (int ch = 0; ch < osCh; ++ch)
+        {
+            auto* pre = thdPreClipBuffer.getWritePointer (ch);
+            thdPreDelay[(size_t) ch].process (pre, numSamples);
+            float* resid = ch == 0 ? residL : residR;
+            if (resid != nullptr)
+                for (int i = 0; i < numSamples; ++i)
+                    resid[i] = pre[i] - mainChans[ch][i];
+        }
+
+        // Limiteur true-peak (idThdTruePeak) : le filtre de redescente fait
+        // depasser legerement le plafond ; une coupe nette ici recreerait le
+        // repliement, d'ou un gain doux avec anticipation.
+        if (truePeakOn)
+            tpLimiter.process (mainChans, numSamples, thdCeilingLin);
+    }
+    else
+    {
+        if (softClipOn && truePeakOn)
+        {
+            // Clip au rythme normal (OS coupe, ou bloc trop long) puis limiteur.
+            float* mainChans[2] = { dataL, dataR };
+            tpLimiter.process (mainChans, numSamples, thdCeilingLin);
+        }
+        else if (! softClipOn)
+        {
+            // THD coupe : retard pur de la latence du limiteur, pour ne pas
+            // faire varier la latence en allumant / coupant le THD.
+            thdTpBypassDelay[0].process (dataL, numSamples);
+            thdTpBypassDelay[1].process (dataR, numSamples);
+        }
+        if (osLatencyOn)
+        {
+            // Meme latence que le chemin sur-echantillonne.
+            thdMainDelay[0].process (dataL, numSamples);
+            thdMainDelay[1].process (dataR, numSamples);
+        }
+    }
+
+    // Sorties separees des bandes alignees sur le mix (meme latence).
+    if (osLatencyOn || tpLatency > 0)
+        for (int band = 0; band < (int) NumBands; ++band)
+            if (bandRouteOut[(size_t) band])
+            {
+                bandRouteDelay[(size_t) band][0].process (bandOutL[(size_t) band], numSamples);
+                bandRouteDelay[(size_t) band][1].process (bandOutR[(size_t) band], numSamples);
+            }
 
     // Meters de sortie (retour utilisateur : "on supprime la protection true
     // peak" -- l'etage de correction dedie sur-echantillonne 4x a ete
@@ -1297,7 +1532,7 @@ void SevenpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     // la valeur a reellement change.
     if (! crossovers.empty())
     {
-        const int currentLatency = crossovers.front()->getLatencySamples();
+        const int currentLatency = crossovers.front()->getLatencySamples() + thdOsLatency + tpLatency; // + etage THD sur-echantillonne + limiteur
         if (currentLatency != lastReportedLatencySamples)
         {
             lastReportedLatencySamples = currentLatency;
@@ -1338,7 +1573,7 @@ static const std::vector<juce::String>& getABParamIds()
             SevenpackAudioProcessor::idAudioDist3, SevenpackAudioProcessor::idOptical,
             SevenpackAudioProcessor::idBritish, SevenpackAudioProcessor::idAboveBelow,
             SevenpackAudioProcessor::idBandMix, SevenpackAudioProcessor::idBandWidth,
-            SevenpackAudioProcessor::idBandRouteOut,
+            SevenpackAudioProcessor::idBandRouteOut, SevenpackAudioProcessor::idBandHardClip,
         };
         for (int band = 0; band < (int) SevenpackAudioProcessor::NumBands; ++band)
             for (auto* base : bandBaseIds)
@@ -1352,6 +1587,10 @@ static const std::vector<juce::String>& getABParamIds()
         v.push_back (SevenpackAudioProcessor::idSoftClip);
         v.push_back (SevenpackAudioProcessor::idThdMode);
         v.push_back (SevenpackAudioProcessor::idThdOutput);
+        v.push_back (SevenpackAudioProcessor::idThdOversampling);
+        v.push_back (SevenpackAudioProcessor::idThdOsFilter);
+        v.push_back (SevenpackAudioProcessor::idThdClipShape);
+        v.push_back (SevenpackAudioProcessor::idThdTruePeak);
         // Analog/Linear -- INCLUS (chaque slot A/B memorise et
         // restaure son propre mode de crossover, sur demande explicite --
         // pas exclu comme Power/Solo, contrairement au comportement par
@@ -1397,10 +1636,12 @@ void SevenpackAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     apvts.state.setProperty ("gonioRedPhase", gonioRedPhase.load(), nullptr);
     apvts.state.setProperty ("uiFinish", uiFinish.load(), nullptr);
     apvts.state.setProperty ("faderStyle", faderStyle.load(), nullptr);
+    apvts.state.setProperty ("woodStyle", woodStyle.load(), nullptr);
     apvts.state.setProperty ("attRelIcons", attRelIcons.load(), nullptr);
     apvts.state.setProperty ("spectrumStyle", spectrumStyle.load(), nullptr);
     apvts.state.setProperty ("spectrumSmooth", spectrumSmooth.load(), nullptr);
     apvts.state.setProperty ("spectrumPeak", spectrumPeak.load(), nullptr);
+    apvts.state.setProperty ("confirmLearn", confirmLearn.load(), nullptr);
 
     // Routage multi-sorties standalone (voir mainOutPairIndex/bandOutPairIndex).
     apvts.state.setProperty ("mainOutPair", mainOutPairIndex.load(), nullptr);
@@ -1471,10 +1712,12 @@ void SevenpackAudioProcessor::setStateInformation (const void* data, int sizeInB
     gonioRedPhase.store ((bool) apvts.state.getProperty ("gonioRedPhase", true));
     uiFinish.store (juce::jlimit (0, 3, (int) apvts.state.getProperty ("uiFinish", 0)));
     faderStyle.store (juce::jlimit (0, 2, (int) apvts.state.getProperty ("faderStyle", 0)));
+    woodStyle.store (juce::jlimit (0, 1, (int) apvts.state.getProperty ("woodStyle", 1)));
     attRelIcons.store (juce::jlimit (0, 3, (int) apvts.state.getProperty ("attRelIcons", 1)));
     spectrumStyle.store (juce::jlimit (0, 4, (int) apvts.state.getProperty ("spectrumStyle", 1)));
     spectrumSmooth.store (juce::jlimit (0, 1, (int) apvts.state.getProperty ("spectrumSmooth", 0)));
     spectrumPeak.store ((bool) apvts.state.getProperty ("spectrumPeak", false));
+    confirmLearn.store ((bool) apvts.state.getProperty ("confirmLearn", true));
 
     mainOutPairIndex.store ((int) apvts.state.getProperty ("mainOutPair", 0));
     for (int b = 0; b < (int) NumBands; ++b)

@@ -171,7 +171,8 @@ SevenpackEditorContent::SevenpackEditorContent (SevenpackAudioProcessor& p)
     // constructeur ne commence a tourner -- voir le membre sentinelle juste
     // avant `content` dans SevenpackAudioProcessorEditor (PluginEditor.h).
 
-    woodImage = juce::ImageCache::getFromMemory (BinaryData::bois_wood_jpg, BinaryData::bois_wood_jpgSize);
+    // Bois au choix (Options > Appearance > Wood), voir loadWood().
+    loadWood();
 
     // ========================================================================
     // Interface v2 "Sevenpack Alpha" (maquette 7PACK validee) -- voir
@@ -219,7 +220,7 @@ SevenpackEditorContent::SevenpackEditorContent (SevenpackAudioProcessor& p)
     learnButton.setFontSize (AlphaType::title);
     learnButton.setHaloMargin (8.0f);
     learnButton.setTooltip ("Listens to a few seconds of audio, then sets the crossovers and each band's Input/Ratio/Attack/Release.");
-    learnButton.onClick = [this] { processorRef.startAiLearn(); };
+    learnButton.onClick = [this] { requestLearn(); };
 
     // --- ANALOG / LINEAR (idDigitalCrossover) ---
     analogButton.setStyle (AlphaButton::Style::Mode); // boutons de mode : discrets quand inactifs (audit)
@@ -447,24 +448,61 @@ SevenpackEditorContent::SevenpackEditorContent (SevenpackAudioProcessor& p)
         });
     };
 
-    // --- Section AI (menu Options, demande explicite) ---
-    optionsOverlay.onAiTargetSelected = [this] (int index)
+    // --- Reglages de LEARN : engrenage a droite de LEARN + panneau
+    // "Calculator" (sortis des Options, demande explicite). ---
+    addChildComponent (calculatorOverlay);
+    calculatorOverlay.setVisible (false);
+    calculatorOverlay.onDismiss = [this] { hideCalculatorOverlay(); };
+    addAndMakeVisible (calculatorGear);
+    calculatorGear.setTooltip ("LEARN settings (Calculator)");
+    calculatorOverlay.onConfirmLearnChanged = [this] (bool on) { processorRef.confirmLearn.store (on); };
+
+    // Confirmation avant LEARN (demande explicite : "Are you sure? ... si
+    // vous ne souhaitez pas ecraser le reglage precedent passez sur le B").
+    addChildComponent (learnConfirm);
+    learnConfirm.setVisible (false);
+    learnConfirm.onChoice = [this] (int choice, bool dontAskAgain)
+    {
+        learnConfirm.setVisible (false);
+        if (choice == LearnConfirmOverlay::cancel)
+            return;
+        if (dontAskAgain)
+        {
+            processorRef.confirmLearn.store (false);
+            calculatorOverlay.setConfirmLearn (false);
+        }
+        if (choice == LearnConfirmOverlay::switchAndLearn)
+        {
+            // Passe sur l'autre slot (un slot vide recoit une copie du
+            // reglage actuel), LEARN travaille dessus, l'autre reste intact.
+            processorRef.selectABSlot (! processorRef.isUsingSlotB());
+            abToggle.setToggleState (processorRef.isUsingSlotB(), juce::dontSendNotification);
+            abToggle.setLetter (processorRef.isUsingSlotB() ? "B" : "A");
+        }
+        processorRef.startAiLearn();
+    };
+    calculatorGear.onClick = [this]
+    {
+        if (calculatorOverlay.isVisible()) hideCalculatorOverlay();
+        else                               showCalculatorOverlay();
+    };
+    calculatorOverlay.onAiTargetSelected = [this] (int index)
     {
         setParamValue (SevenpackAudioProcessor::idAiMasteringTarget, (float) index);
     };
-    optionsOverlay.onAiCompressionModeSelected = [this] (int index)
+    calculatorOverlay.onAiCompressionModeSelected = [this] (int index)
     {
         setParamValue (SevenpackAudioProcessor::idAiCompressionMode, (float) index);
     };
-    optionsOverlay.onAiCharacterSelected = [this] (int index)
+    calculatorOverlay.onAiCharacterSelected = [this] (int index)
     {
         setParamValue (SevenpackAudioProcessor::idAiAttackReleaseCharacter, (float) index);
     };
-    optionsOverlay.onAiGainReductionSelected = [this] (int index)
+    calculatorOverlay.onAiGainReductionSelected = [this] (int index)
     {
         setParamValue (SevenpackAudioProcessor::idAiGainReductionMode, (float) index);
     };
-    optionsOverlay.onAiScopeChanged = [this] (int scopeIndex, bool enabled)
+    calculatorOverlay.onAiScopeChanged = [this] (int scopeIndex, bool enabled)
     {
         // "Detectors" retire du visuel (retour utilisateur : "tu peux
         // supprimer detector car ils n'y sont plus") -- idAiScopeDetectors
@@ -478,23 +516,23 @@ SevenpackEditorContent::SevenpackEditorContent (SevenpackAudioProcessor& p)
         if (scopeIndex >= 0 && scopeIndex < 2)
             setParamValue (scopeIds[scopeIndex], enabled ? 1.0f : 0.0f);
     };
-    optionsOverlay.onAiStyleSelected = [this] (int index)
+    calculatorOverlay.onAiStyleSelected = [this] (int index)
     {
         setParamValue (SevenpackAudioProcessor::idAiStyle, (float) index);
     };
-    optionsOverlay.onAiFidelityChanged = [this] (bool enabled)
+    calculatorOverlay.onAiFidelityChanged = [this] (bool enabled)
     {
         setParamValue (SevenpackAudioProcessor::idAiFidelity, enabled ? 1.0f : 0.0f);
     };
-    optionsOverlay.onAiExpandModeSelected = [this] (int index)
+    calculatorOverlay.onAiExpandModeSelected = [this] (int index)
     {
         setParamValue (SevenpackAudioProcessor::idAiExpandMode, (float) index);
     };
-    optionsOverlay.onAiExpandCharacterSelected = [this] (int index)
+    calculatorOverlay.onAiExpandCharacterSelected = [this] (int index)
     {
         setParamValue (SevenpackAudioProcessor::idAiExpandCharacter, (float) index);
     };
-    optionsOverlay.onAiExpandAmountSelected = [this] (int index)
+    calculatorOverlay.onAiExpandAmountSelected = [this] (int index)
     {
         setParamValue (SevenpackAudioProcessor::idAiExpandAmount, (float) index);
     };
@@ -542,6 +580,11 @@ SevenpackEditorContent::SevenpackEditorContent (SevenpackAudioProcessor& p)
         for (auto& strip : bandStrips)
             strip->repaint();
     };
+    optionsOverlay.onWoodStyleSelected = [this] (int style)
+    {
+        processorRef.woodStyle.store (juce::jlimit (0, 1, style));
+        loadWood();
+    };
     optionsOverlay.onFaderStyleSelected = [this] (int styleIdx)
     {
         processorRef.faderStyle.store (juce::jlimit (0, 2, styleIdx));
@@ -569,6 +612,15 @@ SevenpackEditorContent::SevenpackEditorContent (SevenpackAudioProcessor& p)
     {
         processorRef.spectrumPeak.store (on);
         crossoverSpectrum.repaint();
+    };
+    // Options > THD stage (etage THD surechantillonne).
+    optionsOverlay.onThdOversamplingSelected = [this] (int i) { setParamValue (SevenpackAudioProcessor::idThdOversampling, (float) i); };
+    optionsOverlay.onThdOsFilterSelected     = [this] (int i) { setParamValue (SevenpackAudioProcessor::idThdOsFilter, (float) i); };
+    optionsOverlay.onThdClipShapeSelected    = [this] (int i) { setParamValue (SevenpackAudioProcessor::idThdClipShape, (float) i); };
+    optionsOverlay.onThdTruePeakChanged      = [this] (bool on) { setParamValue (SevenpackAudioProcessor::idThdTruePeak, on ? 1.0f : 0.0f); };
+    optionsOverlay.onBandHardClipChanged     = [this] (int band, bool on)
+    {
+        setParamValue (SevenpackAudioProcessor::bandParamId (SevenpackAudioProcessor::idBandHardClip, band), on ? 1.0f : 0.0f);
     };
     optionsOverlay.onFinishSelected = [this] (int finish)
     {
@@ -615,6 +667,22 @@ SevenpackEditorContent::SevenpackEditorContent (SevenpackAudioProcessor& p)
         addAndMakeVisible (*thdCeiling);
     }
 
+    // Surechantillonnage de l'etage THD et forme du clip (demande explicite,
+    // option A de la maquette : a droite de la barre du bas).
+    {
+        const auto times = juce::String::fromUTF8 ("\xc3\x97");
+        if (auto* osParam = processorRef.apvts.getParameter (SevenpackAudioProcessor::idThdOversampling))
+        {
+            osBar = std::make_unique<AlphaSegmentBar> (*osParam, "OS", juce::StringArray { "OFF", times + "2", times + "4", times + "8" }, 24.0f);
+            addAndMakeVisible (*osBar);
+        }
+        if (auto* shapeParam = processorRef.apvts.getParameter (SevenpackAudioProcessor::idThdClipShape))
+        {
+            clipBar = std::make_unique<AlphaSegmentBar> (*shapeParam, "CLIP", juce::StringArray { "SOFT", "HARD" }, 36.0f);
+            addAndMakeVisible (*clipBar);
+        }
+    }
+
     addChildComponent (presetBrowser);
     presetBrowser.setVisible (false);
     presetBrowser.onPresetChosen = [this] (int index)
@@ -638,6 +706,8 @@ SevenpackEditorContent::SevenpackEditorContent (SevenpackAudioProcessor& p)
     // Overlays au premier plan (ajoutes avant certains controles ci-dessus).
     aboutOverlay.toFront (false);
     optionsOverlay.toFront (false);
+    calculatorOverlay.toFront (false);
+    learnConfirm.toFront (false);
     presetBrowser.toFront (false);
 
     // Boites de dialogue (avertissements CPU, sauvegarde/suppression de
@@ -689,6 +759,14 @@ void SevenpackEditorContent::timerCallback()
         const bool thdOn = *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idSoftClip) > 0.5f;
         for (auto& b : thdModeButtons)
             b->setDimmed (! thdOn);
+        // OS / CLIP : grises THD coupe, masques pendant la progression LEARN.
+        const bool learnShowing = learnFx.isProgressShowing();
+        for (auto* bar : { osBar.get(), clipBar.get() })
+            if (bar != nullptr)
+            {
+                bar->setDimmed (! thdOn);
+                bar->setVisible (! learnShowing);
+            }
         abToggle.setToggleState (processorRef.isUsingSlotB(), juce::dontSendNotification);
         abToggle.setLetter (processorRef.isUsingSlotB() ? "B" : "A");
         syncMeterModeButtons(); // etat restaure par l'hote pendant que l'editeur est ouvert
@@ -829,11 +907,15 @@ void SevenpackEditorContent::applyUiTheme (int themeIndex)
     themeIndex = juce::jlimit (0, 2, themeIndex);
     processorRef.uiTheme.store (themeIndex);
     lookAndFeel.setUiTheme (themeIndex);
+    resized(); // le theme sombre (design de Sunny) a sa propre mise en page (barre du bas, tranches)
     optionsOverlay.setCurrentUiThemeIndex (themeIndex);
     themeToggle.setToggleState (themeIndex != 1, juce::dontSendNotification);
     refreshThemeReactiveColours();
     rebuildBackgroundCache();
     aboutOverlay.refreshTheme();
+    calculatorOverlay.applyAlphaStyle();
+    calculatorGear.repaint();
+    learnConfirm.repaint();
     optionsOverlay.applyAlphaStyle();
     AlphaDraw::styleAlertWindows (lookAndFeel);
     repaint();
@@ -1167,47 +1249,71 @@ void SevenpackEditorContent::refreshThemeReactiveColours()
             strip->refreshTheme();
 }
 
+void SevenpackEditorContent::showCalculatorOverlay()
+{
+    calculatorOverlay.setCurrentAiTargetIndex ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiMasteringTarget)));
+    calculatorOverlay.setCurrentAiCompressionMode ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiCompressionMode)));
+    calculatorOverlay.setCurrentAiCharacter ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiAttackReleaseCharacter)));
+    calculatorOverlay.setCurrentAiGainReduction ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiGainReductionMode)));
+    calculatorOverlay.setAiScopeStates (
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiScopeCrossover) > 0.5f,
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiScopeCompression) > 0.5f);
+    calculatorOverlay.setCurrentAiStyle ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiStyle)));
+    calculatorOverlay.setAiFidelityState (
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiFidelity) > 0.5f);
+    calculatorOverlay.setCurrentAiExpandMode ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiExpandMode)));
+    calculatorOverlay.setCurrentAiExpandCharacter ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiExpandCharacter)));
+    calculatorOverlay.setCurrentAiExpandAmount ((int) std::round (
+        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiExpandAmount)));
+
+    calculatorOverlay.setConfirmLearn (processorRef.confirmLearn.load());
+    calculatorOverlay.applyAlphaStyle();
+    calculatorOverlay.setAnchor ({ (float) calculatorGear.getBounds().getCentreX(), (float) calculatorGear.getBottom() });
+    calculatorOverlay.setVisible (true);
+    calculatorOverlay.toFront (true);
+    calculatorGear.setToggleState (true, juce::dontSendNotification);
+}
+
+void SevenpackEditorContent::requestLearn()
+{
+    const auto st = processorRef.aiLearnAnalyzer.getState();
+    const bool busy = st == AiLearnAnalyzer::State::Capturing || st == AiLearnAnalyzer::State::Analyzing;
+    if (busy || ! processorRef.confirmLearn.load())
+    {
+        processorRef.startAiLearn();
+        return;
+    }
+    hideCalculatorOverlay();
+    learnConfirm.prepare (processorRef.isUsingSlotB());
+    learnConfirm.setAnchor ({ (float) learnButton.getBounds().getCentreX(), (float) learnButton.getBottom() - 8.0f });
+    learnConfirm.setVisible (true);
+    learnConfirm.toFront (true);
+}
+
+void SevenpackEditorContent::hideCalculatorOverlay()
+{
+    calculatorOverlay.setVisible (false);
+    calculatorGear.setToggleState (false, juce::dontSendNotification);
+}
+
 void SevenpackEditorContent::showOptionsOverlay()
 {
-    // Trouve l'index d'echelle le plus proche parmi { 75, 80, 85, 90, 95, 100 }%
-    // -- plus robuste qu'une chaine de seuils si la liste change.
-    static constexpr float kScaleValues[6] = { 0.75f, 0.80f, 0.85f, 0.90f, 0.95f, 1.0f };
-    const float currentScale = processorRef.uiScale.load();
-    int scaleIndex = 5; // 100%
-    float bestDelta = std::abs (currentScale - kScaleValues[5]);
-    for (int i = 0; i < 6; ++i)
-    {
-        const float delta = std::abs (currentScale - kScaleValues[i]);
-        if (delta < bestDelta) { bestDelta = delta; scaleIndex = i; }
-    }
-    optionsOverlay.setCurrentScaleIndex (scaleIndex);
+    hideCalculatorOverlay();
+
+    // AUTO (0) ou l'echelle la plus proche de la liste des Options.
+    optionsOverlay.setCurrentScaleIndex (OptionsOverlay::scaleIndexFor (processorRef.uiScale.load()));
 
     int latencyIndex = 0;
     if (auto* param = processorRef.apvts.getParameter (SevenpackAudioProcessor::idLinearLatencyMode))
         latencyIndex = (int) std::round (param->convertFrom0to1 (param->getValue()));
     optionsOverlay.setCurrentLatencyIndex (latencyIndex);
-
-    optionsOverlay.setCurrentAiTargetIndex ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiMasteringTarget)));
-    optionsOverlay.setCurrentAiCompressionMode ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiCompressionMode)));
-    optionsOverlay.setCurrentAiCharacter ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiAttackReleaseCharacter)));
-    optionsOverlay.setCurrentAiGainReduction ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiGainReductionMode)));
-    optionsOverlay.setAiScopeStates (
-        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiScopeCrossover) > 0.5f,
-        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiScopeCompression) > 0.5f);
-    optionsOverlay.setCurrentAiStyle ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiStyle)));
-    optionsOverlay.setAiFidelityState (
-        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiFidelity) > 0.5f);
-    optionsOverlay.setCurrentAiExpandMode ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiExpandMode)));
-    optionsOverlay.setCurrentAiExpandCharacter ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiExpandCharacter)));
-    optionsOverlay.setCurrentAiExpandAmount ((int) std::round (
-        *processorRef.apvts.getRawParameterValue (SevenpackAudioProcessor::idAiExpandAmount)));
 
     {
         const bool standalone = processorRef.wrapperType == juce::AudioProcessor::wrapperType_Standalone;
@@ -1246,7 +1352,17 @@ void SevenpackEditorContent::showOptionsOverlay()
     optionsOverlay.setGonioRedPhase (processorRef.gonioRedPhase.load());
     optionsOverlay.setFinish (processorRef.uiFinish.load());
     optionsOverlay.setFaderStyle (processorRef.faderStyle.load());
+    optionsOverlay.setWoodStyle (processorRef.woodStyle.load());
     optionsOverlay.setAttRelIcons (processorRef.attRelIcons.load());
+    {
+        const auto raw = [this] (const juce::String& id) { return processorRef.apvts.getRawParameterValue (id)->load(); };
+        optionsOverlay.setThdOversampling ((int) std::round (raw (SevenpackAudioProcessor::idThdOversampling)));
+        optionsOverlay.setThdOsFilter ((int) std::round (raw (SevenpackAudioProcessor::idThdOsFilter)));
+        optionsOverlay.setThdClipShape ((int) std::round (raw (SevenpackAudioProcessor::idThdClipShape)));
+        optionsOverlay.setThdTruePeak (raw (SevenpackAudioProcessor::idThdTruePeak) > 0.5f);
+        for (int b = 0; b < (int) SevenpackAudioProcessor::NumBands; ++b)
+            optionsOverlay.setBandHardClip (b, raw (SevenpackAudioProcessor::bandParamId (SevenpackAudioProcessor::idBandHardClip, b)) > 0.5f);
+    }
     optionsOverlay.setSpectrumStyle (processorRef.spectrumStyle.load());
     optionsOverlay.setSpectrumSmooth (processorRef.spectrumSmooth.load());
     optionsOverlay.setSpectrumPeak (processorRef.spectrumPeak.load());
@@ -1310,7 +1426,12 @@ void SevenpackEditorContent::resized()
         // LEARN plus grand que les autres (action principale, audit) ; les
         // bounds incluent la marge du halo (setHaloMargin (8)).
         learnButton.setBounds (juce::Rectangle<float> (x, cy - 41.0f, 72.0f, 82.0f).expanded (8.0f).toNearestInt());
-        x += 72.0f + groupGap;
+        x += 72.0f;
+        // Engrenage des reglages de LEARN (placement A de l'apercu) : rond
+        // de 24 px a droite de LEARN, aligne sur son bas ; les groupes
+        // suivants glissent d'autant (place libre avant le logo).
+        calculatorGear.setBounds (juce::Rectangle<float> (x + 8.0f, cy + 41.0f - 26.0f, 24.0f, 24.0f).toNearestInt());
+        x += 8.0f + 24.0f + groupGap;
         headerSeparatorX[1] = x;
         x += groupGap;
 
@@ -1364,12 +1485,26 @@ void SevenpackEditorContent::resized()
         // Copier / coller / enregistrer / corbeille juste a droite de la
         // barre des presets (demande explicite) ; le coin bas droit recoit
         // la progression LEARN.
-        float x = pill.getRight() + 40.0f;
+        // Design de Sunny (theme sombre) : COPY / PASTE en texte encadre.
+        const bool sunny = AlphaPalette::get().sunny;
+        float x = pill.getRight() + (sunny ? 36.0f : 28.0f);
         for (auto* b : { &copyButton, &pasteButton, &saveButton, &deletePresetButton })
         {
-            b->setBounds (juce::Rectangle<float> (24.0f, 24.0f).withCentre ({ x, cy }).toNearestInt());
-            x += 30.0f;
+            const float bw = sunny ? (b == &copyButton ? 48.0f : (b == &pasteButton ? 54.0f : 24.0f)) : 24.0f;
+            b->setBounds (juce::Rectangle<float> (x, cy - 12.0f, bw, 24.0f).toNearestInt());
+            x += bw + 6.0f;
         }
+
+        // OS et CLIP a droite (option A de la maquette) ; masques pendant la
+        // progression LEARN qui occupe ce coin (voir timerCallback()).
+        float bx = x + 6.0f;
+        for (auto* bar : { osBar.get(), clipBar.get() })
+            if (bar != nullptr)
+            {
+                const float w = (float) bar->getIdealWidth();
+                bar->setBounds (juce::Rectangle<float> (bx, cy - 13.0f, w, 26.0f).toNearestInt());
+                bx += w + 10.0f;
+            }
         learnProgressBounds = juce::Rectangle<float> (f.getRight() - 240.0f, cy - 9.0f, 240.0f, 18.0f);
     }
 
@@ -1383,23 +1518,44 @@ void SevenpackEditorContent::resized()
 
     aboutOverlay.setBounds (getLocalBounds());
     optionsOverlay.setBounds (getLocalBounds());
+    calculatorOverlay.setBounds (getLocalBounds());
+    learnConfirm.setBounds (getLocalBounds());
+    learnConfirm.setAnchor ({ (float) learnButton.getBounds().getCentreX(), (float) learnButton.getBottom() - 8.0f });
+    calculatorOverlay.setAnchor ({ (float) calculatorGear.getBounds().getCentreX(), (float) calculatorGear.getBottom() });
     presetBrowser.setBounds (getLocalBounds());
 
     rebuildBackgroundCache();
+}
+
+void SevenpackEditorContent::loadWood()
+{
+    // 0 = bois 4K de la v2.17 (3840x2160, chene clair, "sunny me la fait en
+    // 4K") ; 1 = nouveau bois de Sunny (Bois.eps vectoriel, planches a
+    // noeud, rendu en 4320x2160 : net jusqu a 200 %).
+    if (processorRef.woodStyle.load() == 0)
+        woodImage = juce::ImageCache::getFromMemory (BinaryData::bois_wood_4k_jpg, BinaryData::bois_wood_4k_jpgSize);
+    else
+        woodImage = juce::ImageCache::getFromMemory (BinaryData::bois_sunny_v2_jpg, BinaryData::bois_sunny_v2_jpgSize);
+    backgroundCache = {};
+    repaint();
 }
 
 void SevenpackEditorContent::rebuildBackgroundCache()
 {
     const int w = juce::jmax (1, getWidth());
     const int h = juce::jmax (1, getHeight());
-    backgroundCache = juce::Image (juce::Image::ARGB, w, h, true);
+    const float px = backgroundCacheScale;
+    backgroundCache = juce::Image (juce::Image::ARGB, juce::jmax (1, juce::roundToInt ((float) w * px)),
+                                   juce::jmax (1, juce::roundToInt ((float) h * px)), true);
     juce::Graphics g (backgroundCache);
+    g.addTransform (juce::AffineTransform::scale (px));
+    g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
     const auto pal = AlphaPalette::get();
 
     // Cadre bois (texture "boissunny", demande explicite : "on garde
     // l'integration bois en AP") -- cadrage "cover", vignette legere.
     if (woodImage.isValid())
-        g.drawImage (woodImage, backgroundCache.getBounds().toFloat(), juce::RectanglePlacement::fillDestination);
+        g.drawImage (woodImage, getLocalBounds().toFloat(), juce::RectanglePlacement::fillDestination);
     else
         g.fillAll (juce::Colour (0xffb5803f));
     {
@@ -1485,8 +1641,16 @@ void SevenpackEditorContent::rebuildBackgroundCache()
 
 void SevenpackEditorContent::paint (juce::Graphics& g)
 {
+    // Fond a la resolution PHYSIQUE (echelle de la fenetre x ecran) :
+    // reconstruit quand elle change (taille AUTO / 125..200 %, ecran 4K).
+    const float px = juce::jlimit (0.5f, 6.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+    if (! backgroundCache.isValid() || ! juce::approximatelyEqual (px, backgroundCacheScale))
+    {
+        backgroundCacheScale = px;
+        rebuildBackgroundCache();
+    }
     if (backgroundCache.isValid())
-        g.drawImageAt (backgroundCache, 0, 0);
+        g.drawImage (backgroundCache, getLocalBounds().toFloat());
     else
         g.fillAll (juce::Colour (0xffb5803f));
 }

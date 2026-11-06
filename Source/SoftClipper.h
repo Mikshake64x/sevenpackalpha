@@ -4,56 +4,68 @@
 /**
     SoftClipper
     -----------
-    Etage de fin de chaine.
+    Etage de fin de chaine (THD), applique au mix quand le THD est engage.
 
-    Bouton LIMIT desactive (par defaut) : saturation douce (tanh) pure,
-    AUCUN plafond artificiel -- le signal peut depasser 0dBFS librement,
-    comme le softclip de l'Arousor/Distressor qui n'a pas de brickwall
-    numerique strict.
+    Deux etapes par echantillon :
+      1. couleur (SatMode, voir idThdMode) : SOFT = aucune couleur, Tape /
+         Iron / Air = variantes "mastering" (Clip retire, pas assez
+         esthetique a l'usage). AUCUN knob d'intensite : l'ampleur de la
+         saturation suit le niveau du signal ;
+      2. ecretage au plafond THD CEIL (-0.5 a -3 dBFS, voir setCeilingDb() /
+         idThdOutput), forme au choix (Shape, voir idThdClipShape) :
+           - Soft : courbe arrondie -- lineaire jusqu'a 3 dB sous le
+             plafond, puis tangente hyperbolique qui le rejoint en douceur
+             (demande explicite : "preferer un soft clip, courbe arrondie") ;
+           - Hard : coupe nette au plafond.
 
-    Bouton LIMIT active : brickwall a -0.5dBFS par defaut (abaissable
-    jusqu'a -3dBFS, voir setCeilingDb() / idThdOutput -- barre du bas),
-    avec une protection
-    "true clip" inspiree du Glue Compressor d'Ableton : on estime le pic
-    INTER-echantillon par interpolation lineaire et on limite aussi ce pic
-    estime, pas seulement l'echantillon brut, pour eviter les depassements
-    caches qui n'apparaissent qu'apres reconstruction D/A.
+    Pense pour tourner au rythme SUR-ECHANTILLONNE (voir idThdOversampling
+    et PluginProcessor::processBlock()) : setOversamplingFactor() recale les
+    filtres internes (Iron, Air) et la retombee du temoin de clip pour que
+    le son et l'affichage ne changent pas avec le facteur.
 
-    SatMode (voir idThdMode/ThdValveModule) : SOFT (= comportement d'origine
-    ci-dessus, bouton explicite desormais) + 3 variantes "mastering" --
-    Tape/Iron/Air (Clip retire, pas assez esthetique a l'usage). AUCUN knob
-    d'intensite separe : l'ampleur de la saturation suit NATURELLEMENT le
-    niveau du signal (plus le signal est chaud, plus ca sature), pas un
-    montant fixe -- volontairement pense pour du mastering (pas de
-    distorsion agressive style guitare metal). Actif uniquement quand
-    mode != Soft, remplace alors la branche LIMIT/tanh ci-dessus.
+    (Avant : des que le THD etait engage, le mode SOFT etait en fait un
+    ecretage dur, et la "protection true-peak" -- moyenne de deux
+    echantillons deja sous le plafond -- ne pouvait jamais se declencher.
+    Remplace par la forme Soft/Hard ci-dessus et le plafond applique au
+    signal sur-echantillonne.)
 */
 class SoftClipper
 {
 public:
     enum class SatMode { Soft = 0, Tape, Iron, Air };
+    enum class Shape { Soft = 0, Hard };
 
     void setDriveDb (float db) noexcept
     {
         driveGain = juce::Decibels::decibelsToGain (db);
     }
 
-    void setHardLimitEnabled (bool shouldLimit) noexcept { hardLimit = shouldLimit; }
-
-    // Plafond de l'etage (brickwall + protection true-peak). -0.5 dBFS par
-    // defaut, reglable jusqu'a -3 dBFS depuis la barre du bas (voir
-    // idThdOutput). N'a d'effet que sur les branches LIMIT et Tape/Iron/Air.
     void setCeilingDb (float db) noexcept
     {
         ceilingLin = juce::Decibels::decibelsToGain (db);
     }
 
     void setMode (SatMode m) noexcept { mode = m; }
+    void setShape (Shape s) noexcept  { shape = s; }
+
+    // Facteur de sur-echantillonnage du flux traite (1 = rythme normal).
+    void setOversamplingFactor (int factor) noexcept
+    {
+        factor = juce::jmax (1, factor);
+        if (factor == osFactor)
+            return;
+        osFactor = factor;
+        const float inv = 1.0f / (float) factor;
+        // Meme frequence de coupure / meme retombee quel que soit le rythme :
+        // un pole a (fs) vaut pole^(1/facteur) a (facteur * fs).
+        ironDcR    = std::pow (0.996f, inv);
+        airHpCoeff = std::pow (0.85f, inv);
+        meterDecay = std::pow (0.995f, inv);
+    }
 
     void reset() noexcept
     {
         clipAmount = 0.0f;
-        prevY = 0.0f;
         ironDcPrev = ironDcState = 0.0f;
         airHpState = airXPrev = 0.0f;
     }
@@ -61,40 +73,13 @@ public:
     inline float processSample (float input) noexcept
     {
         const float x = input * driveGain;
-        float z;
-
-        if (mode != SatMode::Soft)
-        {
-            // Tape/Iron/Air/Clip : IRON et AIR sont ADDITIFS (ils ajoutent de
-            // l'energie harmonique par-dessus le signal, contrairement au
-            // tanh du Classic qui reste toujours sous l'unite) -- sans
-            // plafond, ca peut depasser 0dBFS et clipper en aval. On fait
-            // donc TOUJOURS passer le resultat par la meme protection
-            // true-peak que le mode LIMIT ci-dessous, quel que soit l'etat
-            // du bouton LIMIT (ces modes sont penses pour du mastering, un
-            // etage de sortie sans garde-fou n'a pas de sens ici).
-            z = applyTruePeakCeiling (processMastering (x)) / driveGain;
-        }
-        else if (hardLimit)
-        {
-            // --- Mode LIMIT : brickwall a ceilingLin (-0.5..-3 dBFS) + protection true-peak ---
-            z = applyTruePeakCeiling (x) / driveGain;
-        }
-        else
-        {
-            // --- Mode SOFT CLIP : tanh pur, AUCUN plafond artificiel ---
-            // Le signal peut depasser 0dBFS librement si on le pousse fort,
-            // comme sur l'Arousor/Distressor de reference (verifie via
-            // PluginDoctor : son softclip n'a pas de brickwall numerique).
-            const float y = std::tanh (x);
-            prevY = y; // continuite si on bascule sur LIMIT au sample suivant
-            z = y / driveGain;
-        }
+        const float coloured = mode == SatMode::Soft ? x : processMastering (x);
+        const float z = (shape == Shape::Hard ? hardClip (coloured) : softClip (coloured)) / driveGain;
 
         // Intensite visuelle du clip (pour les diodes de l'UI)
         const float diff = std::abs (input) - std::abs (z);
         const float target = juce::jlimit (0.0f, 1.0f, diff * 2.5f);
-        clipAmount = target > clipAmount ? target : clipAmount * 0.995f;
+        clipAmount = target > clipAmount ? target : clipAmount * meterDecay;
 
         return z;
     }
@@ -102,21 +87,22 @@ public:
     float getClipAmount() const noexcept { return clipAmount; }
 
 private:
-    // Brickwall a ceilingLin (-0.5dBFS par defaut) + protection "true clip" (pic inter-echantillon
-    // estime par interpolation lineaire, meme principe que le Glue
-    // Compressor d'Ableton) -- partagee par le mode LIMIT et par les 4
-    // modes mastering (voir processSample()).
-    inline float applyTruePeakCeiling (float x) noexcept
+    inline float hardClip (float x) const noexcept
     {
-        const float clippedX = juce::jlimit (-ceilingLin, ceilingLin, x);
-        const float interSamplePeak = juce::jmax (std::abs (clippedX), std::abs ((clippedX + prevY) * 0.5f));
+        return juce::jlimit (-ceilingLin, ceilingLin, x);
+    }
 
-        float limited = clippedX;
-        if (interSamplePeak > ceilingLin)
-            limited = clippedX * (ceilingLin / interSamplePeak);
-
-        prevY = limited;
-        return limited;
+    // Lineaire jusqu'au genou (3 dB sous le plafond), puis tanh qui
+    // rejoint le plafond sans cassure (pente 1 au genou).
+    inline float softClip (float x) const noexcept
+    {
+        const float knee = ceilingLin * kKneeRatio;
+        const float a = std::abs (x);
+        if (a <= knee)
+            return x;
+        const float room = ceilingLin - knee;
+        const float y = knee + room * std::tanh ((a - knee) / room);
+        return x < 0.0f ? -y : y;
     }
 
     inline float processMastering (float x) noexcept
@@ -136,8 +122,7 @@ private:
                 // + DC blocker (le terme carre introduit un offset).
                 constexpr float k = 0.16f;
                 const float shaped = x + k * x * x * (x >= 0.0f ? 1.0f : -1.0f);
-                constexpr float dcR = 0.996f;
-                const float y = shaped - ironDcPrev + dcR * ironDcState;
+                const float y = shaped - ironDcPrev + ironDcR * ironDcState;
                 ironDcPrev = shaped;
                 ironDcState = y;
                 return y;
@@ -148,25 +133,27 @@ private:
                 // signal, le sature separement, et ne remelange QUE les
                 // harmoniques generees (pas le HP lui-meme) par-dessus le
                 // signal propre -- ajoute de l'"air" sans toucher le corps.
-                constexpr float hpCoeff = 0.85f;
-                airHpState = hpCoeff * (airHpState + x - airXPrev);
+                airHpState = airHpCoeff * (airHpState + x - airXPrev);
                 airXPrev = x;
                 const float harmonics = std::tanh (airHpState * 3.5f) - airHpState;
                 return x + harmonics * 0.4f;
             }
             case SatMode::Soft:
             default:
-                return x; // non atteint (Soft passe par l'autre branche de processSample())
+                return x;
         }
     }
 
+    static constexpr float kKneeRatio = 0.70794578f; // -3 dB
+
     float driveGain  = 1.0f;
     float clipAmount = 0.0f;
-    bool  hardLimit    = false;
-    float prevY         = 0.0f;
-    float ceilingLin     = juce::Decibels::decibelsToGain (-0.5f); // defaut -0.5 dBFS, voir setCeilingDb() / idThdOutput
+    float ceilingLin = juce::Decibels::decibelsToGain (-0.5f); // defaut -0.5 dBFS, voir setCeilingDb() / idThdOutput
     SatMode mode = SatMode::Soft;
+    Shape shape = Shape::Soft;
 
+    int osFactor = 1;
+    float ironDcR = 0.996f, airHpCoeff = 0.85f, meterDecay = 0.995f;
     float ironDcPrev = 0.0f, ironDcState = 0.0f;
     float airHpState = 0.0f, airXPrev = 0.0f;
 };

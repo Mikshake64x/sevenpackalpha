@@ -30,6 +30,12 @@ namespace AlphaType
 struct AlphaPalette
 {
     bool light = true;
+    // Theme sombre = design de Sunny (maquette VST_V7.1_FULL.ai, demande
+    // explicite : "tu peux coder cette version pour check le design") :
+    // panneau bleu nuit, tranches bleues a liseret, carte #172130, knobs
+    // noirs a arc bleu, ecran turquoise a vitre en biais... Les widgets
+    // testent ce drapeau pour leur dessin "Sunny".
+    bool sunny = false;
     bool highContrast = false;
     // Finition (Options > INTERFACE > FINISH, apercu "Theme clair glossy") :
     // 0 MATTE (d'origine), 1 SATIN, 2 GLOSS, 3 MOLDED. Voir
@@ -38,6 +44,12 @@ struct AlphaPalette
     // Fader OUT des bandes (Options > INTERFACE > FADER, apercu "Faders de
     // console") : 0 BLACK (console noire), 1 VINTAGE (creme), 2 ALU.
     int faderStyle = 0;
+    // Fader BLACK en theme sombre (demande explicite : "fais correspondre en
+    // mode sombre ... sauf que tu inverse la couleurs du fader") : 0 = comme
+    // le clair (capuchon noir), 1 = capuchon BLANC a ligne noire, 2 = BLANC
+    // a ligne bleue, 3 = BLANC + fente claire (tout inverse, CHOISI par
+    // l utilisateur sur l apercu ; 1 et 2 gardes dans le code).
+    int darkFader = 3;
     juce::Colour accent, accentDeep, accentGlow;
     juce::Colour ink, inkSoft;
     juce::Colour panelTop, panelUpper, panelMid, panelLower, panelBottom;
@@ -55,6 +67,7 @@ struct AlphaPalette
             p.applyHighContrast();
         p.finish = juce::jlimit (0, 3, finishActive);
         p.faderStyle = juce::jlimit (0, 2, faderStyleActive);
+        p.darkFader = juce::jlimit (0, 3, darkFaderActive);
         return p;
     }
 
@@ -68,6 +81,7 @@ struct AlphaPalette
     // Finition active (meme portee statique que le theme).
     static inline int finishActive = 0;
     static inline int faderStyleActive = 0;
+    static inline int darkFaderActive = 3;
 
     void applyHighContrast() { highContrast = true; }
 
@@ -91,6 +105,29 @@ struct AlphaPalette
     }
 
     static AlphaPalette makeDark()
+    {
+        // Couleurs relevees sur la maquette de Sunny (VST_V7.1_FULL.ai).
+        AlphaPalette p;
+        p.light = false;
+        p.sunny = true;
+        p.accent = juce::Colour (0xff3fa9f5); p.accentDeep = juce::Colour (0xff1b7fcf); p.accentGlow = juce::Colour (0x8c3fa9f5);
+        p.ink = juce::Colour (0xffe6eef6); p.inkSoft = juce::Colour (0xff8fa3b8);
+        p.panelTop = juce::Colour (0xff2a3341); p.panelUpper = juce::Colour (0xff283240); p.panelMid = juce::Colour (0xff242e3b);
+        p.panelLower = juce::Colour (0xff212a36); p.panelBottom = juce::Colour (0xff1b232e);
+        p.sep = juce::Colour (0xff161d25); p.sepHi = juce::Colour (0x0affffff);
+        p.graphBg = juce::Colour (0xff0e1318); p.graphGrid = juce::Colour (0x1a3fa9f5); p.graphLine = juce::Colour (0xff4fd0f5); p.graphInk = juce::Colour (0xff8ea2b4);
+        p.strip = juce::Colour (0xff224e8c); p.card = juce::Colour (0xff172130); p.cardInk = juce::Colour (0xffe6eef6); p.cardLine = juce::Colour (0xff2a3a4e);
+        p.pill = juce::Colour (0xff253649); p.pillInk = juce::Colour (0xffa9c0d8); p.lcd = juce::Colour (0xff091016); p.lcdInk = juce::Colours::white;
+        p.track = juce::Colour (0xff3a4656);
+        p.logoBg = juce::Colour (0xff2a3341);
+        p.faceArc = juce::Colour (0xffe6eef6); p.faceLabel = juce::Colours::white; p.faceRed = juce::Colour (0xffff4b3e);
+        p.needle = juce::Colours::white; p.faceFoot = juce::Colour (0xff214065);
+        return p;
+    }
+
+    // Ancien theme sombre "graphite" (avant le design de Sunny), garde dans
+    // le code, inutilise.
+    static AlphaPalette makeDarkClassic()
     {
         AlphaPalette p;
         p.light = false;
@@ -324,6 +361,17 @@ namespace AlphaDraw
     inline void paintPlate (juce::Graphics& g, juce::Rectangle<float> plate, const AlphaPalette& pal)
     {
         constexpr float corner = 10.0f;
+        if (pal.sunny)
+        {
+            // Design de Sunny : anneau bleu, fin filet sombre, plaque bleue.
+            g.setColour (juce::Colour (0xff1d4f85));
+            g.fillRoundedRectangle (plate, corner);
+            g.setColour (juce::Colour (0xff0b1a2c));
+            g.drawRoundedRectangle (plate.reduced (3.0f), corner - 2.5f, 1.0f);
+            g.setColour (pal.strip);
+            g.fillRoundedRectangle (plate.reduced (3.5f), corner - 3.0f);
+            return;
+        }
         if (pal.finish <= 0)
         {
             g.setColour (pal.strip);
@@ -356,6 +404,14 @@ namespace AlphaDraw
     inline void paintCard (juce::Graphics& g, juce::Rectangle<float> card, juce::Colour base, const AlphaPalette& pal)
     {
         constexpr float corner = 8.0f;
+        if (pal.sunny)
+        {
+            g.setColour (base);
+            g.fillRoundedRectangle (card, corner);
+            g.setColour (juce::Colour (0xff1b3a62));
+            g.drawRoundedRectangle (card.reduced (0.5f), corner, 1.0f);
+            return;
+        }
         if (pal.finish <= 0)
         {
             g.setColour (base);
@@ -450,6 +506,33 @@ namespace AlphaDraw
         g.setColour (juce::Colours::white.withAlpha (0.40f));
         g.drawLine (r.getX() + corner, r.getY() + 0.6f, r.getRight() - corner, r.getY() + 0.6f, 1.0f);
     }
+
+    // ---------- Boutons du design de Sunny (theme sombre) ----------
+    // Bright  : degrade bleu vif + liseret clair (LEARN, ANALOG actif, SEL...) ;
+    // Pressed : bleu plus profond, a plat (THD engage) ;
+    // Dark    : ardoise sombre a fin contour (boutons inactifs, SOLO) ;
+    // Amber   : SOLO actif.
+    enum class SunnyBlock { Bright, Pressed, Dark, Amber };
+
+    inline void sunnyBlock (juce::Graphics& g, juce::Rectangle<float> r, float corner, SunnyBlock kind, bool over, bool down,
+                            float borderWidth = 1.0f)
+    {
+        juce::Colour top, bottom, border;
+        switch (kind)
+        {
+            case SunnyBlock::Bright:  top = juce::Colour (0xff4ab0f7); bottom = juce::Colour (0xff3a9ce8); border = juce::Colour (0xff8fd0ff); break;
+            case SunnyBlock::Pressed: top = juce::Colour (0xff2f82cc); bottom = juce::Colour (0xff2a78bf); border = juce::Colour (0xff4f98d8); break;
+            case SunnyBlock::Amber:   top = juce::Colour (0xfff7c75a); bottom = juce::Colour (0xffe9b240); border = juce::Colour (0xffffe199); break;
+            case SunnyBlock::Dark:
+            default:                  top = juce::Colour (0xff253649); bottom = juce::Colour (0xff223244); border = juce::Colour (0xff31465d); break;
+        }
+        if (over && ! down) { top = top.brighter (0.08f); bottom = bottom.brighter (0.08f); }
+        if (down)           { top = top.darker (0.12f);   bottom = bottom.darker (0.12f); }
+        g.setGradientFill (juce::ColourGradient (top, 0.0f, r.getY(), bottom, 0.0f, r.getBottom(), false));
+        g.fillRoundedRectangle (r, corner);
+        g.setColour (border.withAlpha (kind == SunnyBlock::Dark ? 1.0f : 0.9f));
+        g.drawRoundedRectangle (r.reduced (borderWidth * 0.5f), corner, borderWidth);
+    }
 }
 
 /**
@@ -523,7 +606,7 @@ public:
                 g.setColour (juce::Colour (0xff5fd0ff).withAlpha (0.6f * k));
                 g.fillRoundedRectangle (r.expanded (spread), corner + spread);
             }
-            for (int i = 3; i >= 1; --i)
+            for (int i = 3; i >= 1 && ! pal.sunny; --i)
             {
                 g.setColour (juce::Colour (0xff7cc6ff).withAlpha (0.10f * (float) (4 - i)));
                 g.drawRoundedRectangle (r.expanded ((float) i * 1.4f), corner + (float) i, 1.4f);
@@ -532,7 +615,21 @@ public:
 
         // --- Fond ---
         juce::Colour textCol;
-        if (style == Style::Ghost)
+        if (pal.sunny)
+        {
+            // Design de Sunny : bleu vif quand actif (et pour les boutons
+            // d'action au repos), ardoise sombre quand inactif ; THD engage =
+            // bleu plus profond ; SOLO actif = ambre.
+            using SB = AlphaDraw::SunnyBlock;
+            SB kind = SB::Dark;
+            if (style == Style::Standard)      kind = lit ? (hasOnColour ? SB::Amber : SB::Pressed) : SB::Bright;
+            else if (style == Style::Primary)  kind = SB::Bright;
+            else                               kind = lit ? (hasOnColour ? SB::Amber : SB::Bright) : SB::Dark;
+            AlphaDraw::sunnyBlock (g, r, juce::jmin (style == Style::Primary ? 8.0f : 6.0f, r.getHeight() * 0.25f), kind, over, down,
+                                   style == Style::Primary ? 2.0f : 1.0f);
+            textCol = kind == SB::Dark ? juce::Colour (0xffa9c0d8) : (kind == SB::Amber ? juce::Colour (0xff3b2a00) : juce::Colours::white);
+        }
+        else if (style == Style::Ghost)
         {
             juce::Colour base = pal.light ? juce::Colours::white.withAlpha (over ? 0.88f : 0.78f)
                                           : juce::Colours::white.withAlpha (over ? 0.16f : 0.10f);
@@ -579,7 +676,7 @@ public:
         }
 
         // --- Texte (+ etiquette inversee) ---
-        const bool pressedIn = lit && style != Style::Ghost;
+        const bool pressedIn = lit && style != Style::Ghost && ! pal.sunny;
         auto textArea = pressedIn ? r.translated (0.0f, 1.0f) : r;
         auto f = AlphaDraw::font (fontSize).withExtraKerningFactor (AlphaType::kerning);
         float mainW = juce::GlyphArrangement::getStringWidth (f, getButtonText());
@@ -663,17 +760,18 @@ public:
 
         const auto pal = AlphaPalette::get();
         auto r = getLocalBounds().toFloat().reduced (1.0f);
-        r = r.withSizeKeepingCentre (r.getWidth(), juce::jmin (r.getHeight(), 24.0f));
+        r = r.withSizeKeepingCentre (r.getWidth(), juce::jmin (r.getHeight(), pal.sunny ? 26.0f : 24.0f));
         const float rad = r.getHeight() * 0.5f;
         const float k = r.getHeight() / 88.0f; // echelle de la preview d'origine (88 px de haut)
 
         // Fond : off -> on en fondu. THEME : jour = accent, nuit = anthracite.
         juce::Colour offCol = pal.pill, onCol = pal.accent;
-        if (icon == Icon::Moon) { offCol = pal.accent; onCol = juce::Colour (0xff3a3a46); }
+        if (icon == Icon::Moon) { offCol = pal.accent; onCol = pal.sunny ? juce::Colour (0xff3da0ec) : juce::Colour (0xff3a3a46); }
+        if (pal.sunny && icon != Icon::Moon) { onCol = juce::Colour (0xff3da0ec); if (icon != Icon::Power) offCol = juce::Colour (0xff212c38); }
         if (icon == Icon::Power) offCol = pal.light ? juce::Colour (0xff8c8f94) : juce::Colour (0xff4a4f56);
         const auto bg = offCol.interpolatedWith (onCol, colourMix);
 
-        if (colourMix > 0.01f && icon != Icon::Moon)
+        if (colourMix > 0.01f && icon != Icon::Moon && ! pal.sunny)
         {
             juce::Path p; p.addRoundedRectangle (r, rad);
             juce::DropShadow (pal.accentGlow.withMultipliedAlpha (colourMix), 6, {}).drawForPath (g, p);
@@ -745,7 +843,7 @@ public:
         g.setColour (juce::Colours::black.withAlpha (0.35f));
         g.fillRoundedRectangle (knob.translated (0.0f, 1.2f), d * 0.5f);
         juce::ColourGradient kg (juce::Colours::white, knob.getX() + d * 0.35f, knob.getY() + d * 0.3f,
-                                 juce::Colour (0xffb9c0c6), knob.getRight(), knob.getBottom(), true);
+                                 pal.sunny ? juce::Colour (0xffe4e8ec) : juce::Colour (0xffb9c0c6), knob.getRight(), knob.getBottom(), true);
         g.setGradientFill (kg);
         g.fillRoundedRectangle (knob, d * 0.5f);
     }
@@ -900,6 +998,14 @@ public:
         for (int i = -1; i <= 1; ++i)
         {
             auto dot = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ c.x, c.y + (float) i * 10.0f });
+            if (pal.sunny) // design de Sunny : pastilles sombres cerclees de bleu
+            {
+                g.setColour (juce::Colour (0xff102a3d));
+                g.fillEllipse (dot);
+                g.setColour ((over ? pal.accent : juce::Colour (0xff2f6f9f)));
+                g.drawEllipse (dot, 1.3f);
+                continue;
+            }
             juce::Path p; p.addEllipse (dot);
             juce::DropShadow (pal.accentGlow.withAlpha (over ? 0.8f : 0.5f), 4, {}).drawForPath (g, p);
             g.setColour (pal.accent);
@@ -922,8 +1028,19 @@ public:
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
         const auto pal = AlphaPalette::get();
+        if (pal.sunny && (icon == Icon::Copy || icon == Icon::Paste))
+        {
+            // Design de Sunny : COPY / PASTE en lettres espacees dans un cadre.
+            const auto box = getLocalBounds().toFloat().reduced (1.0f, 5.0f);
+            const auto ink = ((over || down) ? pal.accent : pal.ink).withAlpha (isEnabled() ? 1.0f : 0.3f);
+            g.setColour (ink);
+            g.drawRoundedRectangle (box, 3.0f, 1.3f);
+            AlphaDraw::spacedText (g, icon == Icon::Copy ? "COPY" : "PASTE", box, ink, AlphaType::label, 0.3f);
+            return;
+        }
         auto a = getLocalBounds().toFloat().withSizeKeepingCentre (16.0f, 16.0f);
-        juce::Colour c = (icon == Icon::Up || icon == Icon::Down) ? pal.accent : pal.ink;
+        juce::Colour c = (icon == Icon::Up || icon == Icon::Down) ? (pal.sunny ? juce::Colour (0xffc9d6e3) : pal.accent) : pal.ink;
+        if (pal.sunny && (icon == Icon::Prev || icon == Icon::Next)) c = juce::Colour (0xffa9c0d8);
         if (over || down) c = pal.accent;
         if (! isEnabled()) c = c.withAlpha (0.3f);
         g.setColour (c);
@@ -1009,6 +1126,15 @@ public:
         const auto pal = AlphaPalette::get();
         const bool on = getToggleState();
         auto r = getLocalBounds().toFloat().reduced (0.5f);
+        if (pal.sunny) // design de Sunny : cases noires, choix en bleu a plat
+        {
+            g.setColour (on ? juce::Colour (0xff3ea9f5) : (over ? juce::Colour (0xff142231) : pal.lcd));
+            g.fillRoundedRectangle (r, 2.5f);
+            g.setColour (juce::Colours::white.withAlpha (on ? 1.0f : 0.9f));
+            g.setFont (AlphaDraw::lcdFont (12.0f));
+            g.drawText (getButtonText(), r, juce::Justification::centred, false);
+            return;
+        }
         if (on)
         {
             juce::Path p; p.addRoundedRectangle (r, 2.0f);
@@ -1320,7 +1446,14 @@ public:
     static void drawConsoleFader (juce::Graphics& g, float x, float y, float width, float height, float sliderPos,
                                   juce::Slider& slider, const AlphaPalette& pal)
     {
+        if (pal.sunny && kSunnyFader)
+        {
+            drawSunnyFader (g, x, width, sliderPos, slider, pal);
+            return;
+        }
+        juce::ignoreUnused (y, height);
         const int styleIdx = pal.faderStyle;
+        const int inverted = (! pal.light && styleIdx == 0) ? pal.darkFader : 0;
         const float cx = x + width * 0.5f;
 
         // --- Fente + graduations ---
@@ -1339,7 +1472,13 @@ public:
                 g.drawLine (gx + w + 0.5f, ty, gx + w + len, ty, zero ? 1.5f : 1.0f);
             }
             const auto slot = juce::Rectangle<float> (gx, top, w, bottom - top);
-            if (styleIdx == 1)
+            if (inverted == 3)
+            {
+                juce::ColourGradient sg (juce::Colour (0xffaeb5bd), slot.getX(), 0.0f, juce::Colour (0xffc7cdd3), slot.getRight(), 0.0f, false);
+                sg.addColour (0.5, juce::Colour (0xffe9edf0));
+                g.setGradientFill (sg);
+            }
+            else if (styleIdx == 1)
                 g.setColour (juce::Colour (0xff0c0c0c));
             else
             {
@@ -1367,7 +1506,40 @@ public:
             g.fillRoundedRectangle (cap.translated (1.0f, 4.0f).expanded (2.0f - (float) i), corner + 2.0f - (float) i);
         }
 
-        if (styleIdx == 0) // BLACK : anthracite a stries, ligne blanche
+        if (inverted > 0) // BLACK inverse (theme sombre) : blanc a stries, ligne noire ou bleue
+        {
+            juce::ColourGradient body (juce::Colour (0xffffffff), 0.0f, cap.getY(), juce::Colour (0xffaab1b9), 0.0f, cap.getBottom(), false);
+            body.addColour (0.12, juce::Colour (0xfff1f3f5));
+            body.addColour (0.50, juce::Colour (0xffe0e4e8));
+            body.addColour (0.88, juce::Colour (0xffc9ced4));
+            g.setGradientFill (body);
+            g.fillRoundedRectangle (cap, corner);
+            juce::ColourGradient side (juce::Colours::white.withAlpha (0.35f), cap.getX(), 0.0f, juce::Colours::black.withAlpha (0.16f), cap.getRight(), 0.0f, false);
+            side.addColour (0.15, juce::Colours::transparentWhite);
+            side.addColour (0.85, juce::Colours::transparentBlack);
+            g.setGradientFill (side);
+            g.fillRoundedRectangle (cap, corner);
+            g.setColour (juce::Colour ((juce::uint8) 20, (juce::uint8) 30, (juce::uint8) 40, 0.13f));
+            for (int i = 0; i < 3; ++i)
+            {
+                g.drawLine (cap.getX() + 3.0f, cap.getY() + 3.5f + 2.5f * (float) i, cap.getRight() - 3.0f, cap.getY() + 3.5f + 2.5f * (float) i, 1.0f);
+                g.drawLine (cap.getX() + 3.0f, cap.getBottom() - 3.5f - 2.5f * (float) i, cap.getRight() - 3.0f, cap.getBottom() - 3.5f - 2.5f * (float) i, 1.0f);
+            }
+            g.setColour (juce::Colours::white);
+            g.fillRect (cap.getX() + 3.0f, cap.getY() + 0.8f, cap.getWidth() - 6.0f, 1.0f);
+            g.setColour (juce::Colour ((juce::uint8) 20, (juce::uint8) 30, (juce::uint8) 40, 0.30f));
+            g.fillRect (cap.getX() + 3.0f, cap.getBottom() - 1.6f, cap.getWidth() - 6.0f, 1.0f);
+            if (inverted == 2)
+            {
+                g.setColour (pal.accent.withAlpha (0.35f)); // halo
+                g.fillRect (cap.getX() + 1.0f, sliderPos - 2.5f, cap.getWidth() - 2.0f, 5.0f);
+                g.setColour (pal.accent);
+            }
+            else
+                g.setColour (juce::Colour (0xff15191d));
+            g.fillRect (cap.getX() + 2.0f, sliderPos - 1.0f, cap.getWidth() - 4.0f, 2.0f);
+        }
+        else if (styleIdx == 0) // BLACK : anthracite a stries, ligne blanche
         {
             juce::ColourGradient body (juce::Colour (0xff5b6168), 0.0f, cap.getY(), juce::Colour (0xff101215), 0.0f, cap.getBottom(), false);
             body.addColour (0.12, juce::Colour (0xff3a3f45));
@@ -1454,6 +1626,11 @@ public:
         const bool lively = (bool) slider.getProperties().getWithDefault ("alphaPowered", true)
                             && ! (bool) slider.getProperties().getWithDefault ("alphaGreyed", false);
         const auto area = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height);
+        if (pal.sunny && kSunnyBlackKnobs)
+        {
+            drawSunnyKnob (g, area, pos, startAngle, endAngle, slider, pal, lively);
+            return;
+        }
         const float R = juce::jmin (area.getWidth(), area.getHeight()) * 0.5f / AlphaKnob::kExtent;
         const auto c = area.getCentre();
         const float scale = juce::jmax (0.25f, g.getInternalContext().getPhysicalPixelScaleFactor());
@@ -1505,6 +1682,103 @@ public:
         g.drawImage (dot, juce::Rectangle<float> (p.x - dh, p.y - dh, dh * 2.0f, dh * 2.0f));
     }
 
+    // Knobs noirs du design de Sunny : retires (retour utilisateur : "j'aime
+    // pas trop les knobs du mode sombre, je prefere les neumorphiques"),
+    // le theme sombre garde le knob neumorphique. Code garde : passer a true.
+    static constexpr bool kSunnyBlackKnobs = false;
+
+    // Fader blanc a piste bleue du design de Sunny : retire (retour
+    // utilisateur : "les faders et les diodes des outputs ne correspondent
+    // pas en clair et en sombre, les mieux sont en mode clair") -- le theme
+    // sombre reprend le fader de console du clair (option Band faders).
+    // Code garde : passer a true.
+    static constexpr bool kSunnyFader = false;
+
+    // Knob du design de Sunny : sphere charbon avec reflet en croissant sur
+    // le bord haut-gauche, arc bleu continu autour (depuis le depart ou la
+    // valeur neutre jusqu'a la valeur), point bleu.
+    static void drawSunnyKnob (juce::Graphics& g, juce::Rectangle<float> area, float pos, float startAngle, float endAngle,
+                               juce::Slider& slider, const AlphaPalette& pal, bool lively)
+    {
+        const float R = juce::jmin (area.getWidth(), area.getHeight()) * 0.5f / AlphaKnob::kExtent;
+        const auto c = area.getCentre();
+        const auto body = juce::Rectangle<float> (R * 2.0f, R * 2.0f).withCentre (c);
+
+        {
+            const float arcR = R * 1.17f, arcW = juce::jmax (2.0f, R * 0.12f);
+            float from = startAngle;
+            if (slider.getProperties().contains ("alphaNeutral"))
+                from = startAngle + (float) slider.valueToProportionOfLength ((double) slider.getProperties()["alphaNeutral"]) * (endAngle - startAngle);
+            const float to = startAngle + pos * (endAngle - startAngle);
+            if (std::abs (to - from) > 0.005f)
+            {
+                juce::Path arc;
+                arc.addCentredArc (c.x, c.y, arcR, arcR, 0.0f, juce::jmin (from, to), juce::jmax (from, to), true);
+                g.setColour (lively ? pal.accent : pal.inkSoft.withAlpha (0.5f));
+                g.strokePath (arc, juce::PathStrokeType (arcW, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            }
+        }
+
+        g.setColour (juce::Colours::black.withAlpha (0.38f));
+        g.fillEllipse (body.translated (0.0f, R * 0.08f).expanded (R * 0.03f));
+
+        juce::ColourGradient bg (juce::Colour (0xff4b535d), c.x - R * 0.45f, c.y - R * 0.55f,
+                                 juce::Colour (0xff0c0f13), c.x + R * 0.75f, c.y + R * 0.8f, true);
+        bg.addColour (0.38, juce::Colour (0xff20262d));
+        g.setGradientFill (bg);
+        g.fillEllipse (body);
+
+        {
+            juce::Path crescent;
+            crescent.setUsingNonZeroWinding (false);
+            crescent.addEllipse (body);
+            crescent.addEllipse (body.translated (R * 0.14f, R * 0.12f).reduced (R * 0.02f));
+            g.setGradientFill (juce::ColourGradient (juce::Colours::white.withAlpha (0.75f), c.x - R * 0.75f, c.y - R * 0.55f,
+                                                     juce::Colours::white.withAlpha (0.0f), c.x + R * 0.2f, c.y + R * 0.6f, false));
+            g.fillPath (crescent);
+        }
+        g.setColour (juce::Colours::black.withAlpha (0.55f));
+        g.drawEllipse (body, juce::jmax (0.8f, R * 0.03f));
+
+        const float ang = startAngle + pos * (endAngle - startAngle);
+        const float dr = R * 0.8f, ds = juce::jmax (1.7f, R * 0.08f);
+        g.setColour (lively ? pal.accent : pal.inkSoft);
+        g.fillEllipse (juce::Rectangle<float> (ds * 2.0f, ds * 2.0f).withCentre ({ c.x + std::sin (ang) * dr, c.y - std::cos (ang) * dr }));
+    }
+
+    // Fader du design de Sunny : piste fine grise au-dessus du capuchon,
+    // bleue en dessous, grands traits blancs (haut, 0 dB, bas), capuchon
+    // blanc a ligne bleue. Les diodes GR/EXP en tirets sont dessinees par
+    // AlphaGrExpMeter, derriere.
+    static void drawSunnyFader (juce::Graphics& g, float x, float width, float sliderPos, juce::Slider& slider, const AlphaPalette& pal)
+    {
+        const float cx = x + width * 0.5f;
+        const float top = (float) slider.getPositionOfValue (slider.getMaximum());
+        const float bottom = (float) slider.getPositionOfValue (slider.getMinimum());
+        g.setColour (juce::Colours::white.withAlpha (0.85f));
+        for (double v : { slider.getMaximum(), 0.0, slider.getMinimum() })
+        {
+            const float ty = std::round ((float) slider.getPositionOfValue (v));
+            g.fillRect (cx - 16.0f, ty - 0.75f, 9.0f, 1.5f);
+            g.fillRect (cx + 7.0f,  ty - 0.75f, 9.0f, 1.5f);
+        }
+        constexpr float w = 3.0f;
+        g.setColour (juce::Colour (0xff818c9a));
+        g.fillRoundedRectangle (juce::Rectangle<float> (cx - w * 0.5f, top, w, juce::jmax (0.0f, sliderPos - top)), 1.5f);
+        g.setColour (pal.accent);
+        g.fillRoundedRectangle (juce::Rectangle<float> (cx - w * 0.5f, sliderPos, w, juce::jmax (0.0f, bottom - sliderPos)), 1.5f);
+
+        const auto cap = juce::Rectangle<float> (30.0f, 14.0f).withCentre ({ cx, sliderPos });
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillRoundedRectangle (cap.translated (0.0f, 2.0f), 3.0f);
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xfff6f8fa), 0.0f, cap.getY(), juce::Colour (0xffc3cad2), 0.0f, cap.getBottom(), false));
+        g.fillRoundedRectangle (cap, 3.0f);
+        g.setColour (juce::Colour (0xff7d8896));
+        g.drawRoundedRectangle (cap.reduced (0.5f), 3.0f, 1.0f);
+        g.setColour (pal.accent);
+        g.fillRect (cap.getX() + 4.0f, sliderPos - 0.6f, cap.getWidth() - 8.0f, 1.2f);
+    }
+
 private:
     juce::SharedResourcePointer<AlphaKnob::Cache> knobCache;
 };
@@ -1527,11 +1801,15 @@ public:
         // ci-dessous ne sert plus qu'en secours.
         if (logo.isValid())
         {
+            // Design de Sunny : le blanc du logo ("7" et fond de PACK) passe
+            // dans le bleu nuit du panneau.
+            const auto palette = AlphaPalette::get();
+            const auto& img = palette.sunny ? sunnyLogo (palette.logoBg) : logo;
             const auto area = getLocalBounds().toFloat();
             const auto placed = juce::RectanglePlacement (juce::RectanglePlacement::centred)
-                                    .appliedTo (logo.getBounds().toFloat(), area);
+                                    .appliedTo (img.getBounds().toFloat(), area);
             g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
-            g.drawImage (logo, placed);
+            g.drawImage (img, placed);
             if (over)
             {
                 g.setColour (juce::Colours::white.withAlpha (0.12f));
@@ -1570,7 +1848,29 @@ public:
     }
 
 private:
-    juce::Image logo;
+    const juce::Image& sunnyLogo (juce::Colour dark)
+    {
+        if (! darkLogo.isValid() || dark != darkLogoColour)
+        {
+            darkLogo = logo.createCopy();
+            darkLogoColour = dark;
+            juce::Image::BitmapData px (darkLogo, juce::Image::BitmapData::readWrite);
+            for (int y = 0; y < px.height; ++y)
+                for (int x = 0; x < px.width; ++x)
+                {
+                    const auto c = px.getPixelColour (x, y);
+                    if (c.getAlpha() == 0)
+                        continue;
+                    const float minCh = (float) juce::jmin (c.getRed(), c.getGreen(), c.getBlue()) / 255.0f;
+                    const float whiteness = juce::jlimit (0.0f, 1.0f, (minCh - 0.5f) / 0.5f);
+                    px.setPixelColour (x, y, c.interpolatedWith (dark.withAlpha (c.getFloatAlpha()), whiteness));
+                }
+        }
+        return darkLogo;
+    }
+
+    juce::Image logo, darkLogo;
+    juce::Colour darkLogoColour;
 };
 
 /** Pilule de nom de preset (barre du bas) -- ouvre le navigateur. */
@@ -1588,8 +1888,9 @@ public:
         const auto pal = AlphaPalette::get();
         auto r = getLocalBounds().toFloat().reduced (1.0f);
         const float rad = r.getHeight() * 0.5f;
-        juce::ColourGradient bg (pal.light ? juce::Colours::white : juce::Colour (0xff323840), 0.0f, r.getY(),
-                                 pal.light ? juce::Colour (0xffd4d8dc) : juce::Colour (0xff22272d), 0.0f, r.getBottom(), false);
+        const bool lightPill = pal.light || pal.sunny; // design de Sunny : barre blanche
+        juce::ColourGradient bg (lightPill ? juce::Colours::white : juce::Colour (0xff323840), 0.0f, r.getY(),
+                                 lightPill ? juce::Colour (0xffd4d8dc) : juce::Colour (0xff22272d), 0.0f, r.getBottom(), false);
         g.setGradientFill (bg);
         g.fillRoundedRectangle (r, rad);
         juce::ColourGradient inner (juce::Colours::black.withAlpha (0.22f), 0.0f, r.getY(),
@@ -1603,15 +1904,16 @@ public:
             g.drawRoundedRectangle (r, rad, 1.0f);
         }
         const auto nameText = juce::String::fromUTF8 ("\xe2\x96\xbc  ") + getButtonText().toUpperCase();
+        const auto nameInk = pal.sunny ? juce::Colour (0xff6a7885) : pal.ink;
         if (author.isEmpty())
         {
-            AlphaDraw::spacedText (g, nameText, r, pal.ink, AlphaType::label, 0.25f);
+            AlphaDraw::spacedText (g, nameText, r, nameInk, AlphaType::label, pal.sunny ? 0.5f : 0.25f);
             return;
         }
         // Nom centre, auteur a droite en plus discret.
         auto textArea = r.reduced (rad, 0.0f);
         auto authorArea = textArea.removeFromRight (110.0f);
-        AlphaDraw::spacedText (g, nameText, textArea, pal.ink, AlphaType::label, 0.25f);
+        AlphaDraw::spacedText (g, nameText, textArea, nameInk, AlphaType::label, pal.sunny ? 0.5f : 0.25f);
         g.setColour (pal.inkSoft);
         g.setFont (AlphaDraw::font (AlphaType::label, false).withExtraKerningFactor (0.05f));
         g.drawText (author, authorArea, juce::Justification::centredRight, false);
@@ -1652,6 +1954,20 @@ public:
     void paint (juce::Graphics& g) override
     {
         const auto pal = AlphaPalette::get();
+        if (pal.sunny)
+        {
+            // Design de Sunny : afficheur turquoise, chiffres clairs espaces.
+            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff15807d), 0.0f, lcdArea.getY(),
+                                                     juce::Colour (0xff0a5150), 0.0f, lcdArea.getBottom(), false));
+            g.fillRoundedRectangle (lcdArea, 3.0f);
+            g.setColour (juce::Colour (0xff47c2bd).withAlpha (0.6f));
+            g.drawRoundedRectangle (lcdArea.reduced (0.5f), 3.0f, 1.0f);
+            g.setColour (juce::Colour (0xffdffcf8));
+            g.setFont (AlphaDraw::lcdFont (13.0f).boldened().withExtraKerningFactor (0.12f));
+            g.drawText (juce::String (value, 1) + " dB", lcdArea, juce::Justification::centred, false);
+            AlphaDraw::spacedText (g, "THD CEIL", labelArea, pal.ink, AlphaType::label, 0.55f, juce::Justification::centredLeft);
+            return;
+        }
         g.setColour (pal.accent);
         g.fillRoundedRectangle (lcdArea, 2.0f);
         g.setColour (juce::Colours::black.withAlpha (0.18f));
@@ -1685,5 +2001,98 @@ private:
     AlphaIconButton down { AlphaIconButton::Icon::Down, "Lower THD ceiling" };
     float value = -0.5f;
     juce::Rectangle<float> lcdArea, labelArea;
+    juce::ParameterAttachment attachment;
+};
+
+/**
+    AlphaSegmentBar -- libelle + cases a choix unique liees a un parametre
+    "choice" (barre du bas, option A de la maquette : OS = surechantillonnage
+    de l'etage THD, CLIP = forme de l'ecretage). Grise quand le THD est
+    coupe (setDimmed), comme les modes SOFT / TAPE / IRON / AIR.
+*/
+class AlphaSegmentBar : public juce::Component
+{
+public:
+    AlphaSegmentBar (juce::RangedAudioParameter& p, const juce::String& labelText, const juce::StringArray& segmentTexts, float segmentWidth)
+        : label (labelText), segments (segmentTexts), segW (segmentWidth),
+          attachment (p, [this] (float v) { selected = juce::roundToInt (v); repaint(); }, nullptr)
+    {
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        attachment.sendInitialUpdate();
+    }
+
+    void setDimmed (bool d) { if (d != dimmed) { dimmed = d; repaint(); } }
+
+    int getIdealWidth() const
+    {
+        return (int) std::ceil (labelWidth() + kGap + (float) segments.size() * segW + (float) (segments.size() - 1) * kSegGap);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto pal = AlphaPalette::get();
+        if (dimmed)
+            g.beginTransparencyLayer (0.45f);
+        auto r = getLocalBounds().toFloat();
+        AlphaDraw::spacedText (g, label, r.removeFromLeft (labelWidth()), pal.ink, AlphaType::label, kLabelKerning, juce::Justification::centredLeft);
+        r.removeFromLeft (kGap);
+        for (int i = 0; i < segments.size(); ++i)
+        {
+            const auto seg = r.removeFromLeft (segW).withSizeKeepingCentre (segW, juce::jmin (24.0f, r.getHeight()));
+            r.removeFromLeft (kSegGap);
+            const bool on = i == selected, over = i == hovered;
+            if (pal.sunny)
+                AlphaDraw::sunnyBlock (g, seg, 5.0f, on ? AlphaDraw::SunnyBlock::Bright : AlphaDraw::SunnyBlock::Dark, over, false);
+            else if (on)
+                AlphaDraw::blueBlock (g, seg, 5.0f, true, false, pal.accent);
+            else
+            {
+                g.setColour (juce::Colours::white.withAlpha (over ? 0.75f : 0.55f));
+                g.fillRoundedRectangle (seg, 5.0f);
+                g.setColour (pal.accent.withAlpha (0.65f));
+                g.drawRoundedRectangle (seg.reduced (0.5f), 5.0f, 1.0f);
+            }
+            const auto ink = on ? juce::Colours::white : (pal.sunny ? juce::Colour (0xffa9c0d8) : pal.accentDeep);
+            AlphaDraw::spacedText (g, segments[i], seg, ink, AlphaType::label, 0.04f);
+        }
+        if (dimmed)
+            g.endTransparencyLayer();
+    }
+
+    void mouseMove (const juce::MouseEvent& e) override { setHovered (indexAt (e.position.x)); }
+    void mouseExit (const juce::MouseEvent&) override   { setHovered (-1); }
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        const int i = indexAt (e.position.x);
+        if (i >= 0 && i != selected)
+            attachment.setValueAsCompleteGesture ((float) i);
+    }
+
+private:
+    float labelWidth() const
+    {
+        return juce::GlyphArrangement::getStringWidth (AlphaDraw::font (AlphaType::label).withExtraKerningFactor (kLabelKerning), label) + 2.0f;
+    }
+
+    int indexAt (float x) const
+    {
+        float sx = labelWidth() + kGap;
+        for (int i = 0; i < segments.size(); ++i)
+        {
+            if (x >= sx && x < sx + segW)
+                return i;
+            sx += segW + kSegGap;
+        }
+        return -1;
+    }
+
+    void setHovered (int i) { if (i != hovered) { hovered = i; repaint(); } }
+
+    static constexpr float kGap = 7.0f, kSegGap = 3.0f, kLabelKerning = 0.15f;
+    juce::String label;
+    juce::StringArray segments;
+    float segW;
+    int selected = 0, hovered = -1;
+    bool dimmed = false;
     juce::ParameterAttachment attachment;
 };

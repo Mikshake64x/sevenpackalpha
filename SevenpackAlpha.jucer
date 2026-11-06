@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <JUCERPROJECT id="Sv7PkA" name="SevenpackAlpha" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" pluginFormats="buildAU,buildStandalone,buildUnity,buildVST3"
-              companyName="Side Key System" version="2.14.0" pluginName="Sevenpack Alpha"
+              companyName="Side Key System" version="2.20.0" pluginName="Sevenpack Alpha"
               pluginDesc="Sevenpack Alpha" pluginManufacturer="Side Key System" pluginCode="Svpa"
               bundleIdentifier="com.SideKeySystem.SevenpackAlpha"
               defines="JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1">
@@ -47,6 +47,7 @@
       <FILE id="alphmtr1" name="AlphaMeters.h" compile="0" resource="0" file="Source/AlphaMeters.h"/>
       <FILE id="alphstr1" name="AlphaStrip.h" compile="0" resource="0" file="Source/AlphaStrip.h"/>
       <FILE id="alphatr1" name="AlphaAttRel.h" compile="0" resource="0" file="Source/AlphaAttRel.h"/>
+      <FILE id="tplimit1" name="TruePeakLimiter.h" compile="0" resource="0" file="Source/TruePeakLimiter.h"/>
       <FILE id="bmr00001" name="BandMetersRack.h" compile="0" resource="0"
             file="Source/BandMetersRack.h"/>
       <FILE id="cfd00001" name="ConsoleFader.h" compile="0" resource="0"
@@ -103,7 +104,8 @@
             file="Source/TripressorAppIcon.png"/>
       <FILE id="sigmiksh3" name="signature_mikshake_master.png" compile="0" resource="1"
             file="Source/signature_mikshake_master.png"/>
-      <FILE id="alphwood1" name="bois_wood.jpg" compile="0" resource="1" file="Source/bois_wood.jpg"/>
+      <FILE id="alphwood4k" name="bois_wood_4k.jpg" compile="0" resource="1" file="Source/bois_wood_4k.jpg"/>
+      <FILE id="alphwoodv2" name="bois_sunny_v2.jpg" compile="0" resource="1" file="Source/bois_sunny_v2.jpg"/>
       <FILE id="alphlogo4" name="LOGO4x.png" compile="0" resource="1" file="Source/LOGO4x.png"/>
       <FILE id="aboutmik2" name="mikshake_about_crop.jpg" compile="0" resource="1" file="Source/mikshake_about_crop.jpg"/>
       <FILE id="aboutsun1" name="sunny_crop.jpg" compile="0" resource="1" file="Source/sunny_crop.jpg"/>

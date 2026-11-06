@@ -29,7 +29,12 @@
                      de l'ecran des crossovers (style, lissage, cretes).
       - Outputs    : sorties separees (mix principal en standalone + une
                      ligne par bande).
-      - AI Learn   : tout ce qui regle le bouton LEARN.
+      - THD stage  : surechantillonnage de l'etage THD (Off / x2 / x4 / x8,
+                     filtre lineaire ou minimal), forme du clip (Soft /
+                     Hard), ecretage dur par bande, plafond de securite.
+      - (ancienne categorie "AI Learn" : deplacee dans CalculatorOverlay,
+        engrenage a cote de LEARN, en bas de ce fichier. Le detail
+        ci-dessous reste valable.) Reglages du bouton LEARN :
           - Cible de loudness par plateforme ("Off" = comportement
             d'origine ; "Side Key" = repere le plus agressif, -6 LUFS),
             style musical, fidelite (reprend la balance du mix apres
@@ -115,7 +120,7 @@ namespace OptionsUi
     {
         gear, brush, gauge, split, spark, key, window, theme, cpu, finish, palette, fader,
         spring, back, glass, needle, gonio, phase, out, target, comp, timer, stack, scope,
-        music, fidelity, expand, amount, info, close, check, spectrum, count
+        music, fidelity, expand, amount, info, close, check, spectrum, clip, calc, alert, count
     };
 
     // Pictogrammes de l'apercu (traits simples, viewBox 24), construits une
@@ -182,6 +187,10 @@ namespace OptionsUi
                 case Icon::close:    d ("M6 6l12 12M18 6L6 18"); break;
                 case Icon::check:    d ("M5 12.5l4.5 4.5L19 7.5"); break;
                 case Icon::spectrum: d ("M3 19h18"); d ("M3 16l3-6 3 3 3-8 3 6 3-3 3 4"); break;
+                case Icon::clip:     d ("M2 18c2-6 3.5-10 5.5-10h9c2 0 3.5 4 5.5 10"); d ("M2 8h20"); break;
+                case Icon::alert:    d ("M12 4l9 16H3z"); d ("M12 10v4.5M12 17.5v.01"); break;
+                case Icon::calc:     rect (5, 2.5f, 14, 19, 2.5f); rect (8, 5.5f, 8, 4, 1);
+                                     d ("M9 13.5h.01M12 13.5h.01M15 13.5h.01M9 17h.01M12 17h.01M15 17h.01"); break;
                 case Icon::count:    break;
             }
             return g;
@@ -213,6 +222,25 @@ namespace OptionsUi
         g.fillRoundedRectangle (area, area.getWidth() * 0.25f);
         drawGlyph (g, set, icon, area.withSizeKeepingCentre (area.getWidth() * 0.62f, area.getHeight() * 0.62f),
                    juce::Colours::white);
+    }
+
+    // Fleche d'une bulle accrochee sous un bouton : pointe en ax, base sur le
+    // bord haut `top` du panneau (recouvre ce bord, puis trace ses 2 cotes).
+    inline void drawPopoverArrow (juce::Graphics& g, const Theme& th, float ax, float top)
+    {
+        juce::Path arrow;
+        arrow.startNewSubPath (ax - 11.0f, top + 1.5f);
+        arrow.lineTo (ax, top - 9.0f);
+        arrow.lineTo (ax + 11.0f, top + 1.5f);
+        arrow.closeSubPath();
+        g.setColour (th.bg);
+        g.fillPath (arrow);
+        juce::Path sides;
+        sides.startNewSubPath (ax - 10.5f, top + 0.5f);
+        sides.lineTo (ax, top - 9.0f);
+        sides.lineTo (ax + 10.5f, top + 0.5f);
+        g.setColour (th.edge);
+        g.strokePath (sides, juce::PathStrokeType (1.0f));
     }
 
     //==============================================================================
@@ -646,6 +674,108 @@ namespace OptionsUi
     };
 
     //==============================================================================
+    // Pastilles a choix multiple (bandes de "Hard clip on bands"), alignees
+    // a droite, sur plusieurs lignes si besoin.
+    class ChipSet : public juce::Component
+    {
+    public:
+        explicit ChipSet (juce::StringArray labelsIn) : labels (std::move (labelsIn)), states ((size_t) labels.size(), false)
+        {
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
+            for (auto& l : labels)
+                widths.push_back (juce::GlyphArrangement::getStringWidth (font (11.5f, 1), l) + 18.0f);
+        }
+
+        std::function<void (int, bool)> onToggle;
+
+        void setState (int index, bool on)
+        {
+            if (index >= 0 && index < (int) states.size() && states[(size_t) index] != on)
+            {
+                states[(size_t) index] = on;
+                repaint();
+            }
+        }
+
+        int getIdealWidth() const
+        {
+            float w = 0.0f;
+            for (auto cw : widths)
+                w += cw + kGap;
+            return (int) std::ceil (w - kGap);
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            const auto th = Theme::current();
+            const auto chips = layoutChips();
+            for (size_t i = 0; i < chips.size(); ++i)
+            {
+                const bool on = states[i];
+                g.setColour (on ? th.accent : th.field);
+                g.fillRoundedRectangle (chips[i], chips[i].getHeight() * 0.5f);
+                g.setColour (on ? juce::Colours::white : th.fg);
+                g.setFont (font (11.5f, 1));
+                g.drawText (labels[(int) i], chips[i], juce::Justification::centred, false);
+            }
+        }
+
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            const auto chips = layoutChips();
+            for (size_t i = 0; i < chips.size(); ++i)
+                if (chips[i].contains (e.position))
+                {
+                    states[i] = ! states[i];
+                    repaint();
+                    if (onToggle)
+                        onToggle ((int) i, states[i]);
+                    return;
+                }
+        }
+
+    private:
+        std::vector<juce::Rectangle<float>> layoutChips() const
+        {
+            std::vector<juce::Rectangle<float>> out (widths.size());
+            constexpr float h = 24.0f;
+            float y = 0.0f, rowStart = 0.0f;
+            size_t first = 0;
+            const float maxW = (float) getWidth();
+            const auto flush = [&] (size_t last, float rowW)
+            {
+                float x = maxW - rowW; // aligne a droite
+                for (size_t k = first; k < last; ++k)
+                {
+                    out[k] = { x, y, widths[k], h };
+                    x += widths[k] + kGap;
+                }
+            };
+            float rowW = 0.0f;
+            for (size_t i = 0; i < widths.size(); ++i)
+            {
+                const float add = (i == first ? 0.0f : kGap) + widths[i];
+                if (i > first && rowW + add > maxW)
+                {
+                    flush (i, rowW);
+                    first = i;
+                    y += h + kGap;
+                    rowW = widths[i];
+                    continue;
+                }
+                rowW += add;
+            }
+            flush (widths.size(), rowW);
+            juce::ignoreUnused (rowStart);
+            return out;
+        }
+
+        static constexpr float kGap = 5.0f;
+        juce::StringArray labels;
+        std::vector<bool> states;
+        std::vector<float> widths;
+    };
+
     // Ligne de la barre laterale : pastille + nom + nombre de reglages.
     class CategoryItem : public juce::Button
     {
@@ -735,6 +865,15 @@ namespace OptionsUi
                 groups[groupIndex].footer = text;
         }
 
+        // Marges gauche / droite des cartes et place minimale gardee pour le
+        // texte des lignes (defauts = page des Options).
+        void setMargins (float leftMargin, float rightMargin, float minTextW)
+        {
+            marginLeft = leftMargin;
+            marginRight = rightMargin;
+            minTextWidth = minTextW;
+        }
+
         int getNumVisibleRows() const
         {
             int n = 0;
@@ -749,7 +888,8 @@ namespace OptionsUi
             if (width <= 0)
                 return;
 
-            constexpr float left = 28.0f, right = 20.0f, padX = 14.0f;
+            const float left = marginLeft, right = marginRight;
+            constexpr float padX = 14.0f;
             const float cardW = (float) width - left - right;
             float y = 2.0f;
 
@@ -776,11 +916,11 @@ namespace OptionsUi
                 {
                     if (! r.visible)
                         continue;
-                    const float h = r.subtitle.isNotEmpty() ? 54.0f : 44.0f;
+                    const float h = juce::jmax (r.subtitle.isNotEmpty() ? 54.0f : 44.0f, (float) r.controlHeight + 16.0f);
                     r.bounds = { left, y, cardW, h };
                     if (r.control != nullptr)
                     {
-                        const float cw = juce::jmin ((float) r.controlWidth, cardW - 260.0f);
+                        const float cw = juce::jmin ((float) r.controlWidth, cardW - minTextWidth);
                         r.control->setBounds (juce::Rectangle<float> (left + cardW - padX - cw,
                                                                       y + (h - (float) r.controlHeight) * 0.5f,
                                                                       cw, (float) r.controlHeight).toNearestInt());
@@ -890,6 +1030,7 @@ namespace OptionsUi
         };
 
         std::vector<Group> groups;
+        float marginLeft = 28.0f, marginRight = 20.0f, minTextWidth = 260.0f;
         juce::SharedResourcePointer<IconSet> icons;
     };
 }
@@ -910,7 +1051,7 @@ public:
             { "Appearance", Icon::brush, 0xff0a84ff },
             { "Meters",     Icon::gauge, 0xffff9f0a },
             { "Outputs",    Icon::split, 0xff30b158 },
-            { "AI Learn",   Icon::spark, 0xffbf5af2 },
+            { "THD stage",  Icon::clip,  0xffff453a },
             { "License",    Icon::key,   0xffffcc00 },
         };
         for (int i = 0; i < kNumCategories; ++i)
@@ -931,7 +1072,7 @@ public:
         buildAppearancePage();
         buildMetersPage();
         buildOutputsPage();
-        buildAiPage();
+        buildThdPage();
         buildLicensePage();
         updateCategoryCounts();
         showCategory (0);
@@ -952,7 +1093,8 @@ public:
     }
 
     // Ouvre une categorie (0 General, 1 Appearance, 2 Meters, 3 Outputs,
-    // 4 AI Learn, 5 License).
+    // 4 THD stage, 5 License). Les reglages de LEARN sont dans
+    // CalculatorOverlay (engrenage a cote de LEARN, voir plus bas).
     void showCategory (int index)
     {
         currentCategory = juce::jlimit (0, kNumCategories - 1, index);
@@ -1017,21 +1159,6 @@ public:
         bandOutCombos[band].setSelectedId (juce::jmax (0, comboIndex) + 1, juce::dontSendNotification);
     }
 
-    void setCurrentAiTargetIndex (int idx)       { aiTargetCombo.setSelectedId (idx + 1, juce::dontSendNotification); }
-    void setCurrentAiCompressionMode (int idx)   { compressionSeg.setSelected (idx); }
-    void setCurrentAiCharacter (int idx)         { characterSeg.setSelected (idx); }
-    void setCurrentAiGainReduction (int idx)     { gainReductionSeg.setSelected (idx); }
-    void setAiScopeStates (bool crossoverOn, bool compressionOn)
-    {
-        scopeCrossoverSwitch.setOn (crossoverOn);
-        scopeCompressionSwitch.setOn (compressionOn);
-    }
-    void setCurrentAiStyle (int idx)             { aiStyleCombo.setSelectedId (idx + 1, juce::dontSendNotification); }
-    void setAiFidelityState (bool enabled)       { fidelitySwitch.setOn (enabled); }
-    void setCurrentAiExpandMode (int idx)        { expandModeSeg.setSelected (idx); }
-    void setCurrentAiExpandCharacter (int idx)   { expandCharacterSeg.setSelected (idx); }
-    void setCurrentAiExpandAmount (int idx)      { expandAmountSeg.setSelected (idx); }
-
     void setNeedleSettings (float bounce, float ret)
     {
         bounceSlider.setValue (bounce);
@@ -1044,7 +1171,13 @@ public:
     void setGonioRedPhase (bool red)     { phaseSwitch.setOn (red); }
     void setFinish (int finish)          { finishSeg.setSelected (finish); }
     void setFaderStyle (int styleIdx)    { faderSeg.setSelected (styleIdx); }
+    void setWoodStyle (int style)        { woodSeg.setSelected (style); }
     void setAttRelIcons (int style)      { attRelSeg.setSelected (style); }
+    void setThdOversampling (int idx)    { thdOsSeg.setSelected (idx); }
+    void setThdOsFilter (int idx)        { thdOsFilterSeg.setSelected (idx); }
+    void setThdClipShape (int idx)       { thdClipShapeSeg.setSelected (idx); }
+    void setThdTruePeak (bool on)        { thdTruePeakSwitch.setOn (on); }
+    void setBandHardClip (int band, bool on) { thdHardBandChips.setState (band, on); }
     void setSpectrumStyle (int style)    { spectrumStyleSeg.setSelected (style); }
     void setSpectrumSmooth (int smooth)  { spectrumSmoothSeg.setSelected (smooth); }
     void setSpectrumPeak (bool on)       { spectrumPeakSwitch.setOn (on); }
@@ -1128,17 +1261,6 @@ public:
     std::function<void(int)> onUiThemeSelected;
     std::function<void(float)> onScaleSelected;
     std::function<void(int)> onLatencySelected;
-    std::function<void(int)> onAiTargetSelected;
-    std::function<void(int)> onAiCompressionModeSelected;
-    std::function<void(int)> onAiCharacterSelected;
-    std::function<void(int)> onAiGainReductionSelected;
-    // scopeIndex : 0=Crossover, 1=Compression.
-    std::function<void(int scopeIndex, bool enabled)> onAiScopeChanged;
-    std::function<void(int)> onAiStyleSelected;
-    std::function<void(bool)> onAiFidelityChanged;
-    std::function<void(int)> onAiExpandModeSelected;
-    std::function<void(int)> onAiExpandCharacterSelected;
-    std::function<void(int)> onAiExpandAmountSelected;
     // pairIndex : paire de sortie de la carte (0 = 1-2, 1 = 3-4, ...).
     std::function<void(int pairIndex)> onMainOutPairChanged;
     // band : 0=Low..6=Air. comboIndex : 0 = dans le mix ; >=1 = paire+1
@@ -1159,8 +1281,18 @@ public:
     std::function<void(int)> onFinishSelected;
     // Fader : 0 BLACK, 1 VINTAGE, 2 ALU.
     std::function<void(int)> onFaderStyleSelected;
+    // Bois : 0 = Classic (v2.17), 1 = New (nouveau bois de Sunny).
+    std::function<void(int)> onWoodStyleSelected;
     // Pictogrammes ATT / REL : 0 OFF, 1 CURVE, 2 WAVE, 3 LEDS.
     std::function<void(int)> onAttRelIconsSelected;
+    // Options > THD stage : surechantillonnage (0 Off, 1 x2, 2 x4, 3 x8),
+    // filtre (0 lineaire, 1 minimal), forme du clip (0 Soft, 1 Hard),
+    // plafond de securite final, ecretage dur par bande.
+    std::function<void(int)> onThdOversamplingSelected;
+    std::function<void(int)> onThdOsFilterSelected;
+    std::function<void(int)> onThdClipShapeSelected;
+    std::function<void(bool)> onThdTruePeakChanged;
+    std::function<void(int band, bool on)> onBandHardClipChanged;
     // Spectre de l'ecran des crossovers : style 0 CLASSIC, 1 LINE, 2 GLOW,
     // 3 BANDS, 4 FILLED ; lissage 0 d'origine, 1 plus doux ; ligne des cretes.
     std::function<void(int)> onSpectrumStyleSelected;
@@ -1169,11 +1301,27 @@ public:
 
 private:
     static constexpr int kNumCategories = 6;
-    enum { kGeneralPage, kAppearancePage, kMetersPage, kOutputsPage, kAiPage, kLicensePage };
+    enum { kGeneralPage, kAppearancePage, kMetersPage, kOutputsPage, kThdPage, kLicensePage };
     static constexpr float kSidebarWidth = 250.0f;
-    static constexpr int kNumScales = 6;
+    static constexpr int kNumScales = 8;
     static constexpr int kNumRouteBands = 7;
-    static constexpr float kScaleValues[kNumScales] = { 0.75f, 0.80f, 0.85f, 0.90f, 0.95f, 1.0f };
+    // 0 = AUTO (taille calee sur l'ecran, defaut) ; jusqu'a 200 % pour les
+    // ecrans 4K (demande explicite : "sur un ecran en 4k il etait tout petit").
+    static constexpr float kScaleValues[kNumScales] = { 0.0f, 0.75f, 0.90f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
+
+public:
+    static int scaleIndexFor (float scale)
+    {
+        if (scale <= 0.0f)
+            return 0;
+        int best = 1;
+        for (int i = 1; i < kNumScales; ++i)
+            if (std::abs (scale - kScaleValues[i]) < std::abs (scale - kScaleValues[best]))
+                best = i;
+        return best;
+    }
+
+private:
 
     int pageWidth() const   { return viewport.getWidth() - viewport.getScrollBarThickness(); }
 
@@ -1208,7 +1356,7 @@ private:
         using OptionsUi::Icon;
         auto& p = pages[kGeneralPage];
         p.addGroup ({});
-        p.addRow (Icon::window, juce::Colour (0xff5e5ce6), "Window size", "Plugin window scale", &scaleSeg, scaleSeg.getIdealWidth());
+        p.addRow (Icon::window, juce::Colour (0xff5e5ce6), "Window size", "Auto fits the screen (4K included)", &scaleSeg, scaleSeg.getIdealWidth());
         p.addRow (Icon::theme, juce::Colour (0xff48484a), "Theme", "Dark, light or retro DOS", &themeSeg, themeSeg.getIdealWidth());
         p.addGroup ("Performance");
         p.addRow (Icon::cpu, juce::Colour (0xff8e8e93), "Linear mode CPU budget", "Latency of the linear-phase crossover",
@@ -1230,11 +1378,13 @@ private:
         p.addRow (Icon::fader, juce::Colour (0xff636366), "Band faders", "Console fader cap", &faderSeg, faderSeg.getIdealWidth());
         p.addRow (Icon::timer, juce::Colour (0xffff9f0a), "Attack / release icons", "Next to ATT and REL, animated while turning",
                   &attRelSeg, attRelSeg.getIdealWidth());
+        p.addRow (Icon::palette, juce::Colour (0xffa2845e), "Wood", "Frame around the plugin", &woodSeg, woodSeg.getIdealWidth());
 
         finishSeg.onChange     = [this] (int i) { if (onFinishSelected) onFinishSelected (i); };
         colourModeSeg.onChange = [this] (int i) { if (onBandColourModeSelected) onBandColourModeSelected (i); };
         faderSeg.onChange      = [this] (int i) { if (onFaderStyleSelected) onFaderStyleSelected (i); };
         attRelSeg.onChange     = [this] (int i) { if (onAttRelIconsSelected) onAttRelIconsSelected (i); };
+        woodSeg.onChange       = [this] (int i) { if (onWoodStyleSelected) onWoodStyleSelected (i); };
     }
 
     void buildMetersPage()
@@ -1244,7 +1394,7 @@ private:
         p.addGroup ("Needles");
         p.addRow (Icon::spring, juce::Colour (0xffff9f0a), "Bounce", "Needle overshoot", &bounceSlider, 250);
         p.addRow (Icon::back, juce::Colour (0xffff9f0a), "Return", "Needle return speed", &returnSlider, 250);
-        p.addRow (Icon::glass, juce::Colour (0xff64d2ff), "Glass", "Reflection on the dials", &glassSeg, glassSeg.getIdealWidth());
+        p.addRow (Icon::glass, juce::Colour (0xff64d2ff), "Glass", "Reflection on the dials (light theme)", &glassSeg, glassSeg.getIdealWidth());
         p.addRow (Icon::needle, juce::Colour (0xffff453a), "Needle tip", "Tip colour", &tipSeg, tipSeg.getIdealWidth());
         p.addGroup ("Goniometer");
         p.addRow (Icon::gonio, juce::Colour (0xff30b158), "Display", "Dots or connected lines", &gonioSeg, gonioSeg.getIdealWidth());
@@ -1303,31 +1453,295 @@ private:
         }
     }
 
-    void buildAiPage()
+    // Options > THD stage (demande explicite : surechantillonnage x4 minimum
+    // sur le clip et le plafond, soft clip sur le tonal, hard clip sur les
+    // transitoires de batterie -- maquette, option A).
+    void buildThdPage()
     {
         using OptionsUi::Icon;
-        auto& p = pages[kAiPage];
-        p.addGroup ("Target");
-        p.addRow (Icon::target, juce::Colour (0xffbf5af2), "Mastering target", "Loudness reference (LUFS)", &aiTargetCombo, 190);
-        p.addRow (Icon::music, juce::Colour (0xffff2d55), "Style", "Output balance by music style", &aiStyleCombo, 190);
-        p.addRow (Icon::fidelity, juce::Colour (0xff30b158), "Fidelity", "Restore the mix tonal balance after compression",
+        auto& p = pages[kThdPage];
+        p.addGroup ("Oversampling", "THD stage only, when THD is on. Adds latency, reported to the host.");
+        p.addRow (Icon::amount, juce::Colour (0xff5e5ce6), "Oversampling", "Less aliasing, peaks controlled between samples",
+                  &thdOsSeg, thdOsSeg.getIdealWidth());
+        p.addRow (Icon::phase, juce::Colour (0xff64d2ff), "Filter", "Linear: a little more latency. Minimum: almost none",
+                  &thdOsFilterSeg, thdOsFilterSeg.getIdealWidth());
+        p.addGroup ("Clip", "Hard clip bands are clipped on their own first. The final ceiling (THD CEIL) always applies to the full mix.");
+        p.addRow (Icon::clip, juce::Colour (0xffff453a), "Clip shape", "Soft: rounded from 3 dB below the ceiling. Hard: straight cut",
+                  &thdClipShapeSeg, thdClipShapeSeg.getIdealWidth());
+        p.addRow (Icon::split, juce::Colour (0xffff9f0a), "Hard clip on bands", "Keeps drum transients punchy",
+                  &thdHardBandChips, thdHardBandChips.getIdealWidth(), 24);
+        p.addRow (Icon::gauge, juce::Colour (0xff30b158), "True peak ceiling", "Smooth limiter: peaks between samples stay under the ceiling",
+                  &thdTruePeakSwitch, 44, 26);
+
+        thdOsSeg.onChange          = [this] (int i) { if (onThdOversamplingSelected) onThdOversamplingSelected (i); };
+        thdOsFilterSeg.onChange    = [this] (int i) { if (onThdOsFilterSelected) onThdOsFilterSelected (i); };
+        thdClipShapeSeg.onChange   = [this] (int i) { if (onThdClipShapeSelected) onThdClipShapeSelected (i); };
+        thdTruePeakSwitch.onChange = [this] (bool on) { if (onThdTruePeakChanged) onThdTruePeakChanged (on); };
+        thdHardBandChips.onToggle  = [this] (int band, bool on) { if (onBandHardClipChanged) onBandHardClipChanged (band, on); };
+    }
+
+    void buildLicensePage()
+    {
+        using OptionsUi::Icon;
+        auto& p = pages[kLicensePage];
+        p.addGroup ({});
+        p.addRow (Icon::info, juce::Colour (0xff8e8e93), "Sevenpack Alpha", juce::String ("Version ") + JucePlugin_VersionString);
+        p.addRow (Icon::key, juce::Colour (0xffffcc00), "License manager", "Activate, deactivate or move a license", &licenseButton, 76);
+        licenseButton.onClick = [this] { if (onOpenLicense) onOpenLicense(); };
+    }
+
+    // Declare en premier : detruit en dernier, apres tous les controles.
+    OptionsUi::LookAndFeel laf;
+    juce::SharedResourcePointer<OptionsUi::IconSet> icons;
+
+    // General
+    OptionsUi::Segmented scaleSeg   { { "Auto", "75%", "90%", "100%", "125%", "150%", "175%", "200%" } };
+    OptionsUi::Segmented themeSeg   { { "Dark", "Light", "DOS" } };
+    OptionsUi::Segmented latencySeg { { "Low", "Medium", "High" } };
+    // Appearance
+    OptionsUi::Segmented finishSeg     { { "Matte", "Satin", "Gloss", "Molded" } };
+    OptionsUi::Segmented colourModeSeg { { "Banner", "Tint", "None" } };
+    OptionsUi::Segmented faderSeg      { { "Black", "Vintage", "Alu" } };
+    OptionsUi::Segmented woodSeg       { { "Classic", "New" } };
+    OptionsUi::Segmented attRelSeg     { { "Off", "Curve", "Wave", "LEDs" } };
+    // Meters
+    OptionsUi::ValueSlider bounceSlider, returnSlider;
+    OptionsUi::Segmented glassSeg { { "Arc", "Smoked" } };
+    OptionsUi::Segmented tipSeg   { { "Red", "White" } };
+    OptionsUi::Segmented gonioSeg { { "Dots", "Lines" } };
+    OptionsUi::Switch phaseSwitch;
+    OptionsUi::Segmented spectrumStyleSeg  { { "Classic", "Line", "Glow", "Bands", "Filled" } };
+    OptionsUi::Segmented spectrumSmoothSeg { { "Classic", "Smoother" } };
+    OptionsUi::Switch spectrumPeakSwitch;
+    // Outputs
+    juce::ComboBox mainOutCombo;
+    juce::ComboBox bandOutCombos[kNumRouteBands];
+    bool outIsStandalone = false;
+    int  outPairCount = 1;
+    // THD stage
+    OptionsUi::Segmented thdOsSeg        { { "Off", juce::String::fromUTF8 ("\xc3\x97" "2"), juce::String::fromUTF8 ("\xc3\x97" "4"), juce::String::fromUTF8 ("\xc3\x97" "8") } };
+    OptionsUi::Segmented thdOsFilterSeg  { { "Linear", "Minimum" } };
+    OptionsUi::Segmented thdClipShapeSeg { { "Soft", "Hard" } };
+    OptionsUi::ChipSet thdHardBandChips  { { "LOW", "LOW-MID", "MID", "HIGH-MID", "PRESENCE", "HIGH", "AIR" } };
+    OptionsUi::Switch thdTruePeakSwitch;
+    // License
+    OptionsUi::PillButton licenseButton { "Open" };
+
+    OptionsUi::Page pages[kNumCategories];
+    juce::OwnedArray<OptionsUi::CategoryItem> categoryItems;
+    OptionsUi::CloseButton closeButton;
+    juce::Viewport viewport;
+    int currentCategory = 0;
+
+    juce::Rectangle<float> sheetBounds, sidebarBounds, brandBounds;
+    juce::Rectangle<int> titleArea;
+    juce::Image shadowImage;
+    juce::Point<int> shadowOrigin;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OptionsOverlay)
+};
+
+//==============================================================================
+/**
+    CalculatorOverlay
+    -----------------
+    Reglages du bouton LEARN, sortis des Options (demande explicite : "le
+    menu IA learn serait mieux a cote du bouton learn. Genre un petit
+    engrenage avec juste l'option IA learn. d'ailleurs on va retirer IA et
+    remplacer par calculator. On va le retirer des options a gauche").
+    Apercu claude.ai/artifact/MCQB1GtJSKWSiSMjW49b9N, choix "panneau 2
+    colonnes, placement A". Panneau accroche sous l'engrenage (fleche),
+    sans voile ; se ferme au clic a cote, par Echap ou la croix. Memes 11
+    reglages, memes parametres (idAi...) et memes callbacks qu'avant dans
+    OptionsOverlay ; seuls les textes "AI" deviennent "LEARN" / "the
+    calculator".
+*/
+class CalculatorOverlay : public juce::Component
+{
+public:
+    CalculatorOverlay()
+    {
+        setLookAndFeel (&laf);
+        setWantsKeyboardFocus (true);
+        addAndMakeVisible (closeButton);
+        closeButton.onClick = [this] { if (onDismiss) onDismiss(); };
+        leftPage.setMargins (20.0f, 10.0f, 200.0f);
+        rightPage.setMargins (10.0f, 20.0f, 200.0f);
+        addAndMakeVisible (leftPage);
+        addAndMakeVisible (rightPage);
+        buildPages();
+    }
+
+    ~CalculatorOverlay() override
+    {
+        setLookAndFeel (nullptr);
+    }
+
+    // Relit le theme (clair / sombre) -- a chaque ouverture et changement de theme.
+    void applyAlphaStyle()
+    {
+        laf.refresh();
+        sendLookAndFeelChange();
+        repaint();
+    }
+
+    void setConfirmLearn (bool on)               { confirmSwitch.setOn (on); }
+
+    // Point (repere de ce composant) vise par la fleche : le bas de l'engrenage.
+    void setAnchor (juce::Point<float> p)
+    {
+        anchor = p;
+        resized();
+        repaint();
+    }
+
+    void setCurrentAiTargetIndex (int idx)       { aiTargetCombo.setSelectedId (idx + 1, juce::dontSendNotification); }
+    void setCurrentAiCompressionMode (int idx)   { compressionSeg.setSelected (idx); }
+    void setCurrentAiCharacter (int idx)         { characterSeg.setSelected (idx); }
+    void setCurrentAiGainReduction (int idx)     { gainReductionSeg.setSelected (idx); }
+    void setAiScopeStates (bool crossoverOn, bool compressionOn)
+    {
+        scopeCrossoverSwitch.setOn (crossoverOn);
+        scopeCompressionSwitch.setOn (compressionOn);
+    }
+    void setCurrentAiStyle (int idx)             { aiStyleCombo.setSelectedId (idx + 1, juce::dontSendNotification); }
+    void setAiFidelityState (bool enabled)       { fidelitySwitch.setOn (enabled); }
+    void setCurrentAiExpandMode (int idx)        { expandModeSeg.setSelected (idx); }
+    void setCurrentAiExpandCharacter (int idx)   { expandCharacterSeg.setSelected (idx); }
+    void setCurrentAiExpandAmount (int idx)      { expandAmountSeg.setSelected (idx); }
+
+    void resized() override
+    {
+        constexpr float width = 1040.0f, headH = 66.0f;
+        const int colW = juce::roundToInt (width * 0.5f);
+        leftPage.layout (colW);
+        rightPage.layout (colW);
+        const float bodyH = (float) juce::jmax (leftPage.getHeight(), rightPage.getHeight());
+        const float x = juce::jlimit (14.0f, juce::jmax (14.0f, (float) getWidth() - width - 14.0f), anchor.x - 90.0f);
+        float y = anchor.y + 10.0f;
+        if (y + headH + bodyH > (float) getHeight() - 8.0f)
+            y = juce::jmax (8.0f, (float) getHeight() - 8.0f - headH - bodyH);
+        sheetBounds = { x, y, width, headH + bodyH };
+        headerArea = sheetBounds.withHeight (headH);
+        closeButton.setBounds (juce::Rectangle<int> (30, 30).withCentre ({ juce::roundToInt (headerArea.getRight() - 30.0f),
+                                                                           juce::roundToInt (headerArea.getCentreY() + 2.0f) }));
+        leftPage.setTopLeftPosition (juce::roundToInt (x), juce::roundToInt (y + headH));
+        rightPage.setTopLeftPosition (juce::roundToInt (x) + colW, juce::roundToInt (y + headH));
+        rebuildShadow();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto th = OptionsUi::Theme::current();
+        g.drawImageAt (shadowImage, shadowOrigin.x, shadowOrigin.y);
+
+        g.setColour (th.bg);
+        g.fillRoundedRectangle (sheetBounds, 14.0f);
+        g.setColour (th.edge);
+        g.drawRoundedRectangle (sheetBounds.reduced (0.5f), 14.0f, 1.0f);
+
+        // Fleche vers l'engrenage (recouvre le bord du panneau a sa base).
+        const float ax = juce::jlimit (sheetBounds.getX() + 26.0f, sheetBounds.getRight() - 26.0f, anchor.x);
+        OptionsUi::drawPopoverArrow (g, th, ax, sheetBounds.getY());
+
+        // En-tete : pastille calculatrice, titre, sous-titre.
+        auto head = headerArea.reduced (20.0f, 0.0f);
+        const auto badge = head.removeFromLeft (34.0f).withSizeKeepingCentre (34.0f, 34.0f).translated (0.0f, 2.0f);
+        OptionsUi::drawBadge (g, *icons, OptionsUi::Icon::calc, badge, juce::Colour (0xffbf5af2));
+        head.removeFromLeft (12.0f);
+        head = head.withTrimmedRight (60.0f).withSizeKeepingCentre (head.getWidth() - 60.0f, 40.0f).translated (0.0f, 2.0f);
+        g.setColour (th.fg);
+        g.setFont (OptionsUi::font (19.0f, 2));
+        g.drawText ("Calculator", head.removeFromTop (22.0f), juce::Justification::centredLeft, true);
+        g.setColour (th.muted);
+        g.setFont (OptionsUi::font (12.0f));
+        g.drawText ("What LEARN sets when it listens", head, juce::Justification::centredLeft, true);
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (! sheetBounds.expanded (0.0f, 10.0f).contains (e.position) && onDismiss)
+            onDismiss();
+    }
+
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key == juce::KeyPress::escapeKey)
+        {
+            if (onDismiss)
+                onDismiss();
+            return true;
+        }
+        return false;
+    }
+
+    std::function<void()> onDismiss;
+    std::function<void(bool)> onConfirmLearnChanged;
+    std::function<void(int)> onAiTargetSelected;
+    std::function<void(int)> onAiCompressionModeSelected;
+    std::function<void(int)> onAiCharacterSelected;
+    std::function<void(int)> onAiGainReductionSelected;
+    // scopeIndex : 0=Crossover, 1=Compression.
+    std::function<void(int scopeIndex, bool enabled)> onAiScopeChanged;
+    std::function<void(int)> onAiStyleSelected;
+    std::function<void(bool)> onAiFidelityChanged;
+    std::function<void(int)> onAiExpandModeSelected;
+    std::function<void(int)> onAiExpandCharacterSelected;
+    std::function<void(int)> onAiExpandAmountSelected;
+
+private:
+    static void setupCombo (juce::ComboBox& c)
+    {
+        c.setJustificationType (juce::Justification::centredLeft);
+        c.setRepaintsOnMouseActivity (true);
+        c.setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    void rebuildShadow()
+    {
+        const auto area = sheetBounds.expanded (56.0f).getSmallestIntegerContainer();
+        shadowOrigin = area.getPosition();
+        shadowImage = juce::Image (juce::Image::ARGB, juce::jmax (1, area.getWidth()), juce::jmax (1, area.getHeight()), true);
+        juce::Graphics sg (shadowImage);
+        juce::Path p;
+        p.addRoundedRectangle (sheetBounds.translated ((float) -area.getX(), (float) -area.getY()), 14.0f);
+        juce::DropShadow (juce::Colours::black.withAlpha (0.45f), 40, { 0, 14 }).drawForPath (sg, p);
+    }
+
+    // Colonne gauche : Target + Scope ; colonne droite : Compression + Expander.
+    void buildPages()
+    {
+        using OptionsUi::Icon;
+        auto& l = leftPage;
+        l.addGroup ("Target");
+        l.addRow (Icon::target, juce::Colour (0xffbf5af2), "Mastering target", "Loudness reference (LUFS)", &aiTargetCombo, 190);
+        l.addRow (Icon::music, juce::Colour (0xffff2d55), "Style", "Output balance by music style", &aiStyleCombo, 190);
+        l.addRow (Icon::fidelity, juce::Colour (0xff30b158), "Fidelity", "Restore the mix tonal balance after compression",
                   &fidelitySwitch, 44, 26);
-        p.addGroup ("Compression", "Off on one setting leaves only that setting alone; AI Learn still sets the others.");
-        p.addRow (Icon::comp, juce::Colour (0xff5e5ce6), "Compression", "Overall intensity", &compressionSeg, compressionSeg.getIdealWidth());
-        p.addRow (Icon::timer, juce::Colour (0xffff9f0a), "Attack / release", "Character", &characterSeg, characterSeg.getIdealWidth());
-        p.addRow (Icon::stack, juce::Colour (0xff0a84ff), "Gain reduction", "How much in total", &gainReductionSeg,
-                  gainReductionSeg.getIdealWidth());
-        p.addGroup ("Expander");
-        p.addRow (Icon::expand, juce::Colour (0xffbf5af2), "Expand mode", "Bands set to Expand or Both", &expandModeSeg,
-                  expandModeSeg.getIdealWidth());
-        p.addRow (Icon::timer, juce::Colour (0xffbf5af2), "Expand attack / release", "Character", &expandCharacterSeg,
-                  expandCharacterSeg.getIdealWidth());
-        p.addRow (Icon::amount, juce::Colour (0xffbf5af2), "Expand amount", "How much in total", &expandAmountSeg,
-                  expandAmountSeg.getIdealWidth());
-        p.addGroup ("Scope", "What AI Learn is allowed to change.");
-        p.addRow (Icon::scope, juce::Colour (0xff0a84ff), "Crossovers", "AI may move the crossover points", &scopeCrossoverSwitch, 44, 26);
-        p.addRow (Icon::scope, juce::Colour (0xff0a84ff), "Compression", "AI may set input, ratio, attack and release",
+        l.addGroup ("Scope", "What the calculator is allowed to change.");
+        l.addRow (Icon::scope, juce::Colour (0xff0a84ff), "Crossovers", "LEARN may move the crossover points", &scopeCrossoverSwitch, 44, 26);
+        l.addRow (Icon::scope, juce::Colour (0xff0a84ff), "Compression", "LEARN may set input, ratio, attack and release",
                   &scopeCompressionSwitch, 44, 26);
+        // Confirmation avant LEARN (case "Don't ask again" de la bulle) :
+        // la reactive ici.
+        l.addGroup ("Safety");
+        l.addRow (Icon::alert, juce::Colour (0xffff9f0a), "Confirm before LEARN", "Ask before overwriting the current setting",
+                  &confirmSwitch, 44, 26);
+        confirmSwitch.onChange = [this] (bool on) { if (onConfirmLearnChanged) onConfirmLearnChanged (on); };
+
+        auto& r = rightPage;
+        r.addGroup ("Compression", "Off on one setting leaves only that setting alone; the calculator still sets the others.");
+        r.addRow (Icon::comp, juce::Colour (0xff5e5ce6), "Compression", "Overall intensity", &compressionSeg, compressionSeg.getIdealWidth());
+        r.addRow (Icon::timer, juce::Colour (0xffff9f0a), "Attack / release", "Character", &characterSeg, characterSeg.getIdealWidth());
+        r.addRow (Icon::stack, juce::Colour (0xff0a84ff), "Gain reduction", "How much in total", &gainReductionSeg,
+                  gainReductionSeg.getIdealWidth());
+        r.addGroup ("Expander");
+        r.addRow (Icon::expand, juce::Colour (0xffbf5af2), "Expand mode", "Bands set to Expand or Both", &expandModeSeg,
+                  expandModeSeg.getIdealWidth());
+        r.addRow (Icon::timer, juce::Colour (0xffbf5af2), "Expand attack / release", "Character", &expandCharacterSeg,
+                  expandCharacterSeg.getIdealWidth());
+        r.addRow (Icon::amount, juce::Colour (0xffbf5af2), "Expand amount", "How much in total", &expandAmountSeg,
+                  expandAmountSeg.getIdealWidth());
 
         static const char* targetLabels[] = { "Off", "Apple Music", "YouTube", "Spotify", "Deezer", "SoundCloud", "TV", "CD", "Side Key", "Match" };
         for (int i = 0; i < (int) std::size (targetLabels); ++i)
@@ -1355,8 +1769,8 @@ private:
 
         // Violet de la diode Expand (demande explicite : "les options de
         // l'expandeur en violet comme la diode expand").
-        for (auto* s : { &expandModeSeg, &expandCharacterSeg, &expandAmountSeg })
-            s->setTint (juce::Colour (0xffbf5af2));
+        for (auto* sgm : { &expandModeSeg, &expandCharacterSeg, &expandAmountSeg })
+            sgm->setTint (juce::Colour (0xffbf5af2));
         expandModeSeg.onChange      = [this] (int i) { if (onAiExpandModeSelected) onAiExpandModeSelected (i); };
         expandCharacterSeg.onChange = [this] (int i) { if (onAiExpandCharacterSelected) onAiExpandCharacterSelected (i); };
         expandAmountSeg.onChange    = [this] (int i) { if (onAiExpandAmountSelected) onAiExpandAmountSelected (i); };
@@ -1365,44 +1779,10 @@ private:
         scopeCompressionSwitch.onChange = [this] (bool on) { if (onAiScopeChanged) onAiScopeChanged (1, on); };
     }
 
-    void buildLicensePage()
-    {
-        using OptionsUi::Icon;
-        auto& p = pages[kLicensePage];
-        p.addGroup ({});
-        p.addRow (Icon::info, juce::Colour (0xff8e8e93), "Sevenpack Alpha", juce::String ("Version ") + JucePlugin_VersionString);
-        p.addRow (Icon::key, juce::Colour (0xffffcc00), "License manager", "Activate, deactivate or move a license", &licenseButton, 76);
-        licenseButton.onClick = [this] { if (onOpenLicense) onOpenLicense(); };
-    }
-
     // Declare en premier : detruit en dernier, apres tous les controles.
     OptionsUi::LookAndFeel laf;
     juce::SharedResourcePointer<OptionsUi::IconSet> icons;
 
-    // General
-    OptionsUi::Segmented scaleSeg   { { "75%", "80%", "85%", "90%", "95%", "100%" } };
-    OptionsUi::Segmented themeSeg   { { "Dark", "Light", "DOS" } };
-    OptionsUi::Segmented latencySeg { { "Low", "Medium", "High" } };
-    // Appearance
-    OptionsUi::Segmented finishSeg     { { "Matte", "Satin", "Gloss", "Molded" } };
-    OptionsUi::Segmented colourModeSeg { { "Banner", "Tint", "None" } };
-    OptionsUi::Segmented faderSeg      { { "Black", "Vintage", "Alu" } };
-    OptionsUi::Segmented attRelSeg     { { "Off", "Curve", "Wave", "LEDs" } };
-    // Meters
-    OptionsUi::ValueSlider bounceSlider, returnSlider;
-    OptionsUi::Segmented glassSeg { { "Arc", "Smoked" } };
-    OptionsUi::Segmented tipSeg   { { "Red", "White" } };
-    OptionsUi::Segmented gonioSeg { { "Dots", "Lines" } };
-    OptionsUi::Switch phaseSwitch;
-    OptionsUi::Segmented spectrumStyleSeg  { { "Classic", "Line", "Glow", "Bands", "Filled" } };
-    OptionsUi::Segmented spectrumSmoothSeg { { "Classic", "Smoother" } };
-    OptionsUi::Switch spectrumPeakSwitch;
-    // Outputs
-    juce::ComboBox mainOutCombo;
-    juce::ComboBox bandOutCombos[kNumRouteBands];
-    bool outIsStandalone = false;
-    int  outPairCount = 1;
-    // AI Learn
     juce::ComboBox aiTargetCombo, aiStyleCombo;
     OptionsUi::Switch fidelitySwitch;
     OptionsUi::Segmented compressionSeg     { { "Off", "Soft", "Medium", "Hard" } };
@@ -1412,19 +1792,313 @@ private:
     OptionsUi::Segmented expandCharacterSeg { { "Off", "Smooth", "Medium", "Punchy" } };
     OptionsUi::Segmented expandAmountSeg    { { "Off", "Smooth", "Mid", "Hard" } };
     OptionsUi::Switch scopeCrossoverSwitch, scopeCompressionSwitch;
-    // License
-    OptionsUi::PillButton licenseButton { "Open" };
 
-    OptionsUi::Page pages[kNumCategories];
-    juce::OwnedArray<OptionsUi::CategoryItem> categoryItems;
+    OptionsUi::Switch confirmSwitch;
+
+    OptionsUi::Page leftPage, rightPage;
     OptionsUi::CloseButton closeButton;
-    juce::Viewport viewport;
-    int currentCategory = 0;
-
-    juce::Rectangle<float> sheetBounds, sidebarBounds, brandBounds;
-    juce::Rectangle<int> titleArea;
+    juce::Point<float> anchor { 270.0f, 100.0f };
+    juce::Rectangle<float> sheetBounds, headerArea;
     juce::Image shadowImage;
     juce::Point<int> shadowOrigin;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OptionsOverlay)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CalculatorOverlay)
+};
+
+//==============================================================================
+// Engrenage rond a droite de LEARN (placement A de l'apercu) : ouvre /
+// ferme CalculatorOverlay. Allume (bleu) tant que le panneau est ouvert.
+class CalculatorGearButton : public juce::Button
+{
+public:
+    CalculatorGearButton() : juce::Button ("LEARN settings")
+    {
+        setMouseCursor (juce::MouseCursor::PointingHandCursor);
+    }
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        const auto pal = AlphaPalette::get();
+        const bool on = getToggleState() || down;
+        const auto b = getLocalBounds().toFloat().reduced (1.5f);
+        juce::Colour top, bottom, border, ink;
+        if (! pal.light)
+        {
+            top    = on ? juce::Colour (0xff4ab0f7) : juce::Colour (0xff2a3d52);
+            bottom = on ? juce::Colour (0xff3a9ce8) : juce::Colour (0xff1f2f41);
+            border = on ? juce::Colour (0xff8fd0ff) : juce::Colour (0xff3a5470);
+            ink    = on ? juce::Colours::white : juce::Colour (0xffb9cde2);
+        }
+        else
+        {
+            top    = on ? juce::Colour (0xff2f8fdc) : juce::Colours::white;
+            bottom = on ? juce::Colour (0xff2f8fdc) : juce::Colour (0xffe4e9ee);
+            border = on ? juce::Colour (0xff2779bd) : pal.accent.withAlpha (0.7f);
+            ink    = on ? juce::Colours::white : pal.accentDeep;
+        }
+        if (over && ! on)
+        {
+            top = top.brighter (0.12f);
+            bottom = bottom.brighter (0.12f);
+        }
+
+        if (on && ! pal.light)
+        {
+            g.setColour (pal.accent.withAlpha (0.35f)); // halo
+            g.fillEllipse (b.expanded (1.5f));
+        }
+        else
+        {
+            g.setColour (juce::Colours::black.withAlpha (pal.light ? 0.18f : 0.40f)); // ombre courte
+            g.fillEllipse (b.translated (0.0f, 1.5f));
+        }
+        g.setGradientFill (juce::ColourGradient (top, 0.0f, b.getY(), bottom, 0.0f, b.getBottom(), false));
+        g.fillEllipse (b);
+        if (on && pal.light)
+        {
+            g.setGradientFill (juce::ColourGradient (juce::Colours::black.withAlpha (0.28f), 0.0f, b.getY(),
+                                                     juce::Colours::transparentBlack, 0.0f, b.getY() + b.getHeight() * 0.4f, false));
+            g.fillEllipse (b); // creux
+        }
+        g.setColour (border);
+        g.drawEllipse (b, 1.0f);
+        OptionsUi::drawGlyph (g, *icons, OptionsUi::Icon::gear, b.reduced (b.getWidth() * 0.19f), ink, 2.1f);
+    }
+
+private:
+    juce::SharedResourcePointer<OptionsUi::IconSet> icons;
+};
+
+//==============================================================================
+/**
+    LearnConfirmOverlay
+    -------------------
+    Confirmation avant LEARN (demande explicite : "quand on clique sur learn
+    actuellement on peut detruire le reglage precedent. on peut ajouter un
+    Are you sure? avec ceci va ecraser votre reglage precedent. si vous ne
+    souhaitez pas ecraser le reglage precedent passez sur le B"). Apercu
+    claude.ai/artifact/ME2Jwf8u8VuFGs6qbtbf8x, choix "forme 1, don't ask
+    avec" : bulle accrochee sous LEARN, sans voile. Cancel / "Switch to
+    <autre slot> and learn" (bleu, le choix sur ; Entree) / Overwrite
+    (rouge). Echap ou clic a cote = Cancel. Case "Don't ask again" (prise
+    en compte seulement si on lance LEARN) : se reactive dans le panneau
+    Calculator ("Confirm before LEARN").
+*/
+class LearnConfirmOverlay : public juce::Component
+{
+private:
+    // Bouton de dialogue : plain (gris), primary (bleu plein), danger (texte rouge).
+    class DialogButton : public juce::Button
+    {
+    public:
+        enum class Kind { plain, primary, danger };
+        DialogButton (const juce::String& text, Kind k) : juce::Button (text), kind (k)
+        {
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        }
+
+        int getIdealWidth() const
+        {
+            return (int) std::ceil (juce::GlyphArrangement::getStringWidth (OptionsUi::font (13.0f, 1), getButtonText()) + 30.0f);
+        }
+
+        void paintButton (juce::Graphics& g, bool over, bool down) override
+        {
+            const auto th = OptionsUi::Theme::current();
+            const auto b = getLocalBounds().toFloat();
+            juce::Colour bg = kind == Kind::primary ? th.accent : th.field;
+            if (down)      bg = bg.contrasting (0.12f);
+            else if (over) bg = bg.contrasting (0.06f);
+            g.setColour (bg);
+            g.fillRoundedRectangle (b, 8.0f);
+            if (hasKeyboardFocus (false) || kind == Kind::primary)
+            {
+                g.setColour (th.accent.withAlpha (kind == Kind::primary ? 0.0f : 0.8f));
+                g.drawRoundedRectangle (b.reduced (0.5f), 8.0f, 1.0f);
+            }
+            g.setColour (kind == Kind::primary ? juce::Colours::white
+                         : kind == Kind::danger ? (th.dark ? juce::Colour (0xffff453a) : juce::Colour (0xffff3b30))
+                                                : th.fg);
+            g.setFont (OptionsUi::font (13.0f, kind == Kind::plain ? 0 : 1));
+            g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred, false);
+        }
+
+    private:
+        Kind kind;
+    };
+
+    // Case a cocher + libelle (clic sur l'ensemble).
+    class CheckRow : public juce::Component
+    {
+    public:
+        explicit CheckRow (const juce::String& text) : label (text)
+        {
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        }
+        void setChecked (bool c) { checked = c; repaint(); }
+        bool isChecked() const   { return checked; }
+
+        void paint (juce::Graphics& g) override
+        {
+            const auto th = OptionsUi::Theme::current();
+            const auto box = juce::Rectangle<float> (15.0f, 15.0f).withCentre ({ 7.5f, (float) getHeight() * 0.5f });
+            g.setColour (checked ? th.accent : th.field);
+            g.fillRoundedRectangle (box, 4.0f);
+            if (! checked)
+            {
+                g.setColour (th.muted.withAlpha (0.6f));
+                g.drawRoundedRectangle (box.reduced (0.5f), 4.0f, 1.0f);
+            }
+            else
+            {
+                juce::Path tick;
+                tick.startNewSubPath (box.getX() + 3.5f, box.getCentreY() + 0.5f);
+                tick.lineTo (box.getX() + 6.5f, box.getBottom() - 4.0f);
+                tick.lineTo (box.getRight() - 3.5f, box.getY() + 4.0f);
+                g.setColour (juce::Colours::white);
+                g.strokePath (tick, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+            }
+            g.setColour (th.muted);
+            g.setFont (OptionsUi::font (12.5f));
+            g.drawText (label, getLocalBounds().withTrimmedLeft (24), juce::Justification::centredLeft, true);
+        }
+
+        void mouseDown (const juce::MouseEvent&) override { setChecked (! checked); }
+
+    private:
+        juce::String label;
+        bool checked = false;
+    };
+
+public:
+    enum Choice { cancel = 0, switchAndLearn = 1, overwrite = 2 };
+
+    LearnConfirmOverlay()
+    {
+        setWantsKeyboardFocus (true);
+        addAndMakeVisible (cancelButton);
+        addAndMakeVisible (switchButton);
+        addAndMakeVisible (overwriteButton);
+        addAndMakeVisible (dontAskBox);
+        cancelButton.onClick    = [this] { finish (cancel); };
+        switchButton.onClick    = [this] { finish (switchAndLearn); };
+        overwriteButton.onClick = [this] { finish (overwrite); };
+    }
+
+    // usingB : slot A/B actuel ; le bouton bleu propose l'autre.
+    void prepare (bool usingB)
+    {
+        current = usingB ? "B" : "A";
+        other   = usingB ? "A" : "B";
+        switchButton.setButtonText ("Switch to " + other + " and learn");
+        dontAskBox.setChecked (false);
+        resized();
+        repaint();
+    }
+
+    // Point (repere de ce composant) vise par la fleche : le bas de LEARN.
+    void setAnchor (juce::Point<float> p)
+    {
+        anchor = p;
+        resized();
+        repaint();
+    }
+
+    // choice : cancel / switchAndLearn / overwrite ; dontAskAgain : case
+    // cochee ET LEARN lance.
+    std::function<void (int choice, bool dontAskAgain)> onChoice;
+
+    void resized() override
+    {
+        constexpr float w = 452.0f, h = 192.0f;
+        const float x = juce::jlimit (14.0f, juce::jmax (14.0f, (float) getWidth() - w - 14.0f), anchor.x - 100.0f);
+        bubble = { x, anchor.y + 12.0f, w, h };
+        auto in = bubble.reduced (20.0f, 18.0f);
+        auto btns = in.removeFromBottom (30.0f);
+        const auto place = [&btns] (juce::Button& b, float bw)
+        {
+            b.setBounds (btns.removeFromRight (bw).toNearestInt());
+            btns.removeFromRight (8.0f);
+        };
+        place (overwriteButton, (float) juce::jmax (92, overwriteButton.getIdealWidth()));
+        place (switchButton, (float) switchButton.getIdealWidth());
+        place (cancelButton, (float) juce::jmax (76, cancelButton.getIdealWidth()));
+        in.removeFromBottom (12.0f);
+        dontAskBox.setBounds (in.removeFromBottom (20.0f).withTrimmedLeft (54.0f).toNearestInt());
+        badgeArea = juce::Rectangle<float> (in.getX(), in.getY() + 2.0f, 40.0f, 40.0f);
+        textArea = in.withTrimmedLeft (54.0f);
+        rebuildShadow();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto th = OptionsUi::Theme::current();
+        g.drawImageAt (shadowImage, shadowOrigin.x, shadowOrigin.y);
+        g.setColour (th.bg);
+        g.fillRoundedRectangle (bubble, 14.0f);
+        g.setColour (th.edge);
+        g.drawRoundedRectangle (bubble.reduced (0.5f), 14.0f, 1.0f);
+        OptionsUi::drawPopoverArrow (g, th, juce::jlimit (bubble.getX() + 26.0f, bubble.getRight() - 26.0f, anchor.x), bubble.getY());
+
+        // Pastille orange + triangle d'alerte.
+        g.setColour (juce::Colour (0xffff9f0a));
+        g.fillRoundedRectangle (badgeArea, 10.0f);
+        OptionsUi::drawGlyph (g, *icons, OptionsUi::Icon::alert, badgeArea.reduced (8.0f), juce::Colours::white, 2.2f);
+
+        auto t = textArea;
+        g.setColour (th.fg);
+        g.setFont (OptionsUi::font (17.0f, 2));
+        g.drawText ("Are you sure?", t.removeFromTop (24.0f), juce::Justification::centredLeft, true);
+        g.setFont (OptionsUi::font (13.0f, 1));
+        g.drawText ("LEARN will overwrite your current setting.", t.removeFromTop (20.0f), juce::Justification::centredLeft, true);
+        g.setColour (th.muted);
+        g.setFont (OptionsUi::font (13.0f));
+        g.drawFittedText ("If you don't want to overwrite it, switch to " + other + ": LEARN will work on " + other
+                              + " and your setting stays on " + current + ".",
+                          t.removeFromTop (40.0f).toNearestInt(), juce::Justification::topLeft, 2, 1.0f);
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (! bubble.expanded (0.0f, 10.0f).contains (e.position))
+            finish (cancel);
+    }
+
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key == juce::KeyPress::escapeKey) { finish (cancel); return true; }
+        if (key == juce::KeyPress::returnKey) { finish (switchAndLearn); return true; }
+        return false;
+    }
+
+private:
+    void finish (int choice)
+    {
+        if (onChoice)
+            onChoice (choice, choice != cancel && dontAskBox.isChecked());
+    }
+
+    void rebuildShadow()
+    {
+        const auto area = bubble.expanded (48.0f).getSmallestIntegerContainer();
+        shadowOrigin = area.getPosition();
+        shadowImage = juce::Image (juce::Image::ARGB, juce::jmax (1, area.getWidth()), juce::jmax (1, area.getHeight()), true);
+        juce::Graphics sg (shadowImage);
+        juce::Path p;
+        p.addRoundedRectangle (bubble.translated ((float) -area.getX(), (float) -area.getY()), 14.0f);
+        juce::DropShadow (juce::Colours::black.withAlpha (0.45f), 36, { 0, 12 }).drawForPath (sg, p);
+    }
+
+    juce::SharedResourcePointer<OptionsUi::IconSet> icons;
+    DialogButton cancelButton    { "Cancel",                  DialogButton::Kind::plain };
+    DialogButton switchButton    { "Switch to B and learn",   DialogButton::Kind::primary };
+    DialogButton overwriteButton { "Overwrite",               DialogButton::Kind::danger };
+    CheckRow dontAskBox { "Don't ask again (turn it back on in the Calculator)" };
+    juce::String current { "A" }, other { "B" };
+    juce::Point<float> anchor { 222.0f, 100.0f };
+    juce::Rectangle<float> bubble, badgeArea, textArea;
+    juce::Image shadowImage;
+    juce::Point<int> shadowOrigin;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LearnConfirmOverlay)
 };

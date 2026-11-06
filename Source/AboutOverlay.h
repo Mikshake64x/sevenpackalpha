@@ -291,15 +291,19 @@ public:
     // rien de statique n'avait change -- c'etait la source du ralentissement.
     void paint (juce::Graphics& g) override
     {
-        if (! chromeCache.isValid())
+        const float px = juce::jlimit (1.0f, 6.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+        if (! chromeCache.isValid() || ! juce::approximatelyEqual (px, chromeScale))
+        {
+            chromeScale = px;
             rebuildChromeCache();
+        }
 
         // Voile (fondu) puis panneau (zoom + glissement), voir animation.
         AlphaDraw::overlayVeil (g, getLocalBounds().toFloat(), animOpacity);
         g.saveState();
         g.setOpacity (animOpacity);
         g.addTransform (panelTransform());
-        g.drawImageAt (chromeCache, 0, 0);
+        g.drawImage (chromeCache, getLocalBounds().toFloat());
         g.restoreState();
     }
 
@@ -459,8 +463,10 @@ private:
         if (w < 4 || h < 4)
             return;
 
-        chromeCache = juce::Image (juce::Image::ARGB, w, h, true);
+        chromeCache = juce::Image (juce::Image::ARGB, juce::jmax (1, juce::roundToInt ((float) w * chromeScale)),
+                                   juce::jmax (1, juce::roundToInt ((float) h * chromeScale)), true);
         juce::Graphics g (chromeCache);
+        g.addTransform (juce::AffineTransform::scale (chromeScale));
 
         // Panneau clair Alpha SEUL (le voile est peint a part dans paint(),
         // pour pouvoir le fondre independamment pendant l'animation).
@@ -486,7 +492,7 @@ private:
         auto versionArea = headerRow.removeFromRight (56.0f);
         g.setColour (AlphaPalette::get().sheetTextSoft());
         g.setFont (juce::Font (juce::FontOptions (11.0f, juce::Font::bold)).withExtraKerningFactor (0.08f));
-        g.drawFittedText ("v2.14.0", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
+        g.drawFittedText ("v2.20.0", versionArea.toNearestInt(), juce::Justification::centredRight, 1);
 
         g.setColour (AlphaPalette::get().heading());
         g.setFont (juce::Font (juce::FontOptions (24.0f, juce::Font::bold)).withExtraKerningFactor (0.1f));
@@ -709,9 +715,9 @@ private:
             "Dual Needle VU (Input / Output / THD) plus One THD Needle per Band",
             "Link In / Link Out for Ganged Input/Output Trim",
             "Factory and User Preset Browser, with a Genuine Default Preset",
-            "Resizable UI (75% to 100%), Locked Against Accidental Host Fullscreen",
+            "Resizable UI (Auto, 75% to 200%, 4K Ready), Locked Against Accidental Host Fullscreen",
             "Calibrated I/O, 0.001dB Linearity, Hand Measured",
-            "AI Learn: Listens to Your Program Material and Calculates Compression, Expansion "
+            "LEARN: Listens to Your Program Material and Calculates Compression, Expansion "
             "and Crossover Settings, with Loudness Targeting for Streaming Platform Norms",
             "Independent Upward Expansion per Band (Comp / Expand), with its Own Ratio, Attack, "
             "Release and Range, Running Alongside Compression at All Times"
@@ -899,6 +905,7 @@ private:
     static constexpr bool kShowFooterPhoto = false;
     static constexpr bool kShowSplashImage = false;
     juce::Image chromeCache;
+    float chromeScale = 1.0f; // resolution physique du cache (ecran 4K, taille 200 %)
     juce::Rectangle<float> websiteBounds;
     juce::Rectangle<float> manualBounds;
     juce::Rectangle<float> licenseBounds;

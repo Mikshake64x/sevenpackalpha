@@ -51,10 +51,14 @@ public:
     void paint (juce::Graphics& g) override
     {
         const bool enabled = isMeasuring();
-        if (cacheDirty || enabled != cachedEnabled || mode != cachedMode
-            || cache.getWidth() != getWidth() || cache.getHeight() != getHeight())
+        const float px = juce::jlimit (1.0f, 6.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
+        if (cacheDirty || enabled != cachedEnabled || mode != cachedMode || ! juce::approximatelyEqual (px, cacheScale)
+            || cache.getWidth() != juce::roundToInt ((float) getWidth() * px) || cache.getHeight() != juce::roundToInt ((float) getHeight() * px))
+        {
+            cacheScale = px;
             rebuildCache (enabled);
-        g.drawImageAt (cache, 0, 0);
+        }
+        g.drawImage (cache, getLocalBounds().toFloat());
 
         const auto pal = AlphaPalette::get();
         const auto foot = getLocalBounds().toFloat().removeFromBottom (14.0f).reduced (7.0f, 0.0f);
@@ -65,7 +69,7 @@ public:
             paintGonioPoints (g, enabled);
             g.setColour (pal.faceArc.withAlpha (enabled ? 0.95f : 0.35f));
             g.drawText (readout, foot, juce::Justification::centredRight, false);
-            paintGlass (g);
+            if (pal.sunny) paintSunnyLeds (g, enabled); else paintGlass (g);
             return;
         }
 
@@ -111,7 +115,7 @@ public:
             g.drawLine (pm.x, pm.y, p1.x, p1.y, 1.6f);
         }
 
-        paintGlass (g);
+        if (pal.sunny) paintSunnyLeds (g, enabled); else paintGlass (g);
     }
 
 private:
@@ -230,6 +234,29 @@ private:
         }
     }
 
+    // Design de Sunny : diode verte en haut a gauche (la bande mesure),
+    // diode rouge en haut a droite (zone forte : GR ou EXP > 9 dB, THD >
+    // 70 %, correlation negative en GONIO).
+    void paintSunnyLeds (juce::Graphics& g, bool enabled) const
+    {
+        const float w = (float) getWidth();
+        const auto led = [&g] (juce::Point<float> c, juce::Colour on, juce::Colour off, bool lit)
+        {
+            if (lit)
+            {
+                g.setColour (on.withAlpha (0.35f));
+                g.fillEllipse (juce::Rectangle<float> (15.0f, 15.0f).withCentre (c));
+            }
+            g.setGradientFill (juce::ColourGradient ((lit ? on : off).brighter (0.5f), c.x - 2.0f, c.y - 2.5f,
+                                                     lit ? on : off, c.x + 3.0f, c.y + 3.0f, true));
+            g.fillEllipse (juce::Rectangle<float> (10.0f, 10.0f).withCentre (c));
+        };
+        led ({ 12.0f, 12.0f }, juce::Colour (0xff3fd54b), juce::Colour (0xff1d3a2a), enabled);
+        led ({ w - 12.0f, 12.0f }, juce::Colour (0xffff3b3b), juce::Colour (0xff3b2026), enabled && overload);
+    }
+
+    bool overload = false;
+
     juce::Rectangle<float> plateArea;
     juce::Image glassCache;
     int cachedGlass = -1;
@@ -263,19 +290,26 @@ private:
     void rebuildCache (bool enabled)
     {
         const auto pal = AlphaPalette::get();
-        cache = juce::Image (juce::Image::ARGB, juce::jmax (1, getWidth()), juce::jmax (1, getHeight()), true);
+        cache = juce::Image (juce::Image::ARGB, juce::jmax (1, juce::roundToInt ((float) getWidth() * cacheScale)),
+                             juce::jmax (1, juce::roundToInt ((float) getHeight() * cacheScale)), true);
         juce::Graphics g (cache);
+        g.addTransform (juce::AffineTransform::scale (cacheScale));
         auto b = getLocalBounds().toFloat();
         if (plateArea.isEmpty())
             g.fillAll (pal.strip); // opaque : meme bleu que la plaque de la tranche
         else
             AlphaDraw::paintPlate (g, plateArea, pal); // meme finition que la plaque
+        if (pal.sunny)
+            paintSunnyFace (g, b);
+        else
+        {
         juce::ColourGradient bg (juce::Colours::white.withAlpha (pal.light ? 0.14f : 0.04f), 0.0f, 0.0f,
                                  juce::Colours::black.withAlpha (pal.light ? 0.06f : 0.25f), 0.0f, b.getBottom(), false);
         g.setGradientFill (bg);
         g.fillRoundedRectangle (b, 6.0f);
         g.setColour (pal.faceFoot);
         g.fillRect (b.removeFromBottom (14.0f));
+        }
 
         const float dim = enabled ? 1.0f : 0.4f;
         const auto footLabel = getLocalBounds().toFloat().removeFromBottom (14.0f).reduced (8.0f, 0.0f);
@@ -320,9 +354,47 @@ private:
                     juce::Justification::centred, false);
     }
 
+    // Cadran du design de Sunny : bleu degrade, bande basse plus sombre,
+    // contour fin, reflet triangulaire en haut a gauche.
+    void paintSunnyFace (juce::Graphics& g, juce::Rectangle<float> b) const
+    {
+        juce::Path face;
+        face.addRoundedRectangle (b.reduced (0.5f), 6.0f);
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff2c5c8e), 0.0f, b.getY(), juce::Colour (0xff27507b), 0.0f, b.getBottom() - 14.0f, false));
+        g.fillPath (face);
+        g.saveState();
+        g.reduceClipRegion (face);
+        g.setColour (juce::Colour (0xff214065));
+        g.fillRect (b.withTop (b.getBottom() - 14.0f));
+        juce::Path sheen;
+        sheen.startNewSubPath (b.getX(), b.getY());
+        sheen.lineTo (b.getX() + b.getWidth() * 0.12f, b.getY());
+        sheen.lineTo (b.getX() + b.getWidth() * 0.36f, b.getBottom() - 14.0f);
+        sheen.lineTo (b.getX(), b.getBottom() - 14.0f);
+        sheen.closeSubPath();
+        g.setColour (juce::Colours::white.withAlpha (0.10f));
+        g.fillPath (sheen);
+        g.restoreState();
+        g.setColour (juce::Colour (0xff0b1a2c));
+        g.strokePath (face, juce::PathStrokeType (1.0f));
+    }
+
     void paintThdFace (juce::Graphics& g, const AlphaPalette& pal, float dim, juce::Rectangle<float> footLabel)
     {
         const auto geo = geometry();
+        if (pal.sunny)
+        {
+            // Arc epais : blanc jusqu'a 70 %, rouge au-dela.
+            faceArc (g, geo, geo.r - 4.0f, -50.0f, 19.0f, pal.faceArc.withAlpha (0.85f * dim), 5.0f);
+            faceArc (g, geo, geo.r - 4.0f, 21.0f, 50.0f, pal.faceRed.withAlpha (dim), 5.0f);
+            g.setFont (AlphaDraw::font (AlphaType::label));
+            for (int p = 0; p <= 100; p += 25)
+                faceLabel (g, geo, -50.0f + (float) p, juce::String (p), (p > 70 ? pal.faceRed : pal.faceLabel).withAlpha (dim));
+            AlphaDraw::spacedText (g, "THD", juce::Rectangle<float> (60.0f, 12.0f).withCentre ({ geo.cx, footLabel.getCentreY() }),
+                                   pal.faceLabel.withAlpha (0.85f * dim), AlphaType::label, AlphaType::kerning);
+            AlphaDraw::spacedText (g, "%", footLabel, pal.faceArc.withAlpha (0.8f * dim), AlphaType::label, 0.1f, juce::Justification::centredLeft);
+            return;
+        }
         faceArc (g, geo, geo.r - 2.5f, 20.0f, 50.0f, pal.faceRed.withAlpha (dim), 4.5f);  // zone rouge 70..100 %
         // (Plus d'arc blanc continu sous les graduations -- retour utilisateur : "l'arc de cercle blanc avec les marques c'est pas beau", seules les marques restent.)
         for (int p = 0; p <= 100; p += 5)
@@ -343,6 +415,26 @@ private:
     void paintGrFace (juce::Graphics& g, const AlphaPalette& pal, float dim)
     {
         const auto geo = geometry();
+        if (pal.sunny)
+        {
+            // Arc epais violet (EXP) / jaune (GR), trait rouge au zero,
+            // "EXP" et "GR" dans la bande basse (design de Sunny).
+            const juce::Colour expC (0xffa78ad5), grC (0xffe6c46a);
+            faceArc (g, geo, geo.r - 4.0f, -50.0f, -0.8f, expC.withMultipliedAlpha (dim), 5.5f);
+            faceArc (g, geo, geo.r - 4.0f, 0.8f, 50.0f, grC.withMultipliedAlpha (dim), 5.5f);
+            const auto t0 = facePoint (geo, 0.0f, geo.r + 1.5f), t1 = facePoint (geo, 0.0f, geo.r - 10.0f);
+            g.setColour (juce::Colour (0xffe8382b).withMultipliedAlpha (dim));
+            g.drawLine (t0.x, t0.y, t1.x, t1.y, 2.4f);
+            g.setFont (AlphaDraw::font (AlphaType::label));
+            for (int db : { -12, -6, 0, 6, 12 })
+                faceLabel (g, geo, (float) db / kGrRangeDb * 50.0f, juce::String (std::abs (db)), pal.faceLabel.withAlpha (dim));
+            const float fy = (float) getHeight() - 7.0f;
+            AlphaDraw::spacedText (g, "EXP", juce::Rectangle<float> (26.0f, 12.0f).withCentre ({ geo.cx - 12.0f, fy }),
+                                   expC.withMultipliedAlpha (dim), AlphaType::label - 1.0f, 0.0f);
+            AlphaDraw::spacedText (g, "GR", juce::Rectangle<float> (20.0f, 12.0f).withCentre ({ geo.cx + 12.0f, fy }),
+                                   grC.withMultipliedAlpha (dim), AlphaType::label - 1.0f, 0.0f);
+            return;
+        }
         const auto expColour = pal.light ? juce::Colour (0xd94a208c) : juce::Colour (0xd9b48cff);
         const auto expInk    = pal.light ? juce::Colour (0xff3a1675) : juce::Colour (0xffd2bcff);
         faceArc (g, geo, geo.r - 2.5f, -50.0f, -1.5f, expColour.withMultipliedAlpha (dim), 3.0f);
@@ -480,6 +572,10 @@ private:
             expDb = juce::jmax (0.0f, processor.grMeterExpandDb[(size_t) band].load());
             target = juce::jlimit (-1.0f, 1.0f, (grDb >= expDb ? grDb : -expDb) / kGrRangeDb);
         }
+        {
+            const bool over = mode == Mode::thd ? target > 0.7f : juce::jmax (grDb, expDb) > 9.0f;
+            if (over != overload) { overload = over; repaint(); }
+        }
 
         // RETOUR -> raideur, REBOND -> amortissement (1.05 = pas de
         // depassement, 0.18 = rebond marque). Sous-pas pour rester stable
@@ -589,6 +685,8 @@ private:
             readoutTick = 0;
             const auto fresh = (enabled && numPoints > 0) ? (corr >= 0.0f ? "+" : "") + juce::String (corr, 2) : juce::String ("--");
             if (fresh != readout) { readout = fresh; textChanged = true; }
+            const bool over = enabled && numPoints > 0 && corr < 0.0f;
+            if (over != overload) { overload = over; textChanged = true; }
         }
 
         if (numPoints > 0 || hadPoints || textChanged || enabled != cachedEnabled)
@@ -614,6 +712,7 @@ private:
     float displayRms = 0.0f, corr = 1.0f;
 
     juce::Image cache;
+    float cacheScale = 1.0f; // resolution physique du cache (ecran 4K, taille 200 %)
     bool cacheDirty = true, cachedEnabled = true;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AlphaThdNeedle)
@@ -675,6 +774,28 @@ public:
         {
             const float step = col.getHeight() / (float) numLeds;
             const float dot = juce::jmin (8.0f, step - 2.5f, col.getWidth());
+            if (pal.sunny && kSunnyDashLeds)
+            {
+                // Design de Sunny : tirets de part et d'autre de la piste du fader.
+                for (int i = 0; i < numLeds; ++i)
+                {
+                    const float t = (float) i / (float) (numLeds - 1);
+                    const auto r = juce::Rectangle<float> (7.0f, 2.2f).withCentre ({ col.getCentreX(), col.getY() + step * ((float) i + 0.5f) });
+                    if (i < lit)
+                    {
+                        const auto c = expand ? SevenpackLookAndFeel::ledGradientColourExpand (t) : SevenpackLookAndFeel::ledGradientColour (t);
+                        g.setColour (c.withAlpha (0.3f));
+                        g.fillRect (r.expanded (1.5f, 1.2f));
+                        g.setColour (c);
+                    }
+                    else
+                    {
+                        g.setColour (juce::Colour (0xff3a4656));
+                    }
+                    g.fillRect (r);
+                }
+                return;
+            }
             for (int i = 0; i < numLeds; ++i)
             {
                 const float t = (float) i / (float) (numLeds - 1);
@@ -688,7 +809,9 @@ public:
                 }
                 else
                 {
-                    g.setColour (pal.light ? pal.track : SevenpackColours::ledOff);
+                    // Diodes eteintes visibles en sombre comme en clair (demande
+                    // explicite : "fais correspondre en mode sombre").
+                    g.setColour (pal.light ? pal.track : juce::Colour (0xff354150));
                 }
                 g.fillEllipse (r);
             }
@@ -697,12 +820,16 @@ public:
         drawColumn (expCol, litEx, true);
 
         g.setFont (AlphaDraw::font (AlphaType::label - 1.0f));
-        g.setColour (pal.cardInk.withAlpha (0.75f));
+        g.setColour (pal.sunny ? pal.inkSoft : pal.cardInk.withAlpha (0.75f));
         g.drawText ("GR",  juce::Rectangle<float> (grCol.getCentreX() - 11.0f,  labels.getY(), 22.0f, labels.getHeight()), juce::Justification::centred, false);
         g.drawText ("EXP", juce::Rectangle<float> (expCol.getCentreX() - 11.0f, labels.getY(), 22.0f, labels.getHeight()), juce::Justification::centred, false);
     }
 
 private:
+    // Diodes en tirets du design de Sunny : retirees (memes diodes rondes
+    // que le theme clair, demande explicite). Code garde : passer a true.
+    static constexpr bool kSunnyDashLeds = false;
+
     // Meme echelle non-lineaire que Sixpack/GRMeter (fine pres de 0 dB).
     static float grDbToFraction (float db) noexcept
     {
@@ -783,6 +910,10 @@ public:
         for (const auto& s : stripAreas)
             effectBottom = juce::jmax (effectBottom, s.getBottom());
     }
+
+    // La progression LEARN (bas a droite) est-elle a l'ecran ? (la barre du
+    // bas y range OS / CLIP le reste du temps)
+    bool isProgressShowing() const noexcept { return env > 0.005f; }
 
     void paint (juce::Graphics& g) override
     {

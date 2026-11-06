@@ -24,7 +24,7 @@ class AiLearnButton : public juce::Button,
 {
 public:
     explicit AiLearnButton (SevenpackAudioProcessor& p)
-        : juce::Button ("AI Learn"), processor (p)
+        : juce::Button ("Learn"), processor (p)
     {
         setClickingTogglesState (false);
         startTimerHz (6); // vitesse du clignotement pendant l'analyse

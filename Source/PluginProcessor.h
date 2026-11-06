@@ -5,6 +5,7 @@
 #include <map>
 #include "FeedbackCompressor.h"
 #include "SoftClipper.h"
+#include "TruePeakLimiter.h"
 #include "Crossover.h"
 #include "AiLearnAnalyzer.h"
 #include "LicenseManager.h"
@@ -154,8 +155,11 @@ public:
     // linkInEnabled ci-dessous : l'editeur peut etre detruit et
     // recree par l'hote sans que ce choix ne se perde.
     // Retour utilisateur explicite : le plugin doit s'ouvrir a 90% par
-    // defaut (pas 100%, pas 95%).
-    std::atomic<float> uiScale { 0.90f };
+    // defaut (pas 100%, pas 95%) -- puis "quand j'ai ouvert le VST sur un
+    // ecran en 4k il etait tout petit" : 0 = AUTO (defaut), taille calee sur
+    // l'ecran (90% sur un ecran 1080p comme avant, ~175% sur un 4K a 100%),
+    // voir SevenpackAudioProcessorEditor::autoScale(). Sinon 0.75 .. 2.0.
+    std::atomic<float> uiScale { 0.0f };
 
     // Theme SOMBRE (0) / CLAIR (1, DEFAUT -- retour utilisateur explicite :
     // "je veux que le plugin s'ouvre de base avec le light theme") / DOS
@@ -210,6 +214,11 @@ public:
     // Fader OUT des bandes : 0 BLACK, 1 VINTAGE, 2 ALU (Options), persiste
     // dans apvts.state ("faderStyle").
     std::atomic<int> faderStyle { 0 };
+    // Bois autour du plugin (Options > Appearance > Wood, demande explicite :
+    // "un nouveau bois de sunny ... en gardant l'autre. une option dans le
+    // menu option pour test") : 0 = bois 4K de la v2.17 (chene clair),
+    // 1 = nouveau bois de Sunny (planches, defaut). Persiste ("woodStyle").
+    std::atomic<int> woodStyle { 1 };
 
     // Pictogrammes animes ATT / REL des bandes (Options > Appearance, voir
     // AlphaAttRel.h) : 0 = aucun (version d'origine), 1 = courbe de gain
@@ -224,6 +233,11 @@ public:
     std::atomic<int> spectrumStyle { 1 };
     std::atomic<int> spectrumSmooth { 0 };
     std::atomic<bool> spectrumPeak { false };
+
+    // Confirmation avant LEARN (bulle "Are you sure?", demande explicite) :
+    // false = "Don't ask again" coche ; se reactive dans le panneau
+    // Calculator. Persiste dans apvts.state ("confirmLearn").
+    std::atomic<bool> confirmLearn { true };
 
     // Goniometre par bande : derniers echantillons stereo de la bande
     // (apres Mix et Spread, ce qu'elle envoie au mix), decimes a ~12 kHz,
@@ -442,6 +456,25 @@ public:
     // (idSoftClip / modes Tape/Iron/Air), comme le plafond true-peak.
     static constexpr const char* idThdOutput            = "thdOutput";
 
+    // Etage THD SUR-ECHANTILLONNE (demande explicite : "activer le
+    // surechantillonnage (x4 minimum) sur le clipper et le limiteur",
+    // "preferer un soft clip ... garder le hard clip pour les transitoires
+    // de drums" -- option A de la maquette : OS et CLIP dans la barre du
+    // bas, le reste dans Options > THD stage) :
+    //  - idThdOversampling : 0 Off, 1 x2, 2 x4 (defaut), 3 x8 ;
+    //  - idThdOsFilter     : 0 phase lineaire (defaut), 1 phase minimale ;
+    //  - idThdClipShape    : 0 Soft (courbe arrondie, defaut), 1 Hard ;
+    //  - idThdTruePeak     : limiteur true-peak derriere l'ecretage (detection
+    //    x8, 1,5 ms d'anticipation, voir TruePeakLimiter.h ; defaut ON) ;
+    //  - idBandHardClip    : PAR BANDE, la bande est ecretee en dur seule
+    //    (au rythme sur-echantillonne) avant le clip final -- defaut LOW.
+    // N'agit que quand le THD est engage (idSoftClip).
+    static constexpr const char* idThdOversampling      = "thdOversampling";
+    static constexpr const char* idThdOsFilter          = "thdOsFilter";
+    static constexpr const char* idThdClipShape         = "thdClipShape";
+    static constexpr const char* idThdTruePeak          = "thdTruePeak";
+    static constexpr const char* idBandHardClip         = "bandHardClip";
+
     // 5 points de crossover (idCrossoverX = frequence Hz, voir Crossover.h/
     // Crossover::kSplitMinHz/MaxHz/DefaultHz pour les bornes ; idCrossoverXEnabled
     // = ce point separe-t-il reellement 2 bandes, ou est-il "eteint" (les 2
@@ -658,11 +691,16 @@ private:
     std::array<std::atomic<float>*, (size_t) NumBands> bandMixParam         {};
     std::array<std::atomic<float>*, (size_t) NumBands> bandWidthParam       {};
     std::array<std::atomic<float>*, (size_t) NumBands> bandRouteOutParam    {};
+    std::array<std::atomic<float>*, (size_t) NumBands> bandHardClipParam    {};
 
     std::atomic<float>* powerParam            = nullptr;
     std::atomic<float>* softClipParam         = nullptr;
     std::atomic<float>* thdModeParam          = nullptr;
     std::atomic<float>* thdOutputParam        = nullptr;
+    std::atomic<float>* thdOversamplingParam  = nullptr;
+    std::atomic<float>* thdOsFilterParam      = nullptr;
+    std::atomic<float>* thdClipShapeParam     = nullptr;
+    std::atomic<float>* thdTruePeakParam      = nullptr;
     std::atomic<float>* aiMasteringTargetParam = nullptr;
     std::atomic<float>* aiScopeCrossoverParam   = nullptr;
     std::atomic<float>* aiScopeDetectorsParam   = nullptr;
@@ -680,6 +718,54 @@ private:
     std::atomic<float>* digitalCrossoverParam = nullptr;
     std::atomic<float>* linearLatencyModeParam = nullptr;
     int lastReportedLatencySamples = 0; // pour ne rappeler setLatencySamples() que si la valeur change reellement
+
+    // --- Etage THD sur-echantillonne (voir idThdOversampling) ---
+    // Tous les sur-echantillonneurs sont crees dans prepareToPlay() (rien
+    // n'est alloue dans processBlock()) : [filtre 0 lineaire / 1 minimal]
+    // [facteur 0 x2 / 1 x4 / 2 x8]. Ceux des bandes ne servent qu'a la
+    // montee : leurs echantillons sur-echantillonnes sont ecretes puis
+    // ajoutes au mix sur-echantillonne, redescendu une seule fois.
+    std::unique_ptr<juce::dsp::Oversampling<float>> thdOversamplers[2][3];
+    std::unique_ptr<juce::dsp::Oversampling<float>> bandOversamplers[(size_t) NumBands][2][3];
+    std::array<juce::AudioBuffer<float>, (size_t) NumBands> bandClipBuffers;
+    juce::AudioBuffer<float> thdPreClipBuffer;
+    int thdOsMaxBlock = 0, activeOsIdx = -2, activeOsFilter = -2, thdOsLatency = 0;
+    // Limiteur true-peak derriere l'ecretage (idThdTruePeak) et sa latence
+    // (0 quand il est coupe).
+    TruePeakLimiter tpLimiter;
+    int activeTruePeak = -1, tpLatency = 0;
+
+    // Retard pur (echantillons entiers) : garde la latence CONSTANTE quand le
+    // THD est coupe, aligne les sorties separees des bandes, et aligne le
+    // signal avant clip pour le residu des aiguilles THD.
+    struct SampleDelay
+    {
+        std::vector<float> buf;
+        int pos = 0, delay = 0;
+        void prepare (int maxDelay) { buf.assign ((size_t) juce::jmax (1, maxDelay + 1), 0.0f); pos = 0; delay = 0; }
+        void setDelay (int d)
+        {
+            delay = juce::jlimit (0, (int) buf.size() - 1, d);
+            std::fill (buf.begin(), buf.end(), 0.0f);
+            pos = 0;
+        }
+        void process (float* data, int n) noexcept
+        {
+            if (delay <= 0 || data == nullptr || buf.empty())
+                return;
+            const int size = (int) buf.size();
+            for (int i = 0; i < n; ++i)
+            {
+                buf[(size_t) pos] = data[i];
+                int rd = pos - delay;
+                if (rd < 0) rd += size;
+                data[i] = buf[(size_t) rd];
+                if (++pos >= size) pos = 0;
+            }
+        }
+    };
+    std::array<SampleDelay, 2> thdMainDelay, thdPreDelay, thdTpBypassDelay;
+    std::array<std::array<SampleDelay, 2>, (size_t) NumBands> bandRouteDelay;
     std::array<std::atomic<float>*, (size_t) NumBands> soloParam {};
 
     // Calcule, a partir des 4 flags idCrossoverXEnabled, quelle bande

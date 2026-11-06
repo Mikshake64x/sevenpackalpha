@@ -188,6 +188,8 @@ public:
 
 private:
     void rebuildBackgroundCache();
+    // Charge le bois choisi (processorRef.woodStyle) et refait le fond.
+    void loadWood();
     void refreshThemeReactiveColours();
     void timerCallback() override;
 
@@ -202,6 +204,13 @@ private:
     void updateLinkVisuals();
 
     void showOptionsOverlay();
+
+    void showCalculatorOverlay();
+
+    void hideCalculatorOverlay();
+    // Clic sur LEARN : bulle de confirmation (sauf "Don't ask again" ou
+    // ecoute deja en cours), sinon LEARN direct.
+    void requestLearn();
 
     // --- Interface Alpha ---
     // Applique un theme (0=Sombre, 1=Clair, 2=DOS) partout : interrupteur
@@ -313,6 +322,12 @@ private:
 
     AboutOverlay aboutOverlay;
     OptionsOverlay optionsOverlay;
+    // Reglages de LEARN (ex "AI Learn" des Options) : engrenage a droite de
+    // LEARN + panneau "Calculator" (voir OptionsOverlay.h).
+    CalculatorOverlay calculatorOverlay;
+    CalculatorGearButton calculatorGear;
+    // Confirmation avant LEARN (bulle sous LEARN, voir OptionsOverlay.h).
+    LearnConfirmOverlay learnConfirm;
 
     // Animation globale pendant LEARN (calque au-dessus du graphe et des
     // tranches, voir AlphaMeters.h).
@@ -327,6 +342,10 @@ private:
     std::array<float, 6> headerSeparatorX {};
     juce::Rectangle<float> learnProgressBounds;
     juce::Image backgroundCache;
+    // Echelle physique du cache de fond (echelle de la fenetre x mise a
+    // l'echelle de l'ecran) : le fond est calcule a la resolution reelle,
+    // net a 200 % comme sur un ecran 4K (voir paint()).
+    float backgroundCacheScale = 1.0f;
     juce::Image woodImage;
 
     // --- Presets rapides (barre du bas, meme mecanisme que Nuke Mext). ---
@@ -355,6 +374,9 @@ private:
 
     // Plafond de sortie du THD (-0.5 a -3 dB) : fleches + afficheur.
     std::unique_ptr<AlphaCeilControl> thdCeiling;
+    // Barre du bas, a droite (option A) : surechantillonnage de l'etage THD
+    // (OFF / x2 / x4 / x8) et forme du clip (SOFT / HARD).
+    std::unique_ptr<AlphaSegmentBar> osBar, clipBar;
 
 
     PresetBrowserOverlay presetBrowser;
@@ -417,7 +439,7 @@ public:
         // taille, pas un drag utilisateur (chemin different cote hote).
         setResizable (false, false);
         setResizeLimits ((int) (SevenpackEditorContent::baseWidth  * 0.75f), (int) (SevenpackEditorContent::baseHeight * 0.75f),
-                          SevenpackEditorContent::baseWidth,                 SevenpackEditorContent::baseHeight);
+                         (int) (SevenpackEditorContent::baseWidth  * kMaxScale), (int) (SevenpackEditorContent::baseHeight * kMaxScale));
 
         // Re-applique une seconde fois des que la fenetre a un vrai peer
         // natif -- voir parentHierarchyChanged() ci-dessous (retour
@@ -436,12 +458,58 @@ public:
        #endif
     }
 
-    void applyUiScale (float scale)
+    // requested : 0 = AUTO (calee sur l'ecran), sinon l'echelle choisie.
+    void applyUiScale (float requested)
     {
-        processorRef.uiScale.store (scale);
+        processorRef.uiScale.store (requested);
+        const float scale = requested > 0.0f ? juce::jlimit (0.5f, kMaxScale, requested) : autoScale();
+        appliedScale = scale;
         content.setTransform (juce::AffineTransform::scale (scale));
         setSize (juce::roundToInt (SevenpackEditorContent::baseWidth  * scale),
                  juce::roundToInt (SevenpackEditorContent::baseHeight * scale));
+    }
+
+    static constexpr float kMaxScale = 2.0f;
+
+    // Taille AUTO (demande explicite : "sur un ecran en 4k il etait tout
+    // petit ... que le plug in soit adaptatif en fonction des
+    // resolutions") : hauteur de la fenetre = 70 % de la zone utile de
+    // l'ecran (pixels logiques, mise a l'echelle de Windows/macOS deja
+    // comprise), au pas de 5 %, entre 75 % et 200 %. Ecran 1080p : 90 %
+    // (le defaut d'avant) ; 1440p : 120 % ; 4K a 100 % : 180 %. Ecran : celui
+    // de la fenetre une fois affichee, sinon celui de la souris (le plugin
+    // s'ouvre la ou l'on vient de cliquer).
+    float autoScale() const
+    {
+        const auto& displays = juce::Desktop::getInstance().getDisplays();
+        const juce::Displays::Display* d = nullptr;
+        if (auto* peer = getPeer())
+            d = displays.getDisplayForRect (peer->getBounds());
+        if (d == nullptr)
+            d = displays.getDisplayForPoint (juce::Desktop::getMousePosition());
+        if (d == nullptr)
+            d = displays.getPrimaryDisplay();
+        if (d == nullptr)
+            return 0.90f;
+        const auto area = d->userArea.toFloat();
+        // Plus grande taille qui tient a l'ecran ; sur les petits ecrans
+        // (portables) on garde 90 % tant que ca tient, comme avant.
+        const float fit = juce::jmin (area.getHeight() * 0.92f / (float) SevenpackEditorContent::baseHeight,
+                                      area.getWidth()  * 0.95f / (float) SevenpackEditorContent::baseWidth);
+        float s = juce::jmax (area.getHeight() * 0.70f / (float) SevenpackEditorContent::baseHeight, juce::jmin (0.90f, fit));
+        s = juce::jmin (s, fit);
+        s = std::floor (s * 20.0f + 0.001f) / 20.0f;
+        return juce::jlimit (0.75f, kMaxScale, s);
+    }
+
+    // AUTO : recale la taille sur l'ecran reel une fois la fenetre affichee
+    // (au constructeur, il n'y a pas encore de fenetre).
+    void refitAutoScale()
+    {
+        if (processorRef.uiScale.load() > 0.0f || getPeer() == nullptr)
+            return;
+        if (! juce::approximatelyEqual (autoScale(), appliedScale))
+            applyUiScale (0.0f);
     }
 
     // Remplit tout le fond (voir setOpaque(true) au constructeur) -- sinon
@@ -472,6 +540,7 @@ public:
     {
         juce::AudioProcessorEditor::parentHierarchyChanged();
         hookTitleBarDoubleClick();
+        refitAutoScale();
 
         // 7 tentatives basees sur "il faut redeclencher un repaint au bon
         // moment/a la bonne echelle" ont toutes echoue (retour
@@ -651,10 +720,17 @@ public:
 
         return callOriginal (msg, wParam, lParam);
     }
+   #else
+    void parentHierarchyChanged() override
+    {
+        juce::AudioProcessorEditor::parentHierarchyChanged();
+        refitAutoScale();
+    }
    #endif
 
 private:
     SevenpackAudioProcessor& processorRef;
+    float appliedScale = 1.0f;
 
     // Sentinelle : applique le theme sauvegarde aux globales
     // SevenpackColours AVANT que `content` (juste apres) ne commence a se
