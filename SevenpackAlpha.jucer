@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <JUCERPROJECT id="Sv7PkA" name="SevenpackAlpha" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" pluginFormats="buildAU,buildStandalone,buildUnity,buildVST3"
-              companyName="Side Key System" version="2.20.0" pluginName="Sevenpack Alpha"
+              companyName="Side Key System" version="2.22.5" pluginName="Sevenpack Alpha"
               pluginDesc="Sevenpack Alpha" pluginManufacturer="Side Key System" pluginCode="Svpa"
               bundleIdentifier="com.SideKeySystem.SevenpackAlpha"
               defines="JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1">
@@ -48,6 +48,11 @@
       <FILE id="alphstr1" name="AlphaStrip.h" compile="0" resource="0" file="Source/AlphaStrip.h"/>
       <FILE id="alphatr1" name="AlphaAttRel.h" compile="0" resource="0" file="Source/AlphaAttRel.h"/>
       <FILE id="tplimit1" name="TruePeakLimiter.h" compile="0" resource="0" file="Source/TruePeakLimiter.h"/>
+      <FILE id="lbcapcpp" name="LoopbackCapture.cpp" compile="1" resource="0" file="Source/LoopbackCapture.cpp"/>
+      <FILE id="lbcaph" name="LoopbackCapture.h" compile="0" resource="0" file="Source/LoopbackCapture.h"/>
+      <FILE id="lbfeedh" name="LoopbackFeed.h" compile="0" resource="0" file="Source/LoopbackFeed.h"/>
+      <FILE id="saudiocpp" name="StandaloneAudio.cpp" compile="1" resource="0" file="Source/StandaloneAudio.cpp"/>
+      <FILE id="saudioh" name="StandaloneAudio.h" compile="0" resource="0" file="Source/StandaloneAudio.h"/>
       <FILE id="bmr00001" name="BandMetersRack.h" compile="0" resource="0"
             file="Source/BandMetersRack.h"/>
       <FILE id="cfd00001" name="ConsoleFader.h" compile="0" resource="0"
@@ -109,6 +114,10 @@
       <FILE id="alphlogo4" name="LOGO4x.png" compile="0" resource="1" file="Source/LOGO4x.png"/>
       <FILE id="aboutmik2" name="mikshake_about_crop.jpg" compile="0" resource="1" file="Source/mikshake_about_crop.jpg"/>
       <FILE id="aboutsun1" name="sunny_crop.jpg" compile="0" resource="1" file="Source/sunny_crop.jpg"/>
+      <FILE id="sigmikmr1" name="signature_mikshake.png" compile="0" resource="1" file="Source/signature_mikshake.png"/>
+      <FILE id="sigsunmr1" name="signature_sunny.png" compile="0" resource="1" file="Source/signature_sunny.png"/>
+      <FILE id="spaIcoB" name="sevenpack_alpha_icon_big.png" compile="0" resource="0" file="Source/sevenpack_alpha_icon_big.png"/>
+      <FILE id="spaIcoS" name="sevenpack_alpha_icon_small.png" compile="0" resource="0" file="Source/sevenpack_alpha_icon_small.png"/>
     </GROUP>
   </MAINGROUP>
   <MODULES>
@@ -130,7 +139,7 @@
   <JUCEOPTIONS JUCE_STRICT_REFCOUNTEDPOINTER="1" JUCE_VST3_CAN_REPLACE_VST2="0"
                JUCE_ASIO="1"/>
   <EXPORTFORMATS>
-    <VS2026 targetFolder="Builds/VisualStudio2026" smallIcon="trpicon1" bigIcon="trpicon1">
+    <VS2026 targetFolder="Builds/VisualStudio2026" smallIcon="spaIcoS" bigIcon="spaIcoB">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" targetName="SevenpackAlpha" enablePluginBinaryCopyStep="1"
                        headerPath="../../ThirdParty/asio"/>
@@ -153,7 +162,7 @@
         <MODULEPATH id="juce_gui_extra" path="../../../JUCE_8.0.10/modules"/>
       </MODULEPATHS>
     </VS2026>
-    <XCODE_MAC targetFolder="Builds/MacOSX" smallIcon="trpicon1" bigIcon="trpicon1">
+    <XCODE_MAC targetFolder="Builds/MacOSX" smallIcon="spaIcoS" bigIcon="spaIcoB">
       <CONFIGURATIONS>
         <CONFIGURATION isDebug="1" name="Debug" targetName="SevenpackAlpha" enablePluginBinaryCopyStep="1"
                        macOSDeploymentTarget="10.13"/>

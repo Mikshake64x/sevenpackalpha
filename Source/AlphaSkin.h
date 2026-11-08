@@ -1784,7 +1784,100 @@ private:
 };
 
 /**
+    Pastille alpha (demande explicite : "une pastille alpha apres le logo
+    comme sur merlin, mais de la couleur du sevenpack") : port de
+    drawAlphaBadge de Merlin (alpha d'un seul trait dans un disque bombe),
+    aux couleurs de Sevenpack. style :
+      1 = disque neutre bombe, alpha bleu (Merlin a l'identique) ;
+      2 = disque bleu Sevenpack, alpha blanc (comme le "7" du logo) ;
+      3 = disque du fond du logo cercle de bleu, alpha bleu (comme PACK).
+*/
+namespace AlphaDraw
+{
+    // alpha d'un seul trait (boite 100 x 100, ligne de base y = 82, centre
+    // de l'encre 53,55) -- meme trace que Merlin.
+    inline juce::Path alphaGlyph()
+    {
+        juce::Path p;
+        p.startNewSubPath (77.0f, 27.0f);
+        p.cubicTo (73.0f, 40.0f, 70.0f, 53.0f, 64.0f, 65.0f);
+        p.cubicTo (58.0f, 76.0f, 50.0f, 83.0f, 40.0f, 83.0f);
+        p.cubicTo (24.0f, 83.0f, 14.0f, 71.0f, 14.0f, 57.0f);
+        p.cubicTo (14.0f, 42.0f, 26.0f, 31.0f, 40.0f, 31.0f);
+        p.cubicTo (55.0f, 31.0f, 63.0f, 45.0f, 68.0f, 60.0f);
+        p.cubicTo (72.0f, 72.0f, 76.0f, 82.0f, 85.0f, 82.0f);
+        p.cubicTo (88.0f, 82.0f, 90.0f, 81.0f, 92.0f, 79.0f);
+        return p;
+    }
+
+    // Logo 7PACK du design de Sunny : le blanc ("7" et fond de PACK) passe
+    // dans la couleur sombre donnee. Renvoie une copie.
+    inline juce::Image logoOnDark (const juce::Image& logo, juce::Colour dark)
+    {
+        auto out = logo.createCopy();
+        juce::Image::BitmapData px (out, juce::Image::BitmapData::readWrite);
+        for (int y = 0; y < px.height; ++y)
+            for (int x = 0; x < px.width; ++x)
+            {
+                const auto c = px.getPixelColour (x, y);
+                if (c.getAlpha() == 0)
+                    continue;
+                const float minCh = (float) juce::jmin (c.getRed(), c.getGreen(), c.getBlue()) / 255.0f;
+                const float whiteness = juce::jlimit (0.0f, 1.0f, (minCh - 0.5f) / 0.5f);
+                px.setPixelColour (x, y, c.interpolatedWith (dark.withAlpha (c.getFloatAlpha()), whiteness));
+            }
+        return out;
+    }
+
+    inline void alphaBadge (juce::Graphics& g, juce::Point<float> c, float r, int style)
+    {
+        const auto pal = AlphaPalette::get();
+        const float k = r / 15.0f; // proportions de Merlin (rayon 15 px)
+        juce::Path disc;
+        disc.addEllipse (c.x - r, c.y - r, 2.0f * r, 2.0f * r);
+        const int blur = juce::jmax (2, juce::roundToInt (4.0f * k));
+        const int dk = juce::jmax (1, juce::roundToInt (2.0f * k)), lt = juce::jmax (1, juce::roundToInt (1.5f * k));
+        juce::DropShadow (juce::Colours::black.withAlpha (pal.light ? 0.30f : 0.55f), blur, { dk, dk }).drawForPath (g, disc);
+        juce::DropShadow (juce::Colours::white.withAlpha (pal.light ? 0.85f : 0.06f), blur, { -lt, -lt }).drawForPath (g, disc);
+
+        juce::Colour glyph;
+        if (style == 2)
+        {
+            juce::ColourGradient fill (pal.accent.brighter (0.22f), c.x - r * 0.35f, c.y - r * 0.45f,
+                                       pal.accentDeep, c.x + r * 0.9f, c.y + r * 0.9f, true);
+            g.setGradientFill (fill);
+            g.fillPath (disc);
+            // Comme le "7" du logo : blanc en clair, fond du panneau en sombre (design de Sunny).
+            glyph = pal.sunny ? pal.logoBg : juce::Colours::white;
+        }
+        else if (style == 3)
+        {
+            g.setColour (pal.logoBg);
+            g.fillPath (disc);
+            g.setColour (pal.accent);
+            g.drawEllipse (c.x - r + 1.1f * k, c.y - r + 1.1f * k, 2.0f * (r - 1.1f * k), 2.0f * (r - 1.1f * k), 2.2f * k);
+            glyph = pal.accent;
+        }
+        else
+        {
+            juce::ColourGradient fill (juce::Colour (pal.light ? 0xfff3f6f9 : 0xff333e4e), c.x, c.y - r,
+                                       juce::Colour (pal.light ? 0xffdde3ea : 0xff242d39), c.x, c.y + r, false);
+            g.setGradientFill (fill);
+            g.fillPath (disc);
+            glyph = pal.light ? pal.accentDeep : pal.accent;
+        }
+
+        auto a = alphaGlyph();
+        a.applyTransform (juce::AffineTransform::translation (-53.0f, -55.0f).scaled (16.0f / 60.0f * k).translated (c.x, c.y));
+        g.setColour (glyph);
+        g.strokePath (a, juce::PathStrokeType (2.2f * k, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+}
+
+/**
     AlphaLogo -- "7 | PACK" (maquette, sans signature -- retour utilisateur), cliquable (About).
+    Suivi de la pastille alpha (voir AlphaDraw::alphaBadge) ; le bouton
+    englobe logo + pastille, l'editeur centre le tout (preferredSize()).
 */
 class AlphaLogo : public juce::Button
 {
@@ -1792,6 +1885,24 @@ public:
     AlphaLogo() : juce::Button ("7PACK")
     {
         logo = juce::ImageCache::getFromMemory (BinaryData::LOGO4x_png, BinaryData::LOGO4x_pngSize);
+    }
+
+    // Taille du logo (demande explicite : "le logo un poil trop petit en
+    // haut") : 1 = 220 x 47 d'origine. Pastille : 0 = aucune, sinon le
+    // style de AlphaDraw::alphaBadge.
+    static inline float logoScale = 1.2f;   // choix du user (QCM) : 120 %
+    static inline int badgeStyle = 1;       // choix du user (QCM) : 1, comme Merlin
+
+    // Dans LOGO4x.png (880 x 188, ombre comprise), le cadre occupe
+    // x 12..866 et y 12..172.
+    static float logoWidth()  { return 220.0f * logoScale; }
+    static float logoHeight() { return 47.0f * logoScale; }
+    static float badgeRadius() { return 0.37f * logoHeight(); }
+    static float badgeGap()    { return 0.17f * logoHeight(); }
+    static juce::Point<float> preferredSize()
+    {
+        const float w = logoWidth() + (badgeStyle > 0 ? badgeGap() + 2.0f * badgeRadius() + 6.0f : 0.0f);
+        return { w, logoHeight() + 6.0f };
     }
 
     void paintButton (juce::Graphics& g, bool over, bool) override
@@ -1805,7 +1916,9 @@ public:
             // dans le bleu nuit du panneau.
             const auto palette = AlphaPalette::get();
             const auto& img = palette.sunny ? sunnyLogo (palette.logoBg) : logo;
-            const auto area = getLocalBounds().toFloat();
+            const auto bounds = getLocalBounds().toFloat();
+            const auto area = juce::Rectangle<float> (bounds.getX(), bounds.getCentreY() - logoHeight() * 0.5f,
+                                                      juce::jmin (bounds.getWidth(), logoWidth()), logoHeight());
             const auto placed = juce::RectanglePlacement (juce::RectanglePlacement::centred)
                                     .appliedTo (img.getBounds().toFloat(), area);
             g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
@@ -1814,6 +1927,13 @@ public:
             {
                 g.setColour (juce::Colours::white.withAlpha (0.12f));
                 g.fillRect (placed.reduced (3.0f));
+            }
+            if (badgeStyle > 0)
+            {
+                const float r = badgeRadius();
+                const float boxRight = placed.getX() + placed.getWidth() * (866.0f / 880.0f);
+                const float boxCy = placed.getY() + placed.getHeight() * (92.0f / 188.0f);
+                AlphaDraw::alphaBadge (g, { boxRight + badgeGap() + r, boxCy }, r, badgeStyle);
             }
             return;
         }
@@ -1852,19 +1972,8 @@ private:
     {
         if (! darkLogo.isValid() || dark != darkLogoColour)
         {
-            darkLogo = logo.createCopy();
+            darkLogo = AlphaDraw::logoOnDark (logo, dark);
             darkLogoColour = dark;
-            juce::Image::BitmapData px (darkLogo, juce::Image::BitmapData::readWrite);
-            for (int y = 0; y < px.height; ++y)
-                for (int x = 0; x < px.width; ++x)
-                {
-                    const auto c = px.getPixelColour (x, y);
-                    if (c.getAlpha() == 0)
-                        continue;
-                    const float minCh = (float) juce::jmin (c.getRed(), c.getGreen(), c.getBlue()) / 255.0f;
-                    const float whiteness = juce::jlimit (0.0f, 1.0f, (minCh - 0.5f) / 0.5f);
-                    px.setPixelColour (x, y, c.interpolatedWith (dark.withAlpha (c.getFloatAlpha()), whiteness));
-                }
         }
         return darkLogo;
     }
@@ -2013,8 +2122,12 @@ private:
 class AlphaSegmentBar : public juce::Component
 {
 public:
-    AlphaSegmentBar (juce::RangedAudioParameter& p, const juce::String& labelText, const juce::StringArray& segmentTexts, float segmentWidth)
-        : label (labelText), segments (segmentTexts), segW (segmentWidth),
+    // displayOrder (optionnel) : valeur du parametre montree par chaque case,
+    // de gauche a droite (CLIP : OFF en tete alors qu'il vaut 2, pour garder
+    // Soft = 0 / Hard = 1 des sessions existantes). Vide = 0, 1, 2...
+    AlphaSegmentBar (juce::RangedAudioParameter& p, const juce::String& labelText, const juce::StringArray& segmentTexts, float segmentWidth,
+                     juce::Array<int> displayOrder = {})
+        : label (labelText), segments (segmentTexts), segW (segmentWidth), order (std::move (displayOrder)),
           attachment (p, [this] (float v) { selected = juce::roundToInt (v); repaint(); }, nullptr)
     {
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
@@ -2040,7 +2153,7 @@ public:
         {
             const auto seg = r.removeFromLeft (segW).withSizeKeepingCentre (segW, juce::jmin (24.0f, r.getHeight()));
             r.removeFromLeft (kSegGap);
-            const bool on = i == selected, over = i == hovered;
+            const bool on = valueAt (i) == selected, over = i == hovered;
             if (pal.sunny)
                 AlphaDraw::sunnyBlock (g, seg, 5.0f, on ? AlphaDraw::SunnyBlock::Bright : AlphaDraw::SunnyBlock::Dark, over, false);
             else if (on)
@@ -2064,11 +2177,13 @@ public:
     void mouseDown (const juce::MouseEvent& e) override
     {
         const int i = indexAt (e.position.x);
-        if (i >= 0 && i != selected)
-            attachment.setValueAsCompleteGesture ((float) i);
+        if (i >= 0 && valueAt (i) != selected)
+            attachment.setValueAsCompleteGesture ((float) valueAt (i));
     }
 
 private:
+    int valueAt (int segment) const { return order.isEmpty() ? segment : order[segment]; }
+
     float labelWidth() const
     {
         return juce::GlyphArrangement::getStringWidth (AlphaDraw::font (AlphaType::label).withExtraKerningFactor (kLabelKerning), label) + 2.0f;
@@ -2092,6 +2207,7 @@ private:
     juce::String label;
     juce::StringArray segments;
     float segW;
+    juce::Array<int> order;
     int selected = 0, hovered = -1;
     bool dimmed = false;
     juce::ParameterAttachment attachment;

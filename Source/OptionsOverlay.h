@@ -2,6 +2,7 @@
 #include <JuceHeader.h>
 #include "SevenpackLookAndFeel.h"
 #include "AlphaSkin.h"
+#include "StandaloneAudio.h"
 
 /**
     OptionsOverlay
@@ -120,7 +121,7 @@ namespace OptionsUi
     {
         gear, brush, gauge, split, spark, key, window, theme, cpu, finish, palette, fader,
         spring, back, glass, needle, gonio, phase, out, target, comp, timer, stack, scope,
-        music, fidelity, expand, amount, info, close, check, spectrum, clip, calc, alert, count
+        music, fidelity, expand, amount, info, close, check, spectrum, clip, calc, alert, loop, card, mic, pair, mute, tone, level, count
     };
 
     // Pictogrammes de l'apercu (traits simples, viewBox 24), construits une
@@ -189,6 +190,13 @@ namespace OptionsUi
                 case Icon::spectrum: d ("M3 19h18"); d ("M3 16l3-6 3 3 3-8 3 6 3-3 3 4"); break;
                 case Icon::clip:     d ("M2 18c2-6 3.5-10 5.5-10h9c2 0 3.5 4 5.5 10"); d ("M2 8h20"); break;
                 case Icon::alert:    d ("M12 4l9 16H3z"); d ("M12 10v4.5M12 17.5v.01"); break;
+                case Icon::loop:     d ("M17 2l3 3-3 3"); d ("M4 11V9a4 4 0 0 1 4-4h12"); d ("M7 22l-3-3 3-3"); d ("M20 13v2a4 4 0 0 1-4 4H4"); break;
+                case Icon::card:     rect (3, 7, 18, 10, 2); circle (8, 12, 2); circle (15, 12, 0.8f); circle (18, 12, 0.8f); break;
+                case Icon::mic:      rect (9, 3, 6, 11, 3); d ("M5 11a7 7 0 0 0 14 0M12 18v3"); break;
+                case Icon::pair:     circle (8, 12, 3.5f); circle (16, 12, 3.5f); break;
+                case Icon::mute:     d ("M4 9h4l5-4v14l-5-4H4z"); d ("M16 9.5l5 5M21 9.5l-5 5"); break;
+                case Icon::tone:     d ("M3 12h3l2-6 3 12 3-9 2 3h5"); break;
+                case Icon::level:    d ("M5 19V9M10 19V5M15 19v-7M20 19v-4"); break;
                 case Icon::calc:     rect (5, 2.5f, 14, 19, 2.5f); rect (8, 5.5f, 8, 4, 1);
                                      d ("M9 13.5h.01M12 13.5h.01M15 13.5h.01M9 17h.01M12 17h.01M15 17h.01"); break;
                 case Icon::count:    break;
@@ -819,6 +827,81 @@ namespace OptionsUi
     };
 
     //==============================================================================
+    // Vu-metre d'entree L/R (page Audio du Standalone) : -60..0 dB, retombee douce.
+    class LevelMeter : public juce::Component
+    {
+    public:
+        void setLevels (float left, float right)
+        {
+            bool changed = false;
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                const float db = juce::Decibels::gainToDecibels (ch == 0 ? left : right, -60.0f);
+                const float next = juce::jmax (db, shown[ch] - 2.0f);
+                changed = changed || std::abs (next - shown[ch]) > 0.05f;
+                shown[ch] = next;
+            }
+            if (changed)
+                repaint();
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            const auto th = Theme::current();
+            auto b = getLocalBounds().toFloat();
+            const float barH = 5.0f, gap = 4.0f;
+            auto bars = b.withSizeKeepingCentre (b.getWidth(), barH * 2.0f + gap);
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                const auto bar = bars.removeFromTop (barH);
+                bars.removeFromTop (gap);
+                g.setColour (th.field);
+                g.fillRoundedRectangle (bar, barH * 0.5f);
+                const float frac = juce::jlimit (0.0f, 1.0f, (shown[ch] + 60.0f) / 60.0f);
+                if (frac <= 0.0f)
+                    continue;
+                juce::ColourGradient grad (juce::Colour (0xff30d158), bar.getX(), 0.0f, juce::Colour (0xffff453a), bar.getRight(), 0.0f, false);
+                grad.addColour (0.75, juce::Colour (0xff30d158));
+                grad.addColour (0.9, juce::Colour (0xffffd60a));
+                g.saveState();
+                g.reduceClipRegion (bar.withWidth (bar.getWidth() * frac).getSmallestIntegerContainer());
+                g.setGradientFill (grad);
+                g.fillRoundedRectangle (bar, barH * 0.5f);
+                g.restoreState();
+            }
+        }
+
+    private:
+        float shown[2] { -60.0f, -60.0f };
+    };
+
+    // Texte d'etat aligne a droite (orange = avertissement).
+    class StatusText : public juce::Component
+    {
+    public:
+        void setText (const juce::String& t, bool warn)
+        {
+            if (t != text || warn != warning)
+            {
+                text = t;
+                warning = warn;
+                repaint();
+            }
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            const auto th = Theme::current();
+            g.setColour (warning ? (th.dark ? juce::Colour (0xffffb340) : juce::Colour (0xffb25e00)) : th.muted);
+            g.setFont (font (12.5f, warning ? 1 : 0));
+            g.drawText (text, getLocalBounds(), juce::Justification::centredRight, true);
+        }
+
+    private:
+        juce::String text;
+        bool warning = false;
+    };
+
     // Page d'une categorie : groupes (titre, carte de lignes, note de bas de
     // groupe). Calcule sa propre hauteur via layout(width), le Viewport
     // parent s'en sert pour savoir jusqu'ou defiler.
@@ -863,6 +946,13 @@ namespace OptionsUi
         {
             if (groupIndex < groups.size())
                 groups[groupIndex].footer = text;
+        }
+
+        // Transparente = gris habituel ; orange pour un avertissement.
+        void setFooterColour (size_t groupIndex, juce::Colour c)
+        {
+            if (groupIndex < groups.size())
+                groups[groupIndex].footerColour = c;
         }
 
         // Marges gauche / droite des cartes et place minimale gardee pour le
@@ -1003,7 +1093,7 @@ namespace OptionsUi
 
                 if (! grp.footerArea.isEmpty())
                 {
-                    g.setColour (th.muted);
+                    g.setColour (grp.footerColour.isTransparent() ? th.muted : grp.footerColour);
                     g.setFont (font (12.0f));
                     g.drawFittedText (grp.footer, grp.footerArea.toNearestInt(), juce::Justification::topLeft, 2, 1.0f);
                 }
@@ -1025,6 +1115,7 @@ namespace OptionsUi
         struct Group
         {
             juce::String title, footer;
+            juce::Colour footerColour;
             std::vector<Row> rows;
             juce::Rectangle<float> titleArea, card, footerArea;
         };
@@ -1048,6 +1139,7 @@ public:
         static const CategoryDef cats[kNumCategories] =
         {
             { "General",    Icon::gear,  0xff8e8e93 },
+            { "Audio",      Icon::out,   0xffff375f },
             { "Appearance", Icon::brush, 0xff0a84ff },
             { "Meters",     Icon::gauge, 0xffff9f0a },
             { "Outputs",    Icon::split, 0xff30b158 },
@@ -1060,6 +1152,8 @@ public:
             addAndMakeVisible (item);
             item->onClick = [this, i] { showCategory (i); };
         }
+        // Audio : Standalone seulement (voir setStandaloneAudio()).
+        categoryItems[kAudioPage]->setVisible (false);
 
         addAndMakeVisible (closeButton);
         closeButton.onClick = [this] { if (onDismiss) onDismiss(); };
@@ -1069,6 +1163,7 @@ public:
         viewport.setScrollBarThickness (8);
 
         buildGeneralPage();
+        buildAudioPage();
         buildAppearancePage();
         buildMetersPage();
         buildOutputsPage();
@@ -1080,6 +1175,9 @@ public:
 
     ~OptionsOverlay() override
     {
+        audioTimer.stopTimer();
+        if (audio != nullptr)
+            audio->onChanged = nullptr;
         setLookAndFeel (nullptr);
     }
 
@@ -1098,6 +1196,8 @@ public:
     void showCategory (int index)
     {
         currentCategory = juce::jlimit (0, kNumCategories - 1, index);
+        if (! categoryItems[currentCategory]->isVisible())
+            currentCategory = kGeneralPage;
         for (int i = 0; i < kNumCategories; ++i)
             categoryItems[i]->setToggleState (i == currentCategory, juce::dontSendNotification);
         viewport.setViewedComponent (&pages[currentCategory], false);
@@ -1105,11 +1205,41 @@ public:
         pages[currentCategory].sendLookAndFeelChange();
         viewport.setViewPosition (0, 0);
         repaint (titleArea);
+        updateAudioTimer();
     }
 
     void setCurrentScaleIndex (int idx)      { scaleSeg.setSelected (idx); }
     void setCurrentLatencyIndex (int idx)    { latencySeg.setSelected (idx); }
     void setCurrentUiThemeIndex (int idx)    { themeSeg.setSelected (idx); }
+
+    // Standalone : carte son et loopback (Options > Audio). Nul (VST3) : la
+    // categorie Audio reste cachee.
+    void setStandaloneAudio (StandaloneAudioController* controller)
+    {
+        audio = controller;
+        categoryItems[kAudioPage]->setVisible (audio != nullptr);
+        if (audio != nullptr)
+        {
+            audio->onChanged = [safe = juce::Component::SafePointer<OptionsOverlay> (this)]
+            {
+                if (safe != nullptr)
+                    safe->refreshAudioPage();
+            };
+            refreshAudioPage();
+        }
+        resized();
+    }
+
+    // A chaque ouverture du menu : relit les peripheriques.
+    void refreshAudio()
+    {
+        if (audio == nullptr)
+            return;
+        audio->rescan();
+        refreshAudioPage();
+    }
+
+    void visibilityChanged() override { updateAudioTimer(); }
 
     // Peuple les menus. standalone = true : `pairLabels` liste les paires de
     // sortie de la carte ("1-2", "3-4", ...). standalone = false : un seul
@@ -1175,7 +1305,8 @@ public:
     void setAttRelIcons (int style)      { attRelSeg.setSelected (style); }
     void setThdOversampling (int idx)    { thdOsSeg.setSelected (idx); }
     void setThdOsFilter (int idx)        { thdOsFilterSeg.setSelected (idx); }
-    void setThdClipShape (int idx)       { thdClipShapeSeg.setSelected (idx); }
+    // idx = valeur du parametre (0 Soft, 1 Hard, 2 Off) ; le segment montre Off, Soft, Hard.
+    void setThdClipShape (int idx)       { thdClipShapeSeg.setSelected (idx == 2 ? 0 : idx + 1); }
     void setThdTruePeak (bool on)        { thdTruePeakSwitch.setOn (on); }
     void setBandHardClip (int band, bool on) { thdHardBandChips.setState (band, on); }
     void setSpectrumStyle (int style)    { spectrumStyleSeg.setSelected (style); }
@@ -1195,6 +1326,8 @@ public:
         side.removeFromTop (8.0f);
         for (auto* item : categoryItems)
         {
+            if (! item->isVisible()) // Audio hors Standalone
+                continue;
             item->setBounds (side.removeFromTop (36.0f).toNearestInt());
             side.removeFromTop (2.0f);
         }
@@ -1300,14 +1433,24 @@ public:
     std::function<void(bool)> onSpectrumPeakChanged;
 
 private:
-    static constexpr int kNumCategories = 6;
-    enum { kGeneralPage, kAppearancePage, kMetersPage, kOutputsPage, kThdPage, kLicensePage };
+    static constexpr int kNumCategories = 7;
+    enum { kGeneralPage, kAudioPage, kAppearancePage, kMetersPage, kOutputsPage, kThdPage, kLicensePage };
     static constexpr float kSidebarWidth = 250.0f;
-    static constexpr int kNumScales = 8;
+    // 0 = AUTO (taille calee sur l'ecran, defaut ; monte seule jusqu'a 200 %
+    // sur un ecran 4K). Pas de 5 % sous 100 % (demande explicite : "75, 80,
+    // 85, 90, 95, 100, 125"), liste arretee a 125 % (choix du user au QCM) ;
+    // 150 / 175 / 200 % gardes derriere kLargeScales.
+    static constexpr bool kLargeScales = false;
+    static constexpr int kNumScales = kLargeScales ? 11 : 8;
     static constexpr int kNumRouteBands = 7;
-    // 0 = AUTO (taille calee sur l'ecran, defaut) ; jusqu'a 200 % pour les
-    // ecrans 4K (demande explicite : "sur un ecran en 4k il etait tout petit").
-    static constexpr float kScaleValues[kNumScales] = { 0.0f, 0.75f, 0.90f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
+    static constexpr float kScaleValues[11] = { 0.0f, 0.75f, 0.80f, 0.85f, 0.90f, 0.95f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f };
+    static juce::StringArray scaleLabels()
+    {
+        juce::StringArray s { "Auto", "75%", "80%", "85%", "90%", "95%", "100%", "125%" };
+        if (kLargeScales)
+            s.addArray (juce::StringArray { "150%", "175%", "200%" });
+        return s;
+    }
 
 public:
     static int scaleIndexFor (float scale)
@@ -1367,6 +1510,175 @@ private:
         latencySeg.onChange = [this] (int i) { if (onLatencySelected) onLatencySelected (i); };
     }
 
+    // Page Audio (Standalone) : apercu claude.ai/artifact/VVMvoxxuZKvomUHspPm9F6.
+    // Groupes : 0 Input, 1 Computer playback, 2 Sound card, 3 Monitoring.
+    void buildAudioPage()
+    {
+        using OptionsUi::Icon;
+        auto& p = pages[kAudioPage];
+        p.addGroup ("Input", " ");
+        p.addRow (Icon::out, juce::Colour (0xffff375f), "Source", "What Sevenpack processes", &sourceSeg, sourceSeg.getIdealWidth());
+        p.addRow (Icon::level, juce::Colour (0xff30b158), "Input level", "Live, before processing", &levelMeter, 260, 16);
+        p.addGroup ("Computer playback");
+        p.addRow (Icon::loop, juce::Colour (0xffff9f0a), "Capture", "Playback device to record", &captureCombo, 360);
+        p.addRow (Icon::info, juce::Colour (0xff8e8e93), "Status", "Follows the capture rate, resampled to the card", &captureStatus, 260, 20);
+        p.addGroup ("Sound card", " ");
+        p.addRow (Icon::cpu, juce::Colour (0xff5e5ce6), "Driver", "ASIO gives the lowest latency", &driverCombo, 260);
+        p.addRow (Icon::card, juce::Colour (0xff5e5ce6), "Device", "Input and output", &deviceCombo, 260);
+        p.addRow (Icon::mic, juce::Colour (0xff5e5ce6), "Input device", "Recording side", &inputCombo, 260);
+        p.addRow (Icon::out, juce::Colour (0xff5e5ce6), "Output device", "Where the processed sound plays", &outputCombo, 260);
+        p.addRow (Icon::pair, juce::Colour (0xff0a84ff), "Input channels", "Stereo pair fed into Sevenpack", &pairCombo, 260);
+        p.addRow (Icon::gear, juce::Colour (0xff8e8e93), "Driver control panel", "Buffer and clock of the card", &panelButton, 76);
+        p.addRow (Icon::phase, juce::Colour (0xff30b158), "Sample rate", "Of the card", &rateCombo, 260);
+        p.addRow (Icon::timer, juce::Colour (0xffff9f0a), "Buffer size", "Smaller = less latency, more CPU", &bufferCombo, 260);
+        p.addGroup ("Monitoring");
+        p.addRow (Icon::mute, juce::Colour (0xffff453a), "Mute input", "Against feedback with a microphone near the speakers", &muteSwitch, 44, 26);
+        p.addRow (Icon::tone, juce::Colour (0xff0a84ff), "Test tone", "Short tone on the main output", &toneButton, 76);
+
+        for (auto* c : { &captureCombo, &driverCombo, &deviceCombo, &inputCombo, &outputCombo, &pairCombo, &rateCombo, &bufferCombo })
+            setupCombo (*c);
+        const auto pick = [] (juce::ComboBox& c) { return c.getSelectedId() - 1; };
+        sourceSeg.onChange     = [this] (int i) { if (audio != nullptr) audio->setSource (i); };
+        captureCombo.onChange  = [this, pick] { if (audio != nullptr && pick (captureCombo) >= 0) audio->setCaptureIndex (pick (captureCombo)); };
+        driverCombo.onChange   = [this, pick] { if (audio != nullptr && pick (driverCombo) >= 0) audio->setDriverIndex (pick (driverCombo)); };
+        deviceCombo.onChange   = [this, pick] { if (audio != nullptr && pick (deviceCombo) >= 0) audio->setDeviceIndex (false, pick (deviceCombo)); };
+        inputCombo.onChange    = [this, pick] { if (audio != nullptr && pick (inputCombo) >= 0) audio->setDeviceIndex (true, pick (inputCombo)); };
+        outputCombo.onChange   = [this, pick] { if (audio != nullptr && pick (outputCombo) >= 0) audio->setDeviceIndex (false, pick (outputCombo)); };
+        pairCombo.onChange     = [this, pick] { if (audio != nullptr && pick (pairCombo) >= 0) audio->setInputPairIndex (pick (pairCombo)); };
+        rateCombo.onChange     = [this, pick]
+        {
+            if (audio != nullptr && juce::isPositiveAndBelow (pick (rateCombo), audioRates.size()))
+                audio->setSampleRate (audioRates[pick (rateCombo)]);
+        };
+        bufferCombo.onChange   = [this, pick]
+        {
+            if (audio != nullptr && juce::isPositiveAndBelow (pick (bufferCombo), audioSizes.size()))
+                audio->setBufferSize (audioSizes[pick (bufferCombo)]);
+        };
+        panelButton.onClick    = [this] { if (audio != nullptr) audio->showControlPanel(); };
+        muteSwitch.onChange    = [this] (bool on) { if (audio != nullptr) audio->setMuteInput (on); };
+        toneButton.onClick     = [this] { if (audio != nullptr) audio->playTestTone(); };
+        audioTimer.fn = [this] { audioTick(); };
+    }
+
+    static void fillCombo (juce::ComboBox& c, const juce::StringArray& items, int selected)
+    {
+        c.clear (juce::dontSendNotification);
+        for (int i = 0; i < items.size(); ++i)
+            c.addItem (items[i].isNotEmpty() ? items[i] : juce::String ("(unnamed)"), i + 1);
+        if (items.isEmpty())
+            c.setTextWhenNothingSelected ("None available");
+        c.setSelectedId (juce::isPositiveAndBelow (selected, items.size()) ? selected + 1 : 0, juce::dontSendNotification);
+    }
+
+    void refreshAudioPage()
+    {
+        if (audio == nullptr)
+            return;
+        auto& p = pages[kAudioPage];
+        const bool loopOk = audio->supportsLoopback();
+        const bool loop = audio->getSource() == 1;
+
+        sourceSeg.setSelected (loop ? 1 : 0);
+        p.setRowVisible (sourceSeg, loopOk);
+        audioSourceNote = ! loopOk ? "To process what the computer plays, route it to a virtual device (BlackHole, Loopback...) and pick that device as the input."
+                          : loop ? "Records what Windows plays on the capture device below, processes it and plays it on the sound card output."
+                                 : "Processes the selected input pair of the sound card.";
+
+        fillCombo (captureCombo, loop ? audio->getCaptureNames() : juce::StringArray(), loop ? audio->getCaptureIndex() : -1);
+        p.setRowVisible (captureCombo, loop);
+        p.setRowVisible (captureStatus, loop);
+
+        fillCombo (driverCombo, audio->getDriverNames(), audio->getDriverIndex());
+        const bool separate = audio->hasSeparateInputsAndOutputs();
+        const auto outs = audio->getDeviceNames (false);
+        fillCombo (deviceCombo, outs, audio->getDeviceIndex (false));
+        fillCombo (inputCombo, audio->getDeviceNames (true), audio->getDeviceIndex (true));
+        fillCombo (outputCombo, outs, audio->getDeviceIndex (false));
+        p.setRowVisible (deviceCombo, ! separate);
+        p.setRowVisible (inputCombo, separate && ! loop);
+        p.setRowVisible (outputCombo, separate);
+        fillCombo (pairCombo, audio->getInputPairNames(), audio->getInputPairIndex());
+        p.setRowVisible (pairCombo, ! loop);
+        p.setRowVisible (panelButton, audio->hasControlPanel());
+
+        audioRates = audio->getSampleRates();
+        juce::StringArray rateNames;
+        int rateSel = -1;
+        for (int i = 0; i < audioRates.size(); ++i)
+        {
+            rateNames.add (juce::String (juce::roundToInt (audioRates[i])) + " Hz");
+            if (std::abs (audioRates[i] - audio->getSampleRate()) < 1.0)
+                rateSel = i;
+        }
+        fillCombo (rateCombo, rateNames, rateSel);
+
+        audioSizes = audio->getBufferSizes();
+        juce::StringArray sizeNames;
+        int sizeSel = -1;
+        const double sr = audio->getSampleRate();
+        for (int i = 0; i < audioSizes.size(); ++i)
+        {
+            sizeNames.add (juce::String (audioSizes[i]) + " samples"
+                           + (sr > 0.0 ? " (" + juce::String (1000.0 * audioSizes[i] / sr, 1) + " ms)" : juce::String()));
+            if (audioSizes[i] == audio->getBufferSize())
+                sizeSel = i;
+        }
+        fillCombo (bufferCombo, sizeNames, sizeSel);
+
+        const auto err = audio->getDeviceError();
+        p.setFooter (2, err.isNotEmpty() ? err
+                                         : "Round-trip latency: " + juce::String (audio->getRoundTripLatencyMs(), 1) + " ms (card + Sevenpack).");
+        p.setFooterColour (2, err.isNotEmpty() ? juce::Colour (0xffff9f0a) : juce::Colours::transparentBlack);
+
+        muteSwitch.setOn (audio->getMuteInput());
+        lastAudioWarning = "-";
+        updateAudioStatus (false);
+        p.layout (pageWidth());
+        updateCategoryCounts();
+        repaint();
+    }
+
+    // Etat de la capture + avertissement de larsen (note orange sous le groupe Input).
+    void updateAudioStatus (bool relayout)
+    {
+        if (audio == nullptr)
+            return;
+        bool warn = false;
+        const auto status = audio->getCaptureStatus (warn); // avant de lire warn (ordre des arguments non garanti)
+        captureStatus.setText (status, warn);
+        const auto w = audio->getFeedbackWarning();
+        const auto footer = w.isNotEmpty() ? w : audioSourceNote;
+        if (footer != lastAudioWarning)
+        {
+            lastAudioWarning = footer;
+            auto& p = pages[kAudioPage];
+            p.setFooter (0, footer);
+            p.setFooterColour (0, w.isNotEmpty() ? juce::Colour (0xffff9f0a) : juce::Colours::transparentBlack);
+            if (relayout)
+                p.layout (pageWidth());
+        }
+    }
+
+    void audioTick()
+    {
+        if (audio == nullptr)
+            return;
+        float l = 0.0f, r = 0.0f;
+        audio->getInputLevels (l, r);
+        levelMeter.setLevels (l, r);
+        if (++audioTicks % 8 == 0)
+            updateAudioStatus (true);
+    }
+
+    void updateAudioTimer()
+    {
+        if (audio != nullptr && isVisible() && currentCategory == kAudioPage)
+            audioTimer.startTimerHz (15);
+        else
+            audioTimer.stopTimer();
+    }
+
     void buildAppearancePage()
     {
         using OptionsUi::Icon;
@@ -1415,8 +1727,8 @@ private:
         };
         bounceSlider.onValueChange = needleChanged;
         returnSlider.onValueChange = needleChanged;
-        bounceSlider.setDefault (55.0);
-        returnSlider.setDefault (50.0);
+        bounceSlider.setDefault (100.0); // "de base, les needles bounce et return sont sur 100"
+        returnSlider.setDefault (100.0);
 
         glassSeg.onChange    = [this] (int i) { if (onNeedleGlassSelected) onNeedleGlassSelected (i); };
         tipSeg.onChange      = [this] (int i) { if (onNeedleTipSelected) onNeedleTipSelected (i == 0); };
@@ -1465,8 +1777,9 @@ private:
                   &thdOsSeg, thdOsSeg.getIdealWidth());
         p.addRow (Icon::phase, juce::Colour (0xff64d2ff), "Filter", "Linear: a little more latency. Minimum: almost none",
                   &thdOsFilterSeg, thdOsFilterSeg.getIdealWidth());
-        p.addGroup ("Clip", "Hard clip bands are clipped on their own first. The final ceiling (THD CEIL) always applies to the full mix.");
-        p.addRow (Icon::clip, juce::Colour (0xffff453a), "Clip shape", "Soft: rounded from 3 dB below the ceiling. Hard: straight cut",
+        p.addGroup ("Clip", "Hard clip bands are clipped on their own first, then the full mix at the ceiling (THD CEIL). "
+                             "With Clip shape Off, nothing is clipped: only the true peak limiter, if on, holds the ceiling.");
+        p.addRow (Icon::clip, juce::Colour (0xffff453a), "Clip shape", "Off: no clipping. Soft: rounded from 3 dB below the ceiling. Hard: straight cut",
                   &thdClipShapeSeg, thdClipShapeSeg.getIdealWidth());
         p.addRow (Icon::split, juce::Colour (0xffff9f0a), "Hard clip on bands", "Keeps drum transients punchy",
                   &thdHardBandChips, thdHardBandChips.getIdealWidth(), 24);
@@ -1475,7 +1788,7 @@ private:
 
         thdOsSeg.onChange          = [this] (int i) { if (onThdOversamplingSelected) onThdOversamplingSelected (i); };
         thdOsFilterSeg.onChange    = [this] (int i) { if (onThdOsFilterSelected) onThdOsFilterSelected (i); };
-        thdClipShapeSeg.onChange   = [this] (int i) { if (onThdClipShapeSelected) onThdClipShapeSelected (i); };
+        thdClipShapeSeg.onChange   = [this] (int i) { if (onThdClipShapeSelected) onThdClipShapeSelected (i == 0 ? 2 : i - 1); };
         thdTruePeakSwitch.onChange = [this] (bool on) { if (onThdTruePeakChanged) onThdTruePeakChanged (on); };
         thdHardBandChips.onToggle  = [this] (int band, bool on) { if (onBandHardClipChanged) onBandHardClipChanged (band, on); };
     }
@@ -1495,7 +1808,7 @@ private:
     juce::SharedResourcePointer<OptionsUi::IconSet> icons;
 
     // General
-    OptionsUi::Segmented scaleSeg   { { "Auto", "75%", "90%", "100%", "125%", "150%", "175%", "200%" } };
+    OptionsUi::Segmented scaleSeg   { scaleLabels() };
     OptionsUi::Segmented themeSeg   { { "Dark", "Light", "DOS" } };
     OptionsUi::Segmented latencySeg { { "Low", "Medium", "High" } };
     // Appearance
@@ -1521,9 +1834,27 @@ private:
     // THD stage
     OptionsUi::Segmented thdOsSeg        { { "Off", juce::String::fromUTF8 ("\xc3\x97" "2"), juce::String::fromUTF8 ("\xc3\x97" "4"), juce::String::fromUTF8 ("\xc3\x97" "8") } };
     OptionsUi::Segmented thdOsFilterSeg  { { "Linear", "Minimum" } };
-    OptionsUi::Segmented thdClipShapeSeg { { "Soft", "Hard" } };
+    OptionsUi::Segmented thdClipShapeSeg { { "Off", "Soft", "Hard" } };
     OptionsUi::ChipSet thdHardBandChips  { { "LOW", "LOW-MID", "MID", "HIGH-MID", "PRESENCE", "HIGH", "AIR" } };
     OptionsUi::Switch thdTruePeakSwitch;
+    // Audio (Standalone)
+    StandaloneAudioController* audio = nullptr;
+    OptionsUi::Segmented sourceSeg { { "Sound card", "Computer playback" } };
+    OptionsUi::LevelMeter levelMeter;
+    OptionsUi::StatusText captureStatus;
+    juce::ComboBox captureCombo, driverCombo, deviceCombo, inputCombo, outputCombo, pairCombo, rateCombo, bufferCombo;
+    OptionsUi::PillButton panelButton { "Open" }, toneButton { "Play" };
+    OptionsUi::Switch muteSwitch;
+    juce::Array<double> audioRates;
+    juce::Array<int> audioSizes;
+    juce::String lastAudioWarning, audioSourceNote;
+    int audioTicks = 0;
+    struct LambdaTimer : juce::Timer
+    {
+        std::function<void()> fn;
+        void timerCallback() override { if (fn) fn(); }
+    };
+    LambdaTimer audioTimer;
     // License
     OptionsUi::PillButton licenseButton { "Open" };
 

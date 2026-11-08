@@ -405,7 +405,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout SevenpackAudioProcessor::cre
     params.push_back (std::make_unique<AudioParameterChoice> (
         ParameterID { idThdOsFilter, 1 }, "THD Oversampling Filter", StringArray { "Linear Phase", "Minimum Phase" }, 0));
     params.push_back (std::make_unique<AudioParameterChoice> (
-        ParameterID { idThdClipShape, 1 }, "THD Clip Shape", StringArray { "Soft", "Hard" }, 0));
+        ParameterID { idThdClipShape, 1 }, "THD Clip Shape", StringArray { "Soft", "Hard", "Off" }, 0)); // Off ajoute a la fin (v2.22.3) : sessions Soft/Hard intactes
     params.push_back (std::make_unique<AudioParameterBool> (
         ParameterID { idThdTruePeak, 1 }, "THD True Peak Ceiling", true));
 
@@ -833,7 +833,33 @@ std::array<float, (size_t) SevenpackAudioProcessor::NumCrossovers> SevenpackAudi
     return hz;
 }
 
-void SevenpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void SevenpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
+{
+    // Standalone, source "Computer playback" : le son capture (loopback
+    // Windows, rattrapage d'horloge dans LoopbackFeed) remplace l'entree.
+    auto* feed = loopbackFeed.load (std::memory_order_acquire);
+    const bool fromLoopback = feed != nullptr && feed->isActive();
+    const int n = buffer.getNumSamples();
+    if (fromLoopback && buffer.getNumChannels() >= 2)
+        feed->pull (buffer.getWritePointer (0), buffer.getWritePointer (1), n, getSampleRate());
+
+    // Crete d'entree pour la page Options > Audio (lecture = remise a zero).
+    for (int ch = 0; ch < juce::jmin (2, buffer.getNumChannels()); ++ch)
+    {
+        const float m = buffer.getMagnitude (ch, 0, n);
+        if (m > inputLevel[(size_t) ch].load (std::memory_order_relaxed))
+            inputLevel[(size_t) ch].store (m, std::memory_order_relaxed);
+    }
+
+    processBlockInternal (buffer, midi);
+
+    // Anti-larsen (loopback capture sur la sortie, ou entree "Loopback" de
+    // la carte qui joue la sortie) : sortie coupee.
+    if (feed != nullptr && feed->isOutputMuted())
+        buffer.clear();
+}
+
+void SevenpackAudioProcessor::processBlockInternal (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     lastProcessBlockMs.store (juce::Time::getMillisecondCounter());
 
@@ -961,12 +987,13 @@ void SevenpackAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const int osFactor = useOsPath ? (1 << (osIdx + 1)) : 1;
     clipperL.setOversamplingFactor (osFactor);
     clipperR.setOversamplingFactor (osFactor);
-    const auto clipShape = thdClipShapeParam->load() > 0.5f ? SoftClipper::Shape::Hard : SoftClipper::Shape::Soft;
+    const auto clipShape = (SoftClipper::Shape) juce::jlimit (0, 2, (int) std::round (thdClipShapeParam->load()));
     clipperL.setShape (clipShape);
     clipperR.setShape (clipShape);
     bool bandHard[(size_t) NumBands];
     for (int band = 0; band < (int) NumBands; ++band)
-        bandHard[(size_t) band] = softClipOn && bandHardClipParam[(size_t) band]->load() > 0.5f;
+        bandHard[(size_t) band] = softClipOn && clipShape != SoftClipper::Shape::Off // CLIP OFF : aucune bande ecretee non plus
+                                  && bandHardClipParam[(size_t) band]->load() > 0.5f;
 
     const auto satMode = (SoftClipper::SatMode) juce::jlimit (0, 3, (int) std::round (thdModeParam->load()));
     clipperL.setMode (satMode);
@@ -1701,8 +1728,8 @@ void SevenpackAudioProcessor::setStateInformation (const void* data, int sizeInB
     else
         uiTheme.store ((bool) apvts.state.getProperty ("lightTheme", true) ? 1 : 0);
 
-    needleBounce.store (juce::jlimit (0.0f, 100.0f, (float) apvts.state.getProperty ("needleBounce", 55.0f)));
-    needleReturn.store (juce::jlimit (0.0f, 100.0f, (float) apvts.state.getProperty ("needleReturn", 50.0f)));
+    needleBounce.store (juce::jlimit (0.0f, 100.0f, (float) apvts.state.getProperty ("needleBounce", 100.0f)));
+    needleReturn.store (juce::jlimit (0.0f, 100.0f, (float) apvts.state.getProperty ("needleReturn", 100.0f)));
     bandColourMode.store (juce::jlimit (0, 2, (int) apvts.state.getProperty ("bandColourMode", 0)));
     meterMode.store (juce::jlimit (0, 2, (int) apvts.state.getProperty ("meterMode", 0)));
     highContrast.store ((bool) apvts.state.getProperty ("highContrast", false));

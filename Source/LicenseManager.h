@@ -2,17 +2,31 @@
 
 #include <JuceHeader.h>
 
+#include <deque>
+
 // Talks to the Cloudflare Worker license server (see D:/vst/LicenseServer).
-// Activation and the weekly re-validation both run off the message thread
-// via juce::Thread::launch, so this never blocks the audio thread or the UI.
-class LicenseManager : private juce::Timer
+// Activation and the weekly re-validation both run off the message thread,
+// so this never blocks the audio thread or the UI.
+//
+// Plantage a la fermeture sur Mac (retour de Sunny : "j'ai une erreur quand
+// je ferme le logiciel") : les requetes partaient dans des threads detaches
+// (juce::Thread::launch ([this] ...)) jamais arretes. Une requete encore en
+// cours a la fermeture continuait sur un objet detruit, puis postait sa
+// reponse (callAsync) alors que la boucle de messages n'existait plus -- sur
+// Mac, ce message vise un delegue d'application deja libere. Desormais : UN
+// thread de travail possede par ce gestionnaire, arrete (et la requete en
+// cours annulee) dans le destructeur ; les reponses ne touchent l'objet que
+// s'il existe encore (WeakReference).
+class LicenseManager : private juce::Timer,
+                       private juce::Thread
 {
 public:
     enum class Status { unlicensed, activating, licensed, invalid, offlineGrace, trial, trialExpired };
 
     explicit LicenseManager (const juce::String& productId)
-        : product (productId)
+        : juce::Thread ("License requests"), product (productId)
     {
+        weakThis = this;
         machineId = juce::SystemStats::getUniqueDeviceID();
         loadStoredLicense();
 
@@ -26,7 +40,18 @@ public:
         startTimer (checkIntervalMs);
     }
 
-    ~LicenseManager() override { stopTimer(); }
+    ~LicenseManager() override
+    {
+        stopTimer();
+        signalThreadShouldExit();
+        {
+            const juce::ScopedLock sl (streamLock);
+            if (currentStream != nullptr)
+                currentStream->cancel(); // debloque une requete en cours
+        }
+        notify();
+        stopThread (5000);
+    }
 
     // Called from the UI when the user types a key into the activation dialog.
     // firstName/lastName/email are optional — pass empty strings to skip them.
@@ -120,24 +145,18 @@ private:
         // Also lets /admin see trial installs — and if an admin revoked this
         // one, the server says so here and we block immediately rather than
         // waiting for the local 14-day countdown to run out.
-        juce::Thread::launch ([this]
-        {
-            auto result = postJson ("/v1/trial-ping",
-                { { "machine_id", machineId }, { "product_id", product },
-                  { "machine_name", juce::SystemStats::getComputerName() },
-                  { "plugin_version", ProjectInfo::versionString } });
-
-            // Only an explicit "revoked" from the server ends the trial early —
-            // any other server hiccup (500, unmapped route, etc.) must never be
-            // treated as a revocation, or a server-side bug silently locks out demos.
-            if (result.error == "revoked")
-            {
-                juce::MessageManager::callAsync ([this]
-                {
-                    status = Status::trialExpired;
-                });
-            }
-        });
+        request ("/v1/trial-ping",
+                 { { "machine_id", machineId }, { "product_id", product },
+                   { "machine_name", juce::SystemStats::getComputerName() },
+                   { "plugin_version", ProjectInfo::versionString } },
+                 [this] (const ApiResult& result)
+                 {
+                     // Only an explicit "revoked" from the server ends the trial early —
+                     // any other server hiccup (500, unmapped route, etc.) must never be
+                     // treated as a revocation, or a server-side bug silently locks out demos.
+                     if (result.error == "revoked")
+                         status = Status::trialExpired;
+                 });
     }
 
     void saveStoredLicense()
@@ -161,30 +180,26 @@ private:
         storedKey = key;
         status = Status::activating;
 
-        juce::Thread::launch ([this, key, firstName, lastName, email]
-        {
-            auto result = postJson ("/v1/activate",
-                { { "license_key", key }, { "machine_id", machineId },
-                  { "machine_name", juce::SystemStats::getComputerName() },
-                  { "product_id", product },
-                  { "plugin_version", ProjectInfo::versionString },
-                  { "first_name", firstName }, { "last_name", lastName }, { "email", email } });
-
-            juce::MessageManager::callAsync ([this, key, result]
-            {
-                if (result.ok)
-                {
-                    status = Status::licensed;
-                    lastSuccessfulCheck = juce::Time::getCurrentTime();
-                    saveStoredLicense();
-                }
-                else
-                {
-                    status = Status::invalid;
-                    lastError = result.error;
-                }
-            });
-        });
+        request ("/v1/activate",
+                 { { "license_key", key }, { "machine_id", machineId },
+                   { "machine_name", juce::SystemStats::getComputerName() },
+                   { "product_id", product },
+                   { "plugin_version", ProjectInfo::versionString },
+                   { "first_name", firstName }, { "last_name", lastName }, { "email", email } },
+                 [this] (const ApiResult& result)
+                 {
+                     if (result.ok)
+                     {
+                         status = Status::licensed;
+                         lastSuccessfulCheck = juce::Time::getCurrentTime();
+                         saveStoredLicense();
+                     }
+                     else
+                     {
+                         status = Status::invalid;
+                         lastError = result.error;
+                     }
+                 });
     }
 
     void timerCallback() override
@@ -199,40 +214,88 @@ private:
         if (status.load() == Status::activating)
             return;
 
-        juce::Thread::launch ([this]
-        {
-            auto result = postJson ("/v1/validate",
-                { { "license_key", storedKey }, { "machine_id", machineId },
-                  { "plugin_version", ProjectInfo::versionString } });
-
-            juce::MessageManager::callAsync ([this, result]
-            {
-                if (result.ok)
-                {
-                    status = Status::licensed;
-                    lastSuccessfulCheck = juce::Time::getCurrentTime();
-                    saveStoredLicense();
-                }
-                else if (result.networkError)
-                {
-                    // Server unreachable: keep working for a grace period rather than
-                    // punishing users who are offline (studio without internet, etc).
-                    auto daysSinceCheck = (juce::Time::getCurrentTime() - lastSuccessfulCheck).inDays();
-                    status = (daysSinceCheck <= offlineGraceDays) ? Status::offlineGrace : Status::invalid;
-                }
-                else
-                {
-                    // Server explicitly said no (revoked / machine removed).
-                    status = Status::invalid;
-                    lastError = result.error;
-                }
-            });
-        });
+        request ("/v1/validate",
+                 { { "license_key", storedKey }, { "machine_id", machineId },
+                   { "plugin_version", ProjectInfo::versionString } },
+                 [this] (const ApiResult& result)
+                 {
+                     if (result.ok)
+                     {
+                         status = Status::licensed;
+                         lastSuccessfulCheck = juce::Time::getCurrentTime();
+                         saveStoredLicense();
+                     }
+                     else if (result.networkError)
+                     {
+                         // Server unreachable: keep working for a grace period rather than
+                         // punishing users who are offline (studio without internet, etc).
+                         auto daysSinceCheck = (juce::Time::getCurrentTime() - lastSuccessfulCheck).inDays();
+                         status = (daysSinceCheck <= offlineGraceDays) ? Status::offlineGrace : Status::invalid;
+                     }
+                     else
+                     {
+                         // Server explicitly said no (revoked / machine removed).
+                         status = Status::invalid;
+                         lastError = result.error;
+                     }
+                 });
     }
 
     struct ApiResult { bool ok = false; bool networkError = false; juce::String error; };
+    using Fields = std::map<juce::String, juce::String>;
 
-    ApiResult postJson (const juce::String& path, const std::map<juce::String, juce::String>& fields)
+    struct Job
+    {
+        juce::String path;
+        Fields fields;
+        std::function<void (const ApiResult&)> onResult; // thread de messages, objet vivant
+    };
+
+    // Met une requete en file ; onResult est appele sur le thread de messages,
+    // seulement si ce gestionnaire existe encore.
+    void request (const juce::String& path, Fields fields, std::function<void (const ApiResult&)> onResult)
+    {
+        {
+            const juce::ScopedLock sl (jobLock);
+            jobs.push_back ({ path, std::move (fields), std::move (onResult) });
+        }
+        if (! isThreadRunning())
+            startThread (juce::Thread::Priority::low);
+        notify();
+    }
+
+    void run() override
+    {
+        while (! threadShouldExit())
+        {
+            Job job;
+            {
+                const juce::ScopedLock sl (jobLock);
+                if (! jobs.empty())
+                {
+                    job = std::move (jobs.front());
+                    jobs.pop_front();
+                }
+            }
+            if (job.path.isEmpty())
+            {
+                wait (-1);
+                continue;
+            }
+
+            const auto result = postJson (job.path, job.fields);
+            if (threadShouldExit())
+                break; // fermeture : on ne repond plus
+
+            juce::MessageManager::callAsync ([weak = weakThis, done = std::move (job.onResult), result]
+            {
+                if (weak.get() != nullptr && done)
+                    done (result);
+            });
+        }
+    }
+
+    ApiResult postJson (const juce::String& path, const Fields& fields)
     {
         auto obj = new juce::DynamicObject();
         for (auto& f : fields)
@@ -242,25 +305,41 @@ private:
         juce::URL url (juce::String (licenseServerBaseUrl) + path);
         url = url.withPOSTData (body);
 
-        int statusCode = 0;
-        auto stream = url.createInputStream (
-            juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inPostData)
-                .withExtraHeaders ("Content-Type: application/json")
-                .withConnectionTimeoutMs (8000)
-                .withStatusCode (&statusCode));
+        // WebInputStream plutot que createInputStream : annulable depuis le
+        // destructeur (fermeture pendant une requete).
+        juce::WebInputStream stream (url, true);
+        stream.withExtraHeaders ("Content-Type: application/json")
+              .withConnectionTimeout (8000);
+        {
+            const juce::ScopedLock sl (streamLock);
+            if (threadShouldExit())
+                return { false, true, "network_error" };
+            currentStream = &stream;
+        }
+        const bool connected = stream.connect (nullptr);
+        const int statusCode = stream.getStatusCode();
+        const auto response = connected && ! threadShouldExit() ? stream.readEntireStreamAsString() : juce::String();
+        {
+            const juce::ScopedLock sl (streamLock);
+            currentStream = nullptr;
+        }
 
-        if (stream == nullptr)
+        if (! connected || statusCode == 0)
             return { false, true, "network_error" };
 
-        auto response = stream->readEntireStreamAsString();
         auto json = juce::JSON::parse (response);
-
         ApiResult result;
         result.ok = statusCode >= 200 && statusCode < 300
                     && static_cast<bool> (json.getProperty ("ok", false));
         result.error = json.getProperty ("error", "").toString();
         return result;
     }
+
+    juce::CriticalSection jobLock, streamLock;
+    std::deque<Job> jobs;
+    juce::WebInputStream* currentStream = nullptr;
+    juce::WeakReference<LicenseManager> weakThis;
+    JUCE_DECLARE_WEAK_REFERENCEABLE (LicenseManager)
 
     // Replace with your deployed Worker URL (see D:/vst/LicenseServer/README.md).
     static constexpr const char* licenseServerBaseUrl = "https://license.sidekey.fr";

@@ -20,6 +20,16 @@
     vers le processeur (a chaque (re)configuration du peripherique) pour que
     ces menus listent les vraies sorties de la carte.
 
+    Carte son et loopback (Options > Audio, demande explicite : "Il faut
+    une gestion des cartes son, in out et loopback sur la version
+    standalone") : on cree le StandalonePluginHolder nous-memes pour
+    confier au processeur, AVANT la creation de l'editeur, le controleur
+    StandaloneAudioController (StandaloneAudio.cpp). La page Audio remplace
+    la fenetre audio de JUCE : le bouton "Options" de la barre de titre est
+    cache et le bandeau jaune "Audio input is muted" desactive
+    (processorHasPotentialFeedbackLoop = false ; "Mute input" est dans la
+    page).
+
     Le corps n'est compile QUE quand JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP
     est defini. Le define est global au projet, donc ce fichier est aussi
     compile dans la SharedCode des autres formats (VST3/AU/Unity) : il n'y
@@ -37,6 +47,7 @@
 #include "JuceHeader.h"
 #include <juce_audio_plugin_client/Standalone/juce_StandaloneFilterWindow.h>
 #include "PluginProcessor.h"
+#include "StandaloneAudio.h"
 
 namespace juce
 {
@@ -79,10 +90,15 @@ public:
 
     void shutdown() override
     {
+        // Le controleur se decroche AVANT la carte et le processeur.
+        if (audioController != nullptr)
+            audioController->detach();
+
         if (mainWindow != nullptr)
             mainWindow->getDeviceManager().removeChangeListener (this);
 
         mainWindow = nullptr;
+        audioController = nullptr;
         appProperties.saveIfNeeded();
     }
 
@@ -126,19 +142,47 @@ private:
         Array<StandalonePluginHolder::PluginInOuts> channelConfig;
         channelConfig.add (io);
 
-        return new StandaloneFilterWindow (getApplicationName(),
-                                           LookAndFeel::getDefaultLookAndFeel()
-                                               .findColour (ResizableWindow::backgroundColourId),
-                                           appProperties.getUserSettings(),
-                                           false,      // ne pas prendre possession de settings
-                                           String{},   // pas de peripherique par defaut impose
-                                           nullptr,    // pas d'options audio pre-remplies
-                                           channelConfig);
+        auto holder = std::make_unique<StandalonePluginHolder> (appProperties.getUserSettings(),
+                                                                false,      // ne pas prendre possession de settings
+                                                                String{},   // pas de peripherique par defaut impose
+                                                                nullptr,    // pas d'options audio pre-remplies
+                                                                channelConfig);
+
+        // Pas de bandeau jaune JUCE : "Mute input" est dans Options > Audio.
+        holder->processorHasPotentialFeedbackLoop = false;
+
+        // Controleur carte son / loopback confie au processeur AVANT que la
+        // fenetre ne cree l'editeur (qui le lit dans son constructeur).
+        if (auto* proc = dynamic_cast<SevenpackAudioProcessor*> (holder->processor.get()))
+        {
+            audioController = createStandaloneAudioController (holder->deviceManager, holder->getMuteInputValue(),
+                                                               appProperties.getUserSettings(), *proc);
+            proc->standaloneAudio = audioController.get();
+        }
+
+        auto* window = new StandaloneFilterWindow (getApplicationName(),
+                                                   LookAndFeel::getDefaultLookAndFeel()
+                                                       .findColour (ResizableWindow::backgroundColourId),
+                                                   std::move (holder));
+
+        // Bouton "Options" de JUCE (fenetre audio generique) : remplace par la
+        // page Audio du plugin.
+        for (auto* child : window->getChildren())
+            if (auto* b = dynamic_cast<TextButton*> (child))
+                if (b->getButtonText() == "Options")
+                    b->setVisible (false);
+
+        return window;
     }
 
     void changeListenerCallback (ChangeBroadcaster*) override
     {
         syncDeviceOutputs();
+
+        // Reglages de la carte gardes tout de suite (JUCE ne les ecrit qu'a la
+        // fermeture : un plantage les perdait).
+        if (mainWindow != nullptr && mainWindow->pluginHolder != nullptr && ! reentrantGuard)
+            mainWindow->pluginHolder->saveAudioDeviceState();
     }
 
     // (1) force TOUTES les sorties de l'interface a l'etat actif -- la
@@ -181,6 +225,7 @@ private:
     }
 
     ApplicationProperties appProperties;
+    std::unique_ptr<StandaloneAudioController> audioController;
     std::unique_ptr<StandaloneFilterWindow> mainWindow;
     bool reentrantGuard = false;
 };

@@ -5,6 +5,8 @@
 #include <map>
 #include "FeedbackCompressor.h"
 #include "SoftClipper.h"
+#include "LoopbackFeed.h"
+#include "StandaloneAudio.h"
 #include "TruePeakLimiter.h"
 #include "Crossover.h"
 #include "AiLearnAnalyzer.h"
@@ -70,6 +72,9 @@ public:
    #endif
 
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    // Traitement proprement dit (processBlock ajoute autour la source
+    // "Computer playback" du Standalone et la coupure anti-larsen).
+    void processBlockInternal (juce::AudioBuffer<float>&, juce::MidiBuffer&);
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
@@ -179,8 +184,8 @@ public:
     // demande explicite : "gestion du rebond des aiguilles dans les
     // options"). 0..100 : rebond 0 = amorti critique, 100 = depassement
     // marque ; retour = vitesse de l'aiguille.
-    std::atomic<float> needleBounce { 55.0f };
-    std::atomic<float> needleReturn { 50.0f };
+    std::atomic<float> needleBounce { 100.0f }; // defaut 100 (demande explicite)
+    std::atomic<float> needleReturn { 100.0f };
     // Couleurs pastel des tranches : 0 = bandeau (defaut), 1 = teinte sur
     // toute la carte, 2 = aucune.
     std::atomic<int> bandColourMode { 0 };
@@ -238,6 +243,17 @@ public:
     // false = "Don't ask again" coche ; se reactive dans le panneau
     // Calculator. Persiste dans apvts.state ("confirmLearn").
     std::atomic<bool> confirmLearn { true };
+
+    // --- Standalone : carte son et loopback (Options > Audio) ---
+    // Controleur fourni par l'appli Standalone (nul dans le VST3), voir
+    // StandaloneAudio.h. Thread de messages.
+    StandaloneAudioController* standaloneAudio = nullptr;
+    // Source "Computer playback" : remplace l'entree dans processBlock tant
+    // qu'elle est active (pointeur pose / retire par le controleur).
+    std::atomic<LoopbackFeed*> loopbackFeed { nullptr };
+    // Crete de l'entree par bloc (vu-metre de la page Audio), remise a zero
+    // a la lecture.
+    std::array<std::atomic<float>, 2> inputLevel {};
 
     // Goniometre par bande : derniers echantillons stereo de la bande
     // (apres Mix et Spread, ce qu'elle envoie au mix), decimes a ~12 kHz,
@@ -463,7 +479,8 @@ public:
     // bas, le reste dans Options > THD stage) :
     //  - idThdOversampling : 0 Off, 1 x2, 2 x4 (defaut), 3 x8 ;
     //  - idThdOsFilter     : 0 phase lineaire (defaut), 1 phase minimale ;
-    //  - idThdClipShape    : 0 Soft (courbe arrondie, defaut), 1 Hard ;
+    //  - idThdClipShape    : 0 Soft (courbe arrondie, defaut), 1 Hard, 2 Off
+    //    (aucun ecretage, ni final ni par bande ; v2.22.3) ;
     //  - idThdTruePeak     : limiteur true-peak derriere l'ecretage (detection
     //    x8, 1,5 ms d'anticipation, voir TruePeakLimiter.h ; defaut ON) ;
     //  - idBandHardClip    : PAR BANDE, la bande est ecretee en dur seule

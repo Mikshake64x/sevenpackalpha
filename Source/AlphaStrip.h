@@ -257,10 +257,39 @@ public:
         }
         c.removeFromTop (8.0f);
 
+        layoutCardBody (c, sunnyKnobs(), true);
+
+        if (valueEditor.isVisible())
+            cancelValueEdit();
+    }
+
+    // Disposition des knobs (demande explicite : "les knobs ne sont pas
+    // positionne pareil en sombre et en clair") : 0 = chaque theme la sienne
+    // (avant), 1 = celle du theme sombre (design de Sunny) partout, 2 = celle
+    // du theme clair partout.
+    static inline int knobLayout = 1; // choix du user (QCM) : celle du sombre partout
+    static bool sunnyKnobs() { return knobLayout == 0 ? AlphaPalette::get().sunny : knobLayout == 1; }
+
+    // Corps de la carte : en bas RANGE | DRY/WET | SPREAD, le fader OUT a
+    // gauche, puis ATT / REL et le knob IN.
+    //  - compact (design de Sunny) : knobs de 30 px, ATT (knob + case picto)
+    //    puis REL (case picto + knob) en quinconce ;
+    //  - sinon (d'origine) : knobs de 37 px, ATT | REL cote a cote, picto a
+    //    cote du libelle.
+    // linkPills : pastilles LINK du theme clair (le sombre a son cadenas).
+    void layoutCardBody (juce::Rectangle<float> c, bool compact, bool linkPills)
+    {
+        pictoBox = {};
         // Knobs neumorphiques : diametre de la face ; la cellule reserve la
         // couronne de traits autour (AlphaKnob::kExtent).
-        constexpr float smallD = 37.0f, inMaxD = 56.0f;
-        const float cellH = 12.0f + std::ceil (smallD * AlphaKnob::kExtent) + 13.0f;
+        const float smallD = compact ? 30.0f : 37.0f;
+        constexpr float inMaxD = 56.0f;
+        const float cellH = compact ? 56.0f : 12.0f + std::ceil (37.0f * AlphaKnob::kExtent) + 13.0f;
+        const auto cell = [this, compact, smallD] (Row& row, juce::Rectangle<float> area)
+        {
+            if (compact) layoutKnobCellCompact (row, area, smallD);
+            else         layoutKnobCell (row, area, smallD);
+        };
 
         // Bas de carte, pleine largeur : RANGE (expandeur) | DRY/WET | SPREAD
         // (la cellule du milieu un peu plus large pour "DRY/WET").
@@ -268,52 +297,69 @@ public:
             auto bottom = c.removeFromBottom (cellH);
             bottomLineY = bottom.getY() - 5.0f;
             const float side = (bottom.getWidth() - 56.0f) * 0.5f;
-            layoutKnobCell (rows[2], bottom.removeFromLeft (side), smallD);
-            layoutKnobCell (rows[4], bottom.removeFromLeft (56.0f), smallD);
-            layoutKnobCell (rows[5], bottom, smallD);
+            cell (rows[2], bottom.removeFromLeft (side));
+            cell (rows[4], bottom.removeFromLeft (56.0f));
+            cell (rows[5], bottom);
         }
         c.removeFromBottom (10.0f);
         expLabelArea = {};
 
         // Colonne du fader OUT : diodes GR/EXP (composant a part) derriere le
-        // capuchon, pastille LINK puis valeur en dessous.
+        // capuchon, pastille LINK (clair) puis valeur en dessous.
         auto body = c;
         auto faderCol = body.removeFromLeft (44.0f);
         body.removeFromLeft (6.0f);
         rows[7].valueArea = faderCol.removeFromBottom (13.0f).expanded (6.0f, 0.0f).toNearestInt(); // deborde un peu : "-11.2dB" tient
         rows[7].nameArea = {};
-        outLinkPill = faderCol.removeFromBottom (14.0f).withSizeKeepingCentre (34.0f, 12.0f);
+        outLinkPill = linkPills ? faderCol.removeFromBottom (14.0f).withSizeKeepingCentre (34.0f, 12.0f) : juce::Rectangle<float>();
         meterArea = faderCol.reduced (0.0f, 1.0f);
         grExpMeter.setBounds (meterArea.toNearestInt());
         grExpMeter.setCardArea (cardRect - grExpMeter.getPosition().toFloat()); // carte repeinte derriere les diodes (finitions)
         outFader.setBounds (meterArea.withTrimmedTop (12.0f).toNearestInt());
 
-        // Compresseur : ATT | REL, sous le knob IN.
+        if (compact)
         {
-            auto row = body.removeFromBottom (cellH);
-            layoutKnobCell (rows[0], row.removeFromLeft (row.getWidth() * 0.5f), smallD);
-            layoutKnobCell (rows[1], row, smallD);
+            // REL : case picto a gauche, knob a droite.
+            {
+                auto row = body.removeFromBottom (cellH);
+                cell (rows[1], row.removeFromRight (50.0f));
+                pictoBox[1] = juce::Rectangle<float> (juce::jmin (46.0f, row.getWidth() - 4.0f), 24.0f)
+                                  .withCentre ({ row.getCentreX(), (float) rows[1].slider->getBounds().getCentreY() });
+            }
+            // ATT : knob a gauche, case picto a droite.
+            {
+                auto row = body.removeFromBottom (cellH);
+                cell (rows[0], row.removeFromLeft (50.0f));
+                pictoBox[0] = juce::Rectangle<float> (juce::jmin (46.0f, row.getWidth() - 4.0f), 24.0f)
+                                  .withCentre ({ row.getCentreX(), (float) rows[0].slider->getBounds().getCentreY() });
+            }
+            body.removeFromBottom (2.0f);
         }
-        body.removeFromBottom (4.0f);
+        else
+        {
+            // Compresseur : ATT | REL, sous le knob IN.
+            auto row = body.removeFromBottom (cellH);
+            cell (rows[0], row.removeFromLeft (row.getWidth() * 0.5f));
+            cell (rows[1], row);
+            body.removeFromBottom (4.0f);
+        }
 
         // IN en TETE de tranche (demande explicite : "les knobs Input doivent
-        // etre celui qui est en haut par bande") -- gros knob, libelle et
-        // pastille LINK au-dessus, valeur en dessous.
+        // etre celui qui est en haut par bande") -- gros knob, libelle (et
+        // pastille LINK en clair) au-dessus, valeur en dessous.
         {
-            auto cell = body;
-            auto nameRow = cell.removeFromTop (12.0f);
+            auto inCell = body;
+            auto nameRow = inCell.removeFromTop (12.0f);
             rows[6].nameArea = nameRow.withSizeKeepingCentre (20.0f, 12.0f).toNearestInt();
-            inLinkPill = juce::Rectangle<float> ((float) rows[6].nameArea.getRight() + 4.0f, nameRow.getY(), 34.0f, 12.0f);
-            rows[6].valueArea = cell.removeFromBottom (14.0f).toNearestInt();
-            const float d = juce::jmin (inMaxD, cell.getWidth() / AlphaKnob::kExtent, cell.getHeight() / AlphaKnob::kExtent);
-            inKnob.setBounds (cell.withSizeKeepingCentre (d * AlphaKnob::kExtent, d * AlphaKnob::kExtent).toNearestInt());
+            inLinkPill = linkPills ? juce::Rectangle<float> ((float) rows[6].nameArea.getRight() + 4.0f, nameRow.getY(), 34.0f, 12.0f)
+                                   : juce::Rectangle<float>();
+            rows[6].valueArea = inCell.removeFromBottom (14.0f).toNearestInt();
+            const float d = juce::jmin (inMaxD, inCell.getWidth() / AlphaKnob::kExtent, inCell.getHeight() / AlphaKnob::kExtent);
+            inKnob.setBounds (inCell.withSizeKeepingCentre (d * AlphaKnob::kExtent, d * AlphaKnob::kExtent).toNearestInt());
         }
 
         // ATT de l'expandeur : masque (kShowExpanderAttack), plus de place.
         rows[3].nameArea = rows[3].valueArea = {};
-
-        if (valueEditor.isVisible())
-            cancelValueEdit();
     }
 
     void paint (juce::Graphics& g) override
@@ -371,9 +417,10 @@ public:
         for (int i = 0; i < 6; ++i)
             paintRowText (g, rows[(size_t) i], pal, powered);
 
-        if (pal.sunny)
         {
-            // Pictogrammes ATT / REL dans leur case, a cote des knobs.
+            // Pictogrammes ATT / REL dans leur case, a cote des knobs
+            // (disposition compacte, voir layoutCardBody()) ; case bleu nuit
+            // en sombre, gris perle en clair (couleur des pilules).
             const int pictoStyle = processorRef.attRelIcons.load();
             if (pictoStyle != AlphaAttRel::off)
                 for (int i = 0; i < 2; ++i)
@@ -381,7 +428,7 @@ public:
                     const auto box = pictoBox[(size_t) i];
                     if (box.isEmpty())
                         continue;
-                    g.setColour (juce::Colour (0xff253649));
+                    g.setColour (pal.sunny ? juce::Colour (0xff253649) : pal.pill);
                     g.fillRoundedRectangle (box, 2.0f);
                     const double now = juce::Time::getMillisecondCounterHiRes();
                     const auto& anim = pictoAnim[(size_t) i];
@@ -391,7 +438,10 @@ public:
                                         AlphaAttRel::slowness (i == 0, row.slider->getValue()), t,
                                         pal, (row.greyed ? 0.35f : 1.0f) * (powered ? 1.0f : 0.5f));
                 }
+        }
 
+        if (pal.sunny)
+        {
             // Cadenas en haut a droite de la carte : bleu quand la bande est
             // liee (LINK IN / LINK OUT), gris sinon.
             const auto lockCol = (inLinked || outLinked) ? pal.accent : juce::Colour (0xff4a5a6c);
@@ -563,58 +613,8 @@ private:
         cardRect = inner;
         lockRect = juce::Rectangle<float> (9.0f, 12.0f).withPosition (cardRect.getRight() - 16.0f, cardRect.getY() + 6.0f);
 
-        auto c = cardRect.reduced (8.0f);
-        constexpr float smallD = 30.0f, inMaxD = 56.0f, cellH = 56.0f;
+        layoutCardBody (cardRect.reduced (8.0f), sunnyKnobs(), false);
 
-        {
-            auto bottom = c.removeFromBottom (cellH);
-            bottomLineY = bottom.getY() - 5.0f;
-            const float side = (bottom.getWidth() - 56.0f) * 0.5f;
-            layoutKnobCellCompact (rows[2], bottom.removeFromLeft (side), smallD);
-            layoutKnobCellCompact (rows[4], bottom.removeFromLeft (56.0f), smallD);
-            layoutKnobCellCompact (rows[5], bottom, smallD);
-        }
-        c.removeFromBottom (10.0f);
-        expLabelArea = {};
-
-        auto body = c;
-        auto faderCol = body.removeFromLeft (44.0f);
-        body.removeFromLeft (6.0f);
-        rows[7].valueArea = faderCol.removeFromBottom (13.0f).expanded (6.0f, 0.0f).toNearestInt();
-        rows[7].nameArea = {};
-        outLinkPill = {};
-        meterArea = faderCol.reduced (0.0f, 1.0f);
-        grExpMeter.setBounds (meterArea.toNearestInt());
-        grExpMeter.setCardArea (cardRect - grExpMeter.getPosition().toFloat());
-        outFader.setBounds (meterArea.withTrimmedTop (12.0f).toNearestInt());
-
-        // REL : case picto a gauche, knob a droite.
-        {
-            auto row = body.removeFromBottom (cellH);
-            layoutKnobCellCompact (rows[1], row.removeFromRight (50.0f), smallD);
-            pictoBox[1] = juce::Rectangle<float> (juce::jmin (46.0f, row.getWidth() - 4.0f), 24.0f)
-                              .withCentre ({ row.getCentreX(), (float) rows[1].slider->getBounds().getCentreY() });
-        }
-        // ATT : knob a gauche, case picto a droite.
-        {
-            auto row = body.removeFromBottom (cellH);
-            layoutKnobCellCompact (rows[0], row.removeFromLeft (50.0f), smallD);
-            pictoBox[0] = juce::Rectangle<float> (juce::jmin (46.0f, row.getWidth() - 4.0f), 24.0f)
-                              .withCentre ({ row.getCentreX(), (float) rows[0].slider->getBounds().getCentreY() });
-        }
-        body.removeFromBottom (2.0f);
-
-        {
-            auto cell = body;
-            auto nameRow = cell.removeFromTop (12.0f);
-            rows[6].nameArea = nameRow.withSizeKeepingCentre (20.0f, 12.0f).toNearestInt();
-            inLinkPill = {};
-            rows[6].valueArea = cell.removeFromBottom (14.0f).toNearestInt();
-            const float d = juce::jmin (inMaxD, cell.getWidth() / AlphaKnob::kExtent, cell.getHeight() / AlphaKnob::kExtent);
-            inKnob.setBounds (cell.withSizeKeepingCentre (d * AlphaKnob::kExtent, d * AlphaKnob::kExtent).toNearestInt());
-        }
-
-        rows[3].nameArea = rows[3].valueArea = {};
         if (valueEditor.isVisible())
             cancelValueEdit();
     }
@@ -662,7 +662,7 @@ private:
         // Appearance), le groupe pictogramme + libelle reste centre.
         const int pictoIndex = row.slider == &attKnob ? 0 : (row.slider == &relKnob ? 1 : -1);
         const int pictoStyle = processorRef.attRelIcons.load();
-        const bool withPicto = pictoIndex >= 0 && pictoStyle != AlphaAttRel::off && ! pal.sunny;
+        const bool withPicto = pictoIndex >= 0 && pictoStyle != AlphaAttRel::off && pictoBox[(size_t) juce::jmax (0, pictoIndex)].isEmpty();
         const float pictoGap = 3.0f;
         const float textRoom = labelArea.getWidth() - (withPicto ? AlphaAttRel::kWidth + pictoGap : 0.0f);
 

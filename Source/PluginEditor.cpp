@@ -413,6 +413,8 @@ SevenpackEditorContent::SevenpackEditorContent (SevenpackAudioProcessor& p)
     // applyGlobalTheme() deja applique tout en haut du constructeur (voir
     // commentaire la-bas) -- juste synchroniser l'etat visuel des boutons ici.
     optionsOverlay.setCurrentUiThemeIndex (processorRef.uiTheme.load());
+    // Standalone : page Audio (carte son, loopback) ; nul dans le VST3.
+    optionsOverlay.setStandaloneAudio (processorRef.standaloneAudio);
     // Meme avertissement que Nuke Mext (showLatencyModeMenu()) : Low CPU
     // s'applique immediatement, mais Medium/High CPU demandent confirmation
     // (cout CPU/latence nettement plus eleve).
@@ -678,7 +680,10 @@ SevenpackEditorContent::SevenpackEditorContent (SevenpackAudioProcessor& p)
         }
         if (auto* shapeParam = processorRef.apvts.getParameter (SevenpackAudioProcessor::idThdClipShape))
         {
-            clipBar = std::make_unique<AlphaSegmentBar> (*shapeParam, "CLIP", juce::StringArray { "SOFT", "HARD" }, 36.0f);
+            // OFF en tete comme sur OS (demande explicite : "on doit avoir un off
+            // sur le clip aussi") ; il vaut 2 dans le parametre (voir idThdClipShape).
+            clipBar = std::make_unique<AlphaSegmentBar> (*shapeParam, "CLIP", juce::StringArray { "OFF", "SOFT", "HARD" }, 36.0f,
+                                                         juce::Array<int> { 2, 0, 1 });
             addAndMakeVisible (*clipBar);
         }
     }
@@ -1306,6 +1311,7 @@ void SevenpackEditorContent::hideCalculatorOverlay()
 void SevenpackEditorContent::showOptionsOverlay()
 {
     hideCalculatorOverlay();
+    optionsOverlay.refreshAudio(); // Standalone : relit les cartes son (page Audio)
 
     // AUTO (0) ou l'echelle la plus proche de la liste des Options.
     optionsOverlay.setCurrentScaleIndex (OptionsOverlay::scaleIndexFor (processorRef.uiScale.load()));
@@ -1449,7 +1455,9 @@ void SevenpackEditorContent::resized()
         // Logo centre + mini spectrums de part et d'autre (graves a gauche
         // pour les deux). La progression LEARN est en bas a droite (voir
         // la barre du bas).
-        auto logo = juce::Rectangle<float> (220.0f, 52.0f).withCentre ({ panelBounds.getCentreX(), cy - 3.0f });
+        // Logo + pastille alpha centres ensemble (AlphaLogo::preferredSize).
+        const auto logoSize = AlphaLogo::preferredSize();
+        auto logo = juce::Rectangle<float> (logoSize.x, logoSize.y).withCentre ({ panelBounds.getCentreX(), cy - 3.0f });
         logoButton.setBounds (logo.toNearestInt());
 
         // Cote droit structure comme le gauche (audit) : [ THD | modes ] | [ options ].
@@ -1474,7 +1482,29 @@ void SevenpackEditorContent::resized()
         const float cy = f.getCentreY();
         thdCeiling->setBounds (juce::Rectangle<float> (f.getX(), cy - 14.0f, 200.0f, 28.0f).toNearestInt());
 
-        auto pill = juce::Rectangle<float> (380.0f, 24.0f).withCentre ({ panelBounds.getCentreX(), cy });
+        // Design de Sunny (theme sombre) : COPY / PASTE en texte encadre.
+        const bool sunny = AlphaPalette::get().sunny;
+        const auto actionWidth = [sunny, this] (juce::Component* b)
+        {
+            return sunny ? (b == &copyButton ? 48.0f : (b == &pasteButton ? 54.0f : 24.0f)) : 24.0f;
+        };
+
+        // Groupe a droite de la barre des presets (copier ... OS, CLIP) : s'il
+        // deborderait du panneau (CLIP a 3 cases depuis OFF, COPY / PASTE du
+        // design de Sunny), la barre des presets retrecit d'autant, centree.
+        float rightNeed = (sunny ? 36.0f : 28.0f) + 6.0f;
+        for (auto* b : { &copyButton, &pasteButton, &saveButton, &deletePresetButton })
+            rightNeed += actionWidth (b) + 6.0f;
+        for (auto* bar : { osBar.get(), clipBar.get() })
+            if (bar != nullptr)
+                rightNeed += (float) bar->getIdealWidth() + 10.0f;
+        rightNeed -= 10.0f;
+        float pillW = 380.0f;
+        const float overflow = panelBounds.getCentreX() + pillW * 0.5f + rightNeed - f.getRight();
+        if (overflow > 0.0f)
+            pillW = juce::jmax (260.0f, pillW - 2.0f * overflow);
+
+        auto pill = juce::Rectangle<float> (pillW, 24.0f).withCentre ({ panelBounds.getCentreX(), cy });
         presetNameButton.setBounds (pill.toNearestInt());
         prevPresetButton.setBounds (juce::Rectangle<float> (24.0f, 24.0f).withCentre ({ pill.getX() - 18.0f, cy }).toNearestInt());
         nextPresetButton.setBounds (juce::Rectangle<float> (24.0f, 24.0f).withCentre ({ pill.getRight() + 18.0f, cy }).toNearestInt());
@@ -1485,12 +1515,10 @@ void SevenpackEditorContent::resized()
         // Copier / coller / enregistrer / corbeille juste a droite de la
         // barre des presets (demande explicite) ; le coin bas droit recoit
         // la progression LEARN.
-        // Design de Sunny (theme sombre) : COPY / PASTE en texte encadre.
-        const bool sunny = AlphaPalette::get().sunny;
         float x = pill.getRight() + (sunny ? 36.0f : 28.0f);
         for (auto* b : { &copyButton, &pasteButton, &saveButton, &deletePresetButton })
         {
-            const float bw = sunny ? (b == &copyButton ? 48.0f : (b == &pasteButton ? 54.0f : 24.0f)) : 24.0f;
+            const float bw = actionWidth (b);
             b->setBounds (juce::Rectangle<float> (x, cy - 12.0f, bw, 24.0f).toNearestInt());
             x += bw + 6.0f;
         }

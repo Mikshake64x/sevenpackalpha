@@ -33,7 +33,11 @@ class SoftClipper
 {
 public:
     enum class SatMode { Soft = 0, Tape, Iron, Air };
-    enum class Shape { Soft = 0, Hard };
+    // Off (demande explicite : "on doit avoir un off sur le clip aussi") :
+    // aucun ecretage, la couleur (SatMode) reste ; le plafond n est alors
+    // tenu que par le limiteur true-peak s il est actif. Valeur 2 du
+    // parametre idThdClipShape (Soft = 0 / Hard = 1 inchanges).
+    enum class Shape { Soft = 0, Hard, Off };
 
     void setDriveDb (float db) noexcept
     {
@@ -74,7 +78,10 @@ public:
     {
         const float x = input * driveGain;
         const float coloured = mode == SatMode::Soft ? x : processMastering (x);
-        const float z = (shape == Shape::Hard ? hardClip (coloured) : softClip (coloured)) / driveGain;
+        const float clipped = shape == Shape::Hard ? hardClip (coloured)
+                            : shape == Shape::Off  ? coloured
+                                                   : softClip (coloured);
+        const float z = clipped / driveGain;
 
         // Intensite visuelle du clip (pour les diodes de l'UI)
         const float diff = std::abs (input) - std::abs (z);
