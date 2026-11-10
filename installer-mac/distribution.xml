@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Installeur macOS .pkg (productbuild, voir .github/workflows/build-mac.yml) :
-     deux composants au choix, coches par defaut. @VERSION@ est remplace par
-     la version du .jucer au moment du build. -->
+     deux composants au choix, coches par defaut. @VERSION@ (numero) et
+     @DISPLAY_VERSION@ (numero + etiquette, ex. "2.22.6 beta") sont remplaces par
+     la version du .jucer et Source/BuildLabel.h au moment du build. -->
 <installer-gui-script minSpecVersion="2">
-    <title>Sevenpack Alpha @VERSION@</title>
+    <title>Sevenpack Alpha @DISPLAY_VERSION@</title>
     <readme file="Readme.txt" mime-type="text/plain"/>
     <options customize="allow" require-scripts="false" hostArchitectures="arm64,x86_64"/>
     <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>

@@ -636,6 +636,12 @@ SevenpackEditorContent::SevenpackEditorContent (SevenpackAudioProcessor& p)
         for (auto& strip : bandStrips)
             strip->repaint();
     };
+    optionsOverlay.onNeedleScaleMarksChanged = [this] (bool on)
+    {
+        processorRef.needleScaleMarks.store (on);
+        for (auto& strip : bandStrips)
+            strip->repaint(); // le cadran se recalcule (AlphaThdNeedle compare cachedMarks)
+    };
     optionsOverlay.onBandColourModeSelected = [this] (int mode)
     {
         processorRef.bandColourMode.store (juce::jlimit (0, 2, mode));
@@ -728,6 +734,16 @@ SevenpackEditorContent::SevenpackEditorContent (SevenpackAudioProcessor& p)
     undoIndex = 0;
     refreshUndoButtons();
 
+    // Tutoriel d'accueil (TourOverlay.h) : ajoute EN DERNIER pour passer
+    // au-dessus de tout le contenu (l'ecran de licence, lui, est en dehors).
+    addChildComponent (tour);
+    tour.getTargets = [this] { return collectTourTargets(); };
+    tour.getMeterMode = [this] { return processorRef.meterMode.load(); };
+    tour.setMeterMode = [this] (int mode) { processorRef.meterMode.store (mode); syncMeterModeButtons(); };
+    optionsOverlay.onShowTour = [this] { startTour(); };
+    tourAutoDone = TourSettings::hasBeenSeen();
+    editorOpenedMs = juce::Time::getMillisecondCounter();
+
     startTimerHz (10);
 
     setSize (baseWidth, baseHeight);
@@ -782,10 +798,22 @@ void SevenpackEditorContent::timerCallback()
     // apprentissage.
     if (processorRef.aiLearnAnalyzer.getState() == AiLearnAnalyzer::State::Done)
     {
-        applyAiLearnResult (processorRef.aiLearnAnalyzer.getResult());
-        processorRef.aiLearnAnalyzer.acknowledge();
-        userTouchedParams = true; // le resultat LEARN est annulable
+        // Pas de son pendant l'ecoute (v2.22.6 beta) : on ne touche a RIEN,
+        // les reglages restent ceux d'avant LEARN. AlphaLearnFx affiche
+        // "NO AUDIO" a la place de la vague de fin.
+        if (processorRef.aiLearnAnalyzer.getResult().noAudio)
+        {
+            processorRef.aiLearnAnalyzer.acknowledge();
+        }
+        else
+        {
+            applyAiLearnResult (processorRef.aiLearnAnalyzer.getResult());
+            processorRef.aiLearnAnalyzer.acknowledge();
+            userTouchedParams = true; // le resultat LEARN est annulable
+        }
     }
+
+    maybeStartTourAutomatically();
 
     pushUndoSnapshotIfChanged();
 }
@@ -1354,6 +1382,7 @@ void SevenpackEditorContent::showOptionsOverlay()
     optionsOverlay.setBandColourMode (processorRef.bandColourMode.load());
     optionsOverlay.setNeedleGlass (processorRef.needleGlass.load());
     optionsOverlay.setNeedleRedTip (processorRef.needleRedTip.load());
+    optionsOverlay.setNeedleScaleMarks (processorRef.needleScaleMarks.load());
     optionsOverlay.setGonioLines (processorRef.gonioLines.load());
     optionsOverlay.setGonioRedPhase (processorRef.gonioRedPhase.load());
     optionsOverlay.setFinish (processorRef.uiFinish.load());
@@ -1551,8 +1580,68 @@ void SevenpackEditorContent::resized()
     learnConfirm.setAnchor ({ (float) learnButton.getBounds().getCentreX(), (float) learnButton.getBottom() - 8.0f });
     calculatorOverlay.setAnchor ({ (float) calculatorGear.getBounds().getCentreX(), (float) calculatorGear.getBottom() });
     presetBrowser.setBounds (getLocalBounds());
+    tour.setBounds (getLocalBounds()); // relit les positions (taille, theme)
 
     rebuildBackgroundCache();
+}
+
+// ============================================================================
+// Tutoriel d'accueil (TourOverlay.h, v2.23.0)
+// ============================================================================
+
+TourTargets SevenpackEditorContent::collectTourTargets()
+{
+    auto area = [this] (juce::Component& c) { return getLocalArea (&c, c.getLocalBounds()).toFloat(); };
+    TourTargets t;
+    t.learn = area (learnButton);
+    t.gear = area (calculatorGear);
+    t.options = area (optionsButton);
+    t.linkIn = area (linkInSwitch);
+    t.linkOut = area (linkOutSwitch);
+    t.thdButton = area (thdButton);
+    for (size_t i = 0; i < t.meterModes.size(); ++i)
+        if (meterModeButtons[i] != nullptr) t.meterModes[i] = area (*meterModeButtons[i]);
+    for (size_t i = 0; i < t.thdModes.size(); ++i)
+        if (thdModeButtons[i] != nullptr) t.thdModes[i] = area (*thdModeButtons[i]);
+    for (size_t b = 0; b < t.bands.size() && b < bandStrips.size(); ++b)
+        if (bandStrips[b] != nullptr)
+        {
+            const auto r = bandStrips[b]->getTourRects (*this);
+            t.bands[b] = { r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7] };
+        }
+    return t;
+}
+
+void SevenpackEditorContent::startTour()
+{
+    for (juce::Component* c : { (juce::Component*) &optionsOverlay, (juce::Component*) &aboutOverlay, (juce::Component*) &presetBrowser,
+                                (juce::Component*) &learnConfirm })
+        c->setVisible (false);
+    hideCalculatorOverlay();
+    tour.setBounds (getLocalBounds());
+    tour.start();
+}
+
+// Premier lancement : le tour s'ouvre seul, une fois par ordinateur (Standalone
+// et VST confondus), des que le plugin est utilisable (licence ou demo : pas
+// par-dessus l'ecran d'activation) et qu'aucune fenetre n'est ouverte.
+void SevenpackEditorContent::maybeStartTourAutomatically()
+{
+    if (tourAutoDone || tour.isRunning() || ! isShowing())
+        return;
+    if (juce::Time::getMillisecondCounter() - editorOpenedMs < 1200)
+        return;
+    if (! processorRef.licenseManager.isUsable())
+        return;
+    if (optionsOverlay.isVisible() || aboutOverlay.isVisible() || presetBrowser.isVisible()
+        || calculatorOverlay.isVisible() || learnConfirm.isVisible())
+        return;
+    if (processorRef.aiLearnAnalyzer.getState() != AiLearnAnalyzer::State::Idle)
+        return;
+
+    tourAutoDone = true;
+    if (! TourSettings::hasBeenSeen()) // relu ici : une autre instance a pu le terminer
+        startTour();
 }
 
 void SevenpackEditorContent::loadWood()
@@ -1765,147 +1854,158 @@ void SevenpackEditorContent::buildPresetList()
         }
         p.author = "Side Key"; p.isFactory = true; addPreset (p);
     }
+
+    // v2.22.6 beta : presets d'usine RETIRES (le user : "il faut retirer les
+    // presets. ce sont de vieux presets"). Portes de Mext / Tripressor, en
+    // 3 bandes (legacyCrossoverHz), ils ne correspondent plus aux 7 bandes.
+    // Gardes dans le code derriere ce drapeau ; seul "Default" (l'etat de
+    // sortie d'usine exact) reste dans la liste Factory. L'index de preset
+    // n'est pas sauve dans les sessions : aucun projet n'en depend.
+    static constexpr bool kShowLegacyFactoryPresets = false;
+    if (kShowLegacyFactoryPresets)
     {
-        PresetData p; p.name = "Mastering"; p.crossoverHz = legacyCrossoverHz (121.5f, 2521.0f); p.softClipOn = true;
-        p.bands[0] = makeBand (0.0f, mapRatio (3), 27.927f, 306.9f, 6.91f);
-        p.bands[2] = makeBand (0.0f, mapRatio (3), 10.971f, 204.3f, 6.91f);
-        p.bands[5] = makeBand (0.0f, mapRatio (2), 5.891f,  106.1f, 4.03f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Mastering Linear"; p.crossoverHz = legacyCrossoverHz (125.0f, 2930.0f);
-        p.softClipOn = true; p.linearMode = true;
-        p.bands[0] = makeBand (0.29f,  mapRatio (3), 27.927f, 50.0f,  8.93f);
-        p.bands[2] = makeBand (-6.62f, mapRatio (3), 10.971f, 50.0f,  8.93f);
-        p.bands[5] = makeBand (-3.17f, mapRatio (2), 5.891f,  106.1f, 6.05f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Mastering Metal"; p.crossoverHz = legacyCrossoverHz (125.0f, 2553.0f);
-        p.softClipOn = true; p.linearMode = true;
-        p.bands[0] = makeBand (-7.79f, mapRatio (2), 23.261f, 50.0f, 13.42f);
-        p.bands[2] = makeBand (-8.34f, mapRatio (2), 20.473f, 50.0f, 11.58f);
-        p.bands[5] = makeBand (-8.65f, mapRatio (2), 13.770f, 50.0f, 11.52f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Fake OTT"; p.crossoverHz = legacyCrossoverHz (195.3f, 2521.0f); p.softClipOn = true;
-        p.bands[0] = makeBand (25.08f, mapRatio (6), 13.272f, 50.0f, 9.09f);
-        p.bands[2] = makeBand (19.03f, mapRatio (6), 19.171f, 50.0f, 9.09f);
-        p.bands[5] = makeBand (19.59f, mapRatio (6), 8.242f,  50.0f, 9.09f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Kick"; p.crossoverHz = legacyCrossoverHz (89.1f, 2653.0f);
-        p.softClipOn = true; p.linearMode = true;
-        p.bands[0] = makeBand (8.64f,  mapRatio (5), 2.718f, 50.0f, 11.52f);
-        p.bands[2] = makeBand (28.80f, mapRatio (4), 5.048f, 50.0f, -4.32f);
-        p.bands[5] = makeBand (12.39f, mapRatio (2), 5.891f, 50.0f, 8.35f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Drumbus"; p.crossoverHz = legacyCrossoverHz (195.3f, 2521.0f); p.softClipOn = true;
-        p.bands[0] = makeBand (25.08f, mapRatio (6), 13.272f, 50.0f, 13.99f);
-        p.bands[2] = makeBand (11.25f, mapRatio (6), 19.171f, 50.0f, 9.09f);
-        p.bands[5] = makeBand (7.21f,  mapRatio (6), 8.242f,  50.0f, 11.11f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Vocal"; p.crossoverHz = legacyCrossoverHz (121.5f, 4511.0f); p.softClipOn = true;
-        p.bands[0] = makeBand (19.89f, mapRatio (3), 35.121f, 172.3f, 8.81f);
-        p.bands[2] = makeBand (9.52f,  mapRatio (4), 13.519f, 85.1f,  11.11f);
-        p.bands[5] = makeBand (14.99f, mapRatio (5), 2.025f,  51.6f,  11.11f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Smashed Snare"; p.crossoverHz = legacyCrossoverHz (225.4f, 3582.0f); p.softClipOn = true;
-        p.bands[0] = makeBand (12.11f, mapRatio (3), 13.769f, 59.2f, 14.27f);
-        p.bands[2] = makeBand (10.09f, mapRatio (5), 10.971f, 78.5f, 14.27f);
-        p.bands[5] = makeBand (13.84f, mapRatio (2), 5.891f,  50.8f, 12.83f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Synth Bass"; p.crossoverHz = legacyCrossoverHz (125.0f, 1824.0f); p.softClipOn = true;
-        p.bands[0] = makeBand (2.90f, mapRatio (2), 35.121f, 185.5f, 8.80f);
-        p.bands[2] = makeBand (0.01f, mapRatio (3), 15.341f, 90.7f,  8.80f);
-        p.bands[5] = makeBand (9.51f, mapRatio (1), 5.891f,  51.2f,  8.80f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Neuro Bass"; p.crossoverHz = legacyCrossoverHz (190.6f, 1824.0f); p.softClipOn = true;
-        p.bands[0] = makeBand (2.90f, mapRatio (2), 35.121f, 185.5f, 27.82f);
-        p.bands[2] = makeBand (0.01f, mapRatio (3), 15.341f, 90.7f,  21.77f);
-        p.bands[5] = makeBand (9.51f, mapRatio (1), 5.891f,  51.2f,  27.82f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Mastering Boogie"; p.crossoverHz = legacyCrossoverHz (121.5f, 2521.0f);
-        p.softClipOn = true; p.linearMode = false;
-        p.bands[0] = makeBand (4.31f, mapRatio (4), 27.927f, 50.0f, 1.09f);
-        p.bands[2] = makeBand (0.57f, mapRatio (4), 10.971f, 50.0f, 1.66f);
-        p.bands[5] = makeBand (1.15f, mapRatio (2), 5.891f,  50.0f, 4.03f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Mastering Jazz Club"; p.crossoverHz = legacyCrossoverHz (121.5f, 2521.0f);
-        p.softClipOn = true; p.linearMode = true;
-        p.bands[0] = makeBand (-4.90f, mapRatio (3), 27.927f, 50.0f, 5.36f);
-        p.bands[2] = makeBand (-5.76f, mapRatio (3), 10.971f, 50.0f, 5.93f);
-        p.bands[5] = makeBand (0.00f,  mapRatio (2), 5.891f,  50.0f, 4.27f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Mastering Rock Razor"; p.crossoverHz = legacyCrossoverHz (121.5f, 2521.0f);
-        p.softClipOn = true; p.linearMode = true;
-        p.bands[0] = makeBand (0.86f, mapRatio (3), 27.927f, 50.0f,  2.31f);
-        p.bands[2] = makeBand (1.38f, mapRatio (3), 10.971f, 50.0f,  2.65f);
-        p.bands[5] = makeBand (6.05f, mapRatio (2), 5.891f,  106.1f, 2.02f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Mastering Future Bass"; p.crossoverHz = legacyCrossoverHz (121.5f, 2521.0f);
-        p.softClipOn = true; p.linearMode = true;
-        p.bands[0] = makeBand (0.86f, mapRatio (3), 27.927f, 50.0f, 2.31f);
-        p.bands[2] = makeBand (1.38f, mapRatio (3), 10.971f, 50.0f, 2.65f);
-        p.bands[5] = makeBand (6.05f, mapRatio (2), 5.891f,  50.0f, 2.02f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Mastering Death Metal"; p.crossoverHz = legacyCrossoverHz (125.0f, 2553.0f);
-        p.softClipOn = true; p.linearMode = true;
-        p.bands[0] = makeBand (-8.36f, mapRatio (2), 23.261f, 50.0f, 10.95f);
-        p.bands[2] = makeBand (-7.48f, mapRatio (2), 20.473f, 50.0f, 9.92f);
-        p.bands[5] = makeBand (-8.65f, mapRatio (2), 13.770f, 50.0f, 8.94f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Mastering Jazz Fallout"; p.crossoverHz = legacyCrossoverHz (135.8f, 2521.0f);
-        p.softClipOn = false; p.linearMode = true;
-        p.bands[0] = makeBand (1.44f,  mapRatio (2), 23.997f, 77.0f, 6.73f);
-        p.bands[2] = makeBand (-5.75f, mapRatio (2), 13.770f, 50.0f, 6.50f);
-        p.bands[5] = makeBand (-4.61f, mapRatio (2), 2.751f,  50.0f, 3.57f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        PresetData p; p.name = "Mastering Synthwave"; p.crossoverHz = legacyCrossoverHz (135.8f, 2521.0f);
-        p.softClipOn = false; p.linearMode = true;
-        p.bands[0] = makeBand (1.44f,  mapRatio (2), 23.997f, 77.0f, 6.73f);
-        p.bands[2] = makeBand (-5.75f, mapRatio (2), 13.770f, 50.0f, 6.50f);
-        p.bands[5] = makeBand (-4.61f, mapRatio (2), 2.751f,  50.0f, 3.57f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
-    }
-    {
-        // Mastering Pop Rock -- valeurs EXACTES fournies par capture
-        // d'ecran (mode ANALOG, XLO 121.5Hz / XHI 2521Hz) : Low 6:1
-        // (index 3), Mid 6:1 (index 3), High 3:1 (index 1) dans la table
-        // native Suppressor (pas de mapRatio, ce n'est PAS un preset porte
-        // de Mext).
-        PresetData p; p.name = "Mastering Pop Rock"; p.crossoverHz = legacyCrossoverHz (121.5f, 2521.0f);
-        p.softClipOn = true; p.linearMode = false;
-        p.bands[0] = makeBand (6.0f, 3, 40.0f, 50.0f, 6.0f);
-        p.bands[2] = makeBand (6.0f, 3, 40.0f, 70.1f, -0.6f);
-        p.bands[5] = makeBand (4.8f, 1, 40.0f, 50.0f, 0.0f);
-        p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        {
+            PresetData p; p.name = "Mastering"; p.crossoverHz = legacyCrossoverHz (121.5f, 2521.0f); p.softClipOn = true;
+            p.bands[0] = makeBand (0.0f, mapRatio (3), 27.927f, 306.9f, 6.91f);
+            p.bands[2] = makeBand (0.0f, mapRatio (3), 10.971f, 204.3f, 6.91f);
+            p.bands[5] = makeBand (0.0f, mapRatio (2), 5.891f,  106.1f, 4.03f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Mastering Linear"; p.crossoverHz = legacyCrossoverHz (125.0f, 2930.0f);
+            p.softClipOn = true; p.linearMode = true;
+            p.bands[0] = makeBand (0.29f,  mapRatio (3), 27.927f, 50.0f,  8.93f);
+            p.bands[2] = makeBand (-6.62f, mapRatio (3), 10.971f, 50.0f,  8.93f);
+            p.bands[5] = makeBand (-3.17f, mapRatio (2), 5.891f,  106.1f, 6.05f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Mastering Metal"; p.crossoverHz = legacyCrossoverHz (125.0f, 2553.0f);
+            p.softClipOn = true; p.linearMode = true;
+            p.bands[0] = makeBand (-7.79f, mapRatio (2), 23.261f, 50.0f, 13.42f);
+            p.bands[2] = makeBand (-8.34f, mapRatio (2), 20.473f, 50.0f, 11.58f);
+            p.bands[5] = makeBand (-8.65f, mapRatio (2), 13.770f, 50.0f, 11.52f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Fake OTT"; p.crossoverHz = legacyCrossoverHz (195.3f, 2521.0f); p.softClipOn = true;
+            p.bands[0] = makeBand (25.08f, mapRatio (6), 13.272f, 50.0f, 9.09f);
+            p.bands[2] = makeBand (19.03f, mapRatio (6), 19.171f, 50.0f, 9.09f);
+            p.bands[5] = makeBand (19.59f, mapRatio (6), 8.242f,  50.0f, 9.09f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Kick"; p.crossoverHz = legacyCrossoverHz (89.1f, 2653.0f);
+            p.softClipOn = true; p.linearMode = true;
+            p.bands[0] = makeBand (8.64f,  mapRatio (5), 2.718f, 50.0f, 11.52f);
+            p.bands[2] = makeBand (28.80f, mapRatio (4), 5.048f, 50.0f, -4.32f);
+            p.bands[5] = makeBand (12.39f, mapRatio (2), 5.891f, 50.0f, 8.35f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Drumbus"; p.crossoverHz = legacyCrossoverHz (195.3f, 2521.0f); p.softClipOn = true;
+            p.bands[0] = makeBand (25.08f, mapRatio (6), 13.272f, 50.0f, 13.99f);
+            p.bands[2] = makeBand (11.25f, mapRatio (6), 19.171f, 50.0f, 9.09f);
+            p.bands[5] = makeBand (7.21f,  mapRatio (6), 8.242f,  50.0f, 11.11f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Vocal"; p.crossoverHz = legacyCrossoverHz (121.5f, 4511.0f); p.softClipOn = true;
+            p.bands[0] = makeBand (19.89f, mapRatio (3), 35.121f, 172.3f, 8.81f);
+            p.bands[2] = makeBand (9.52f,  mapRatio (4), 13.519f, 85.1f,  11.11f);
+            p.bands[5] = makeBand (14.99f, mapRatio (5), 2.025f,  51.6f,  11.11f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Smashed Snare"; p.crossoverHz = legacyCrossoverHz (225.4f, 3582.0f); p.softClipOn = true;
+            p.bands[0] = makeBand (12.11f, mapRatio (3), 13.769f, 59.2f, 14.27f);
+            p.bands[2] = makeBand (10.09f, mapRatio (5), 10.971f, 78.5f, 14.27f);
+            p.bands[5] = makeBand (13.84f, mapRatio (2), 5.891f,  50.8f, 12.83f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Synth Bass"; p.crossoverHz = legacyCrossoverHz (125.0f, 1824.0f); p.softClipOn = true;
+            p.bands[0] = makeBand (2.90f, mapRatio (2), 35.121f, 185.5f, 8.80f);
+            p.bands[2] = makeBand (0.01f, mapRatio (3), 15.341f, 90.7f,  8.80f);
+            p.bands[5] = makeBand (9.51f, mapRatio (1), 5.891f,  51.2f,  8.80f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Neuro Bass"; p.crossoverHz = legacyCrossoverHz (190.6f, 1824.0f); p.softClipOn = true;
+            p.bands[0] = makeBand (2.90f, mapRatio (2), 35.121f, 185.5f, 27.82f);
+            p.bands[2] = makeBand (0.01f, mapRatio (3), 15.341f, 90.7f,  21.77f);
+            p.bands[5] = makeBand (9.51f, mapRatio (1), 5.891f,  51.2f,  27.82f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Mastering Boogie"; p.crossoverHz = legacyCrossoverHz (121.5f, 2521.0f);
+            p.softClipOn = true; p.linearMode = false;
+            p.bands[0] = makeBand (4.31f, mapRatio (4), 27.927f, 50.0f, 1.09f);
+            p.bands[2] = makeBand (0.57f, mapRatio (4), 10.971f, 50.0f, 1.66f);
+            p.bands[5] = makeBand (1.15f, mapRatio (2), 5.891f,  50.0f, 4.03f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Mastering Jazz Club"; p.crossoverHz = legacyCrossoverHz (121.5f, 2521.0f);
+            p.softClipOn = true; p.linearMode = true;
+            p.bands[0] = makeBand (-4.90f, mapRatio (3), 27.927f, 50.0f, 5.36f);
+            p.bands[2] = makeBand (-5.76f, mapRatio (3), 10.971f, 50.0f, 5.93f);
+            p.bands[5] = makeBand (0.00f,  mapRatio (2), 5.891f,  50.0f, 4.27f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Mastering Rock Razor"; p.crossoverHz = legacyCrossoverHz (121.5f, 2521.0f);
+            p.softClipOn = true; p.linearMode = true;
+            p.bands[0] = makeBand (0.86f, mapRatio (3), 27.927f, 50.0f,  2.31f);
+            p.bands[2] = makeBand (1.38f, mapRatio (3), 10.971f, 50.0f,  2.65f);
+            p.bands[5] = makeBand (6.05f, mapRatio (2), 5.891f,  106.1f, 2.02f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Mastering Future Bass"; p.crossoverHz = legacyCrossoverHz (121.5f, 2521.0f);
+            p.softClipOn = true; p.linearMode = true;
+            p.bands[0] = makeBand (0.86f, mapRatio (3), 27.927f, 50.0f, 2.31f);
+            p.bands[2] = makeBand (1.38f, mapRatio (3), 10.971f, 50.0f, 2.65f);
+            p.bands[5] = makeBand (6.05f, mapRatio (2), 5.891f,  50.0f, 2.02f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Mastering Death Metal"; p.crossoverHz = legacyCrossoverHz (125.0f, 2553.0f);
+            p.softClipOn = true; p.linearMode = true;
+            p.bands[0] = makeBand (-8.36f, mapRatio (2), 23.261f, 50.0f, 10.95f);
+            p.bands[2] = makeBand (-7.48f, mapRatio (2), 20.473f, 50.0f, 9.92f);
+            p.bands[5] = makeBand (-8.65f, mapRatio (2), 13.770f, 50.0f, 8.94f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Mastering Jazz Fallout"; p.crossoverHz = legacyCrossoverHz (135.8f, 2521.0f);
+            p.softClipOn = false; p.linearMode = true;
+            p.bands[0] = makeBand (1.44f,  mapRatio (2), 23.997f, 77.0f, 6.73f);
+            p.bands[2] = makeBand (-5.75f, mapRatio (2), 13.770f, 50.0f, 6.50f);
+            p.bands[5] = makeBand (-4.61f, mapRatio (2), 2.751f,  50.0f, 3.57f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            PresetData p; p.name = "Mastering Synthwave"; p.crossoverHz = legacyCrossoverHz (135.8f, 2521.0f);
+            p.softClipOn = false; p.linearMode = true;
+            p.bands[0] = makeBand (1.44f,  mapRatio (2), 23.997f, 77.0f, 6.73f);
+            p.bands[2] = makeBand (-5.75f, mapRatio (2), 13.770f, 50.0f, 6.50f);
+            p.bands[5] = makeBand (-4.61f, mapRatio (2), 2.751f,  50.0f, 3.57f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
+        {
+            // Mastering Pop Rock -- valeurs EXACTES fournies par capture
+            // d'ecran (mode ANALOG, XLO 121.5Hz / XHI 2521Hz) : Low 6:1
+            // (index 3), Mid 6:1 (index 3), High 3:1 (index 1) dans la table
+            // native Suppressor (pas de mapRatio, ce n'est PAS un preset porte
+            // de Mext).
+            PresetData p; p.name = "Mastering Pop Rock"; p.crossoverHz = legacyCrossoverHz (121.5f, 2521.0f);
+            p.softClipOn = true; p.linearMode = false;
+            p.bands[0] = makeBand (6.0f, 3, 40.0f, 50.0f, 6.0f);
+            p.bands[2] = makeBand (6.0f, 3, 40.0f, 70.1f, -0.6f);
+            p.bands[5] = makeBand (4.8f, 1, 40.0f, 50.0f, 0.0f);
+            p.author = "Side Key"; p.isFactory = true; addPreset (p);
+        }
     }
 
     // Presets UTILISATEUR (Save/Delete) geres a part, voir loadUserPresets().

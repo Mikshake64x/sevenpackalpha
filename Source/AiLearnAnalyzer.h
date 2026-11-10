@@ -89,8 +89,24 @@ public:
     static constexpr int kNumBands = 7;
     static constexpr int kNumCrossovers = kNumBands - 1; // 6
 
+    // Protection "pas de son" (v2.22.6 beta, demande du user : "quand je learn
+    // et qu'il n'y a pas de son, 7pack met tout a fond ... si il detecte pas
+    // d'audio il doit rester en reglage stock"). Mesure (banc learn_silence.cpp,
+    // reglages Calculator d'usine) : silence numerique ou bruit de fond a
+    // -90 dBFS -> Input +30 dB (le maximum) sur les 7 bandes ; 6 s de silence
+    // puis 2 s de musique -> valeurs proches d'une capture pleine. Le danger
+    // est donc l'ABSENCE de signal, pas un debut silencieux : il faut au moins
+    // kMinAudioSeconds de blocs de 50 ms au-dessus de kSilenceDb (RMS), sinon
+    // Result::noAudio et l'editeur n'applique RIEN (reglages inchanges).
+    static constexpr float kSilenceDb = -60.0f;
+    static constexpr double kMinAudioSeconds = 1.0;
+
     struct Result
     {
+        // true = capture sans signal utile (voir kSilenceDb) : rien a appliquer.
+        bool noAudio = false;
+        float activeAudioSeconds = 0.0f; // informatif : duree de signal reel captee
+
         std::array<float, (size_t) kNumCrossovers> crossoverHz { { 90.0f, 270.0f, 650.0f, 1700.0f, 3500.0f, 6500.0f } };
         std::array<float, (size_t) kNumBands> inputDb {};
         std::array<float, (size_t) kNumBands> ratioIndex {};  // 0..6 (flottant, l'appelant arrondit)
@@ -510,6 +526,29 @@ private:
         const int numSamples = capturedL.getNumSamples();
         const float* left  = capturedL.getReadPointer (0);
         const float* right = capturedR.getReadPointer (0);
+
+        // --- 0. Y a-t-il du son ? (voir kSilenceDb / kMinAudioSeconds) ---
+        {
+            const int block = juce::jmax (1, (int) (sampleRate * 0.05));
+            int activeBlocks = 0;
+            for (int start = 0; start + block <= numSamples; start += block)
+            {
+                double sum = 0.0;
+                for (int i = start; i < start + block; ++i)
+                    sum += (double) left[i] * left[i] + (double) right[i] * right[i];
+                const float rms = (float) std::sqrt (sum / (2.0 * block));
+                if (juce::Decibels::gainToDecibels (rms, -200.0f) > kSilenceDb)
+                    ++activeBlocks;
+            }
+            r.activeAudioSeconds = (float) ((double) activeBlocks * block / juce::jmax (1.0, sampleRate));
+            if (r.activeAudioSeconds < (float) kMinAudioSeconds)
+            {
+                r.noAudio = true;
+                result = r;
+                state.store (State::Done);
+                return;
+            }
+        }
 
         // --- 1. Spectre moyen (Welch, fenetre Hann, recouvrement 50%) sur
         // le downmix mono, pour situer les 2 frequences de crossover --

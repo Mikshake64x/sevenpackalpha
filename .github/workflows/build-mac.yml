@@ -88,7 +88,14 @@ jobs:
           set -e
           # Ligne 1 sautee : c'est la declaration XML (<?xml version="1.0" ...>).
           VERSION=$(tail -n +2 SevenpackAlpha.jucer | grep -o 'version="[0-9.]*"' | head -1 | cut -d'"' -f2)
+          # Etiquette de build (Source/BuildLabel.h, ex. "beta") : ajoutee aux
+          # noms de fichiers ; VERSION reste numerique pour pkgbuild.
+          LABEL=$(grep '^#define SEVENPACK_BUILD_LABEL' Source/BuildLabel.h | cut -d'"' -f2)
+          NAME="$VERSION"
+          DISPLAY="$VERSION"
+          if [ -n "$LABEL" ]; then NAME="$VERSION-$LABEL"; DISPLAY="$VERSION $LABEL"; fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "NAME=$NAME" >> "$GITHUB_ENV"
 
           # Les artefacts perdent le bit executable : on le remet.
           chmod +x "staging/SevenpackAlpha.app/Contents/MacOS/"* || true
@@ -100,15 +107,15 @@ jobs:
           ln -s /Library/Audio/Plug-Ins/VST3 "staging/VST3 (drag plugin here)"
           ln -s /Applications "staging/Applications (drag app here)"
 
-          hdiutil create -volname "Sevenpack Alpha $VERSION" \
+          hdiutil create -volname "Sevenpack Alpha $DISPLAY" \
             -srcfolder staging -ov -format UDZO \
-            "SevenpackAlpha-$VERSION.dmg"
+            "SevenpackAlpha-$NAME.dmg"
 
       - name: Uploader le DMG
         uses: actions/upload-artifact@v4
         with:
-          name: SevenpackAlpha-${{ env.VERSION }}-DMG
-          path: "SevenpackAlpha-${{ env.VERSION }}.dmg"
+          name: SevenpackAlpha-${{ env.NAME }}-DMG
+          path: "SevenpackAlpha-${{ env.NAME }}.dmg"
 
   # Installeur .pkg (demande explicite : "render mac en pkg avec le vst, et
   # le standalone") : 2 composants coches par defaut, "Customize" pour n'en
@@ -143,7 +150,14 @@ jobs:
           set -e
           trap 'echo "::error::PKG : echec ligne $LINENO : $BASH_COMMAND"' ERR
           VERSION=$(tail -n +2 SevenpackAlpha.jucer | grep -o 'version="[0-9.]*"' | head -1 | cut -d'"' -f2)
+          # Etiquette de build (Source/BuildLabel.h, ex. "beta") : ajoutee aux
+          # noms de fichiers ; VERSION reste numerique pour pkgbuild.
+          LABEL=$(grep '^#define SEVENPACK_BUILD_LABEL' Source/BuildLabel.h | cut -d'"' -f2)
+          NAME="$VERSION"
+          DISPLAY="$VERSION"
+          if [ -n "$LABEL" ]; then NAME="$VERSION-$LABEL"; DISPLAY="$VERSION $LABEL"; fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "NAME=$NAME" >> "$GITHUB_ENV"
 
           # Les artefacts perdent le bit executable : on le remet.
           chmod +x pkgroot/app/Applications/SevenpackAlpha.app/Contents/MacOS/* || true
@@ -171,18 +185,18 @@ jobs:
 
           mkdir -p pkgres
           cp installer-mac/Readme.txt pkgres/Readme.txt
-          sed "s/@VERSION@/$VERSION/g" installer-mac/distribution.xml > distribution.xml
+          sed -e "s/@VERSION@/$VERSION/g" -e "s/@DISPLAY_VERSION@/$DISPLAY/g" installer-mac/distribution.xml > distribution.xml
           productbuild --distribution distribution.xml --package-path . --resources pkgres \
-            "SevenpackAlpha-$VERSION.pkg"
+            "SevenpackAlpha-$NAME.pkg"
 
           # Controle (sans tube vers head : le shell des Actions est en
           # pipefail, un SIGPIPE ferait echouer l'etape).
           pkgutil --payload-files SevenpackAlpha-VST3.pkg > vst3-files.txt
           pkgutil --payload-files SevenpackAlpha-App.pkg > app-files.txt
-          echo "::notice::PKG $VERSION : VST3 $(wc -l < vst3-files.txt | tr -d ' ') fichiers, App $(wc -l < app-files.txt | tr -d ' ') fichiers, $(du -h "SevenpackAlpha-$VERSION.pkg" | cut -f1)"
+          echo "::notice::PKG $NAME : VST3 $(wc -l < vst3-files.txt | tr -d ' ') fichiers, App $(wc -l < app-files.txt | tr -d ' ') fichiers, $(du -h "SevenpackAlpha-$NAME.pkg" | cut -f1)"
 
       - name: Uploader le PKG
         uses: actions/upload-artifact@v4
         with:
-          name: SevenpackAlpha-${{ env.VERSION }}-PKG
-          path: "SevenpackAlpha-${{ env.VERSION }}.pkg"
+          name: SevenpackAlpha-${{ env.NAME }}-PKG
+          path: "SevenpackAlpha-${{ env.NAME }}.pkg"

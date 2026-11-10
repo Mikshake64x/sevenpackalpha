@@ -52,7 +52,8 @@ public:
     {
         const bool enabled = isMeasuring();
         const float px = juce::jlimit (1.0f, 6.0f, g.getInternalContext().getPhysicalPixelScaleFactor());
-        if (cacheDirty || enabled != cachedEnabled || mode != cachedMode || ! juce::approximatelyEqual (px, cacheScale)
+        if (cacheDirty || enabled != cachedEnabled || mode != cachedMode || marksWanted() != cachedMarks
+            || ! juce::approximatelyEqual (px, cacheScale)
             || cache.getWidth() != juce::roundToInt ((float) getWidth() * px) || cache.getHeight() != juce::roundToInt ((float) getHeight() * px))
         {
             cacheScale = px;
@@ -323,6 +324,7 @@ private:
 
         cachedEnabled = enabled;
         cachedMode = mode;
+        cachedMarks = marksWanted();
         cacheDirty = false;
     }
 
@@ -338,6 +340,18 @@ private:
         p.addCentredArc (geo.cx, geo.cy, rad, rad, 0.0f, juce::degreesToRadians (deg0), juce::degreesToRadians (deg1), true);
         g.setColour (c);
         g.strokePath (p, juce::PathStrokeType (width));
+    }
+
+    // Graduations (Options > Meters > Scale marks), dans les deux themes.
+    bool marksWanted() const noexcept { return processor.needleScaleMarks.load(); }
+
+    // Graduation sous l'arc epais du cadran de Sunny (rayon interieur de l'arc).
+    void insideTick (juce::Graphics& g, const Geo& geo, float deg, float len, juce::Colour c, float width) const
+    {
+        const float r0 = geo.r - 8.5f;
+        const auto a0 = facePoint (geo, deg, r0), a1 = facePoint (geo, deg, r0 - len);
+        g.setColour (c);
+        g.drawLine (a0.x, a0.y, a1.x, a1.y, width);
     }
 
     void faceTick (juce::Graphics& g, const Geo& geo, float deg, float len, juce::Colour c, float width) const
@@ -387,6 +401,13 @@ private:
             // Arc epais : blanc jusqu'a 70 %, rouge au-dela.
             faceArc (g, geo, geo.r - 4.0f, -50.0f, 19.0f, pal.faceArc.withAlpha (0.85f * dim), 5.0f);
             faceArc (g, geo, geo.r - 4.0f, 21.0f, 50.0f, pal.faceRed.withAlpha (dim), 5.0f);
+            if (marksWanted()) // Options > Meters > Scale marks : sous l'arc epais
+                for (int p = 0; p <= 100; p += 5)
+                {
+                    const bool major = (p % 25) == 0;
+                    insideTick (g, geo, -50.0f + (float) p, major ? 6.0f : 3.5f,
+                                (p > 70 ? pal.faceRed : pal.faceArc).withAlpha (0.9f * dim), major ? 1.5f : 1.0f);
+                }
             g.setFont (AlphaDraw::font (AlphaType::label));
             for (int p = 0; p <= 100; p += 25)
                 faceLabel (g, geo, -50.0f + (float) p, juce::String (p), (p > 70 ? pal.faceRed : pal.faceLabel).withAlpha (dim));
@@ -397,11 +418,12 @@ private:
         }
         faceArc (g, geo, geo.r - 2.5f, 20.0f, 50.0f, pal.faceRed.withAlpha (dim), 4.5f);  // zone rouge 70..100 %
         // (Plus d'arc blanc continu sous les graduations -- retour utilisateur : "l'arc de cercle blanc avec les marques c'est pas beau", seules les marques restent.)
-        for (int p = 0; p <= 100; p += 5)
-        {
-            const bool major = (p % 25) == 0;
-            faceTick (g, geo, -50.0f + (float) p, major ? 7.5f : 4.0f, (p > 70 ? pal.faceRed : pal.faceArc).withAlpha (dim), major ? 1.5f : 1.0f);
-        }
+        if (marksWanted())
+            for (int p = 0; p <= 100; p += 5)
+            {
+                const bool major = (p % 25) == 0;
+                faceTick (g, geo, -50.0f + (float) p, major ? 7.5f : 4.0f, (p > 70 ? pal.faceRed : pal.faceArc).withAlpha (dim), major ? 1.5f : 1.0f);
+            }
         g.setFont (AlphaDraw::font (AlphaType::label));
         for (int p = 0; p <= 100; p += 25)
             faceLabel (g, geo, -50.0f + (float) p, juce::String (p), (p > 70 ? pal.faceRed : pal.faceLabel).withAlpha (dim));
@@ -425,6 +447,11 @@ private:
             const auto t0 = facePoint (geo, 0.0f, geo.r + 1.5f), t1 = facePoint (geo, 0.0f, geo.r - 10.0f);
             g.setColour (juce::Colour (0xffe8382b).withMultipliedAlpha (dim));
             g.drawLine (t0.x, t0.y, t1.x, t1.y, 2.4f);
+            if (marksWanted()) // Options > Meters > Scale marks : sous l'arc epais
+                for (int db = -12; db <= 12; ++db)
+                    if (db != 0)
+                        insideTick (g, geo, (float) db / kGrRangeDb * 50.0f, db % 6 == 0 ? 6.0f : (db % 3 == 0 ? 4.5f : 3.0f),
+                                    pal.faceArc.withAlpha (0.9f * dim), db % 3 == 0 ? 1.5f : 1.0f);
             g.setFont (AlphaDraw::font (AlphaType::label));
             for (int db : { -12, -6, 0, 6, 12 })
                 faceLabel (g, geo, (float) db / kGrRangeDb * 50.0f, juce::String (std::abs (db)), pal.faceLabel.withAlpha (dim));
@@ -440,11 +467,12 @@ private:
         faceArc (g, geo, geo.r - 2.5f, -50.0f, -1.5f, expColour.withMultipliedAlpha (dim), 3.0f);
         faceArc (g, geo, geo.r - 2.5f, 1.5f, 50.0f, juce::Colour (0xf2ffcd50).withMultipliedAlpha (dim), 3.0f);
         // (Plus d'arc blanc continu sous les graduations -- retour utilisateur : "l'arc de cercle blanc avec les marques c'est pas beau", seules les marques restent.)
-        for (int db = -12; db <= 12; ++db)
-        {
-            const float len = db == 0 ? 9.0f : (db % 6 == 0 ? 7.5f : (db % 3 == 0 ? 5.5f : 3.5f));
-            faceTick (g, geo, (float) db / kGrRangeDb * 50.0f, len, pal.faceArc.withAlpha (dim), db % 3 == 0 ? 1.5f : 1.0f);
-        }
+        if (marksWanted())
+            for (int db = -12; db <= 12; ++db)
+            {
+                const float len = db == 0 ? 9.0f : (db % 6 == 0 ? 7.5f : (db % 3 == 0 ? 5.5f : 3.5f));
+                faceTick (g, geo, (float) db / kGrRangeDb * 50.0f, len, pal.faceArc.withAlpha (dim), db % 3 == 0 ? 1.5f : 1.0f);
+            }
         g.setFont (AlphaDraw::font (AlphaType::label));
         for (int db : { -12, -6, 0, 6, 12 })
             faceLabel (g, geo, (float) db / kGrRangeDb * 50.0f, juce::String (std::abs (db)), pal.faceLabel.withAlpha (dim));
@@ -699,6 +727,7 @@ private:
     std::atomic<float>& thdParam;
 
     Mode mode = Mode::thd, cachedMode = Mode::thd;
+    bool cachedMarks = true; // graduations presentes dans le cache du cadran
     float pos = 0.0f, vel = 0.0f, lastPaintedPos = -1.0f;
     float peakSinceReadout = 0.0f, peakGr = 0.0f, peakExp = 0.0f, readoutGr = 0.0f, readoutExp = 0.0f;
     int readoutTick = 0;
@@ -913,7 +942,7 @@ public:
 
     // La progression LEARN (bas a droite) est-elle a l'ecran ? (la barre du
     // bas y range OS / CLIP le reste du temps)
-    bool isProgressShowing() const noexcept { return env > 0.005f; }
+    bool isProgressShowing() const noexcept { return env > 0.005f || noAudioAlpha > 0.005f; }
 
     void paint (juce::Graphics& g) override
     {
@@ -941,7 +970,7 @@ public:
                 if (stripGlow[i] > 0.01f)
                     glowStrip (g, stripAreas[i], pal.accent, stripGlow[i]);
 
-            if (! progressArea.isEmpty())
+            if (! progressArea.isEmpty() && noAudioStartMs <= 0.0)
             {
                 // Libelle, piste, pourcentage (bas a droite de la barre du bas).
                 auto area = progressArea;
@@ -980,9 +1009,22 @@ public:
         for (size_t i = 0; i < stripAreas.size(); ++i)
             if (landingGlow[i] > 0.01f)
                 glowStrip (g, stripAreas[i], juce::Colours::white, landingGlow[i]);
+
+        // LEARN sans son (v2.22.6 beta, voir AiLearnAnalyzer::kSilenceDb) :
+        // rien n'a ete applique, on le dit a la place de la barre de progression.
+        if (noAudioAlpha > 0.005f && ! progressArea.isEmpty())
+        {
+            auto area = progressArea;
+            const juce::Colour red (pal.light ? 0xffd0402b : 0xffff5a4f);
+            AlphaDraw::spacedText (g, "NO AUDIO", area.removeFromLeft (78.0f), red.withAlpha (noAudioAlpha),
+                                   AlphaType::label, AlphaType::kerning, juce::Justification::centredLeft);
+            AlphaDraw::spacedText (g, "SETTINGS UNCHANGED", area, pal.ink.withAlpha (0.8f * noAudioAlpha),
+                                   AlphaType::label, AlphaType::kerning, juce::Justification::centredLeft);
+        }
     }
 
 private:
+    static constexpr double kNoAudioSeconds = 4.0; // duree du message "NO AUDIO"
     static constexpr double kLandingSeconds = 0.55;
     static constexpr float kSweepW = 170.0f;
 
@@ -1014,8 +1056,31 @@ private:
         if (nowBusy && ! busy)
             learnStartMs = now;
         if (! nowBusy && busy)
-            landingStartMs = now;
+        {
+            // Pas de son capte : rien n'a ete applique, donc pas de vague de
+            // fin mais le message "NO AUDIO" (le resultat est ecrit avant Done).
+            if (processor.aiLearnAnalyzer.getResult().noAudio)
+                noAudioStartMs = now;
+            else
+                landingStartMs = now;
+        }
+        if (nowBusy)
+            noAudioStartMs = 0.0; // nouveau LEARN : efface le message
         busy = nowBusy;
+
+        // Message "NO AUDIO" : fondu d'entree 0,15 s, tenue, fondu de sortie 0,6 s.
+        float newNoAudio = 0.0f;
+        if (noAudioStartMs > 0.0)
+        {
+            const double age = (now - noAudioStartMs) / 1000.0;
+            if (age >= kNoAudioSeconds)
+                noAudioStartMs = 0.0;
+            else
+                newNoAudio = (float) juce::jmin (1.0, age / 0.15, (kNoAudioSeconds - age) / 0.6);
+        }
+        if (std::abs (newNoAudio - noAudioAlpha) > 0.003f && ! progressArea.isEmpty())
+            repaint (progressArea.expanded (2.0f).getSmallestIntegerContainer());
+        noAudioAlpha = newNoAudio;
 
         env += ((busy ? 1.0f : 0.0f) - env) * (busy ? 0.12f : 0.2f);
         if (! busy && env < 0.004f)
@@ -1063,7 +1128,7 @@ private:
         landingGlow = newLanding;
         lastEnv = env;
 
-        const bool animating = env > 0.0f || landingStartMs > 0.0;
+        const bool animating = env > 0.0f || landingStartMs > 0.0 || noAudioStartMs > 0.0;
         const int wantedHz = animating ? 40 : 15;
         if (wantedHz != currentHz)
         {
@@ -1080,7 +1145,8 @@ private:
     bool busy = false, analysing = false;
     float env = 0.0f, lastEnv = 0.0f, sweepX = -1000.0f, progress = 0.0f, shimmer = 0.0f;
     std::array<float, 7> stripGlow {}, landingGlow {};
-    double learnStartMs = 0.0, landingStartMs = 0.0;
+    double learnStartMs = 0.0, landingStartMs = 0.0, noAudioStartMs = 0.0;
+    float noAudioAlpha = 0.0f;
     int currentHz = 15;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AlphaLearnFx)

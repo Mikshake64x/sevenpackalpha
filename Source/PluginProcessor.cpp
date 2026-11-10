@@ -1659,6 +1659,7 @@ void SevenpackAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     apvts.state.setProperty ("highContrast", highContrast.load(), nullptr);
     apvts.state.setProperty ("needleGlass", needleGlass.load(), nullptr);
     apvts.state.setProperty ("needleRedTip", needleRedTip.load(), nullptr);
+    apvts.state.setProperty ("needleScaleMarks", needleScaleMarks.load(), nullptr);
     apvts.state.setProperty ("gonioLines", gonioLines.load(), nullptr);
     apvts.state.setProperty ("gonioRedPhase", gonioRedPhase.load(), nullptr);
     apvts.state.setProperty ("uiFinish", uiFinish.load(), nullptr);
@@ -1735,6 +1736,7 @@ void SevenpackAudioProcessor::setStateInformation (const void* data, int sizeInB
     highContrast.store ((bool) apvts.state.getProperty ("highContrast", false));
     needleGlass.store (juce::jlimit (0, 1, (int) apvts.state.getProperty ("needleGlass", 0)));
     needleRedTip.store ((bool) apvts.state.getProperty ("needleRedTip", true));
+    needleScaleMarks.store ((bool) apvts.state.getProperty ("needleScaleMarks", true));
     gonioLines.store ((bool) apvts.state.getProperty ("gonioLines", false));
     gonioRedPhase.store ((bool) apvts.state.getProperty ("gonioRedPhase", true));
     uiFinish.store (juce::jlimit (0, 3, (int) apvts.state.getProperty ("uiFinish", 0)));

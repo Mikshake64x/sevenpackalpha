@@ -15,6 +15,7 @@
 #include "AlphaSkin.h"
 #include "AlphaMeters.h"
 #include "AlphaStrip.h"
+#include "TourOverlay.h"
 
 #if JUCE_WINDOWS
  #include <windows.h>
@@ -328,6 +329,15 @@ private:
     CalculatorGearButton calculatorGear;
     // Confirmation avant LEARN (bulle sous LEARN, voir OptionsOverlay.h).
     LearnConfirmOverlay learnConfirm;
+
+    // Tutoriel d'accueil (TourOverlay.h, v2.23.0) : premier lancement, puis
+    // Options > General > Help > Tour.
+    TourOverlay tour;
+    bool tourAutoDone = false;
+    juce::uint32 editorOpenedMs = 0;
+    TourTargets collectTourTargets();
+    void startTour();
+    void maybeStartTourAutomatically();
 
     // Animation globale pendant LEARN (calque au-dessus du graphe et des
     // tranches, voir AlphaMeters.h).

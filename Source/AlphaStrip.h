@@ -173,6 +173,17 @@ public:
     juce::Slider& getInputSlider() noexcept  { return inKnob; }
     juce::Slider& getOutputSlider() noexcept { return outFader; }
 
+    // Tutoriel d'accueil (TourOverlay.h) : elements a encadrer, en
+    // coordonnees de `ref` -- aiguille, OUT, IN, ATT, REL, RANGE, DRY/WET, SPREAD.
+    std::array<juce::Rectangle<float>, 8> getTourRects (juce::Component& ref)
+    {
+        std::array<juce::Rectangle<float>, 8> r;
+        juce::Component* parts[8] = { &needle, &outFader, &inKnob, &attKnob, &relKnob, &rangeKnob, &mixKnob, &widthKnob };
+        for (size_t i = 0; i < 8; ++i)
+            r[i] = ref.getLocalArea (parts[i], parts[i]->getLocalBounds()).toFloat();
+        return r;
+    }
+
     // (bande, Ctrl/Cmd enfonce)
     std::function<void (int, bool)> onSelectClicked;
 
@@ -204,7 +215,7 @@ public:
 
     void resized() override
     {
-        if (AlphaPalette::get().sunny)
+        if (sunnyStrip())
         {
             layoutSunny();
             return;
@@ -269,6 +280,15 @@ public:
     // du theme clair partout.
     static inline int knobLayout = 1; // choix du user (QCM) : celle du sombre partout
     static bool sunnyKnobs() { return knobLayout == 0 ? AlphaPalette::get().sunny : knobLayout == 1; }
+
+    // Disposition de la tranche ENTIERE (v2.23.1, demande : "j'ai pas
+    // exactement la meme disposition en clair et en sombre") : 0 = chaque
+    // theme la sienne (avant), 1 = celle du sombre partout (bandeau, SOLO/SEL
+    // et ratios sur la plaque, cadenas dans la carte), 2 = celle du clair
+    // partout (SOLO/SEL sur la plaque, bandeau et ratios dans la carte,
+    // pastilles LINK).
+    static inline int stripLayout = 1; // choix du user : "je voulais que le mode clair soit comme le mode sombre"
+    static bool sunnyStrip() { return stripLayout == 0 ? AlphaPalette::get().sunny : stripLayout == 1; }
 
     // Corps de la carte : en bas RANGE | DRY/WET | SPREAD, le fader OUT a
     // gauche, puis ATT / REL et le knob IN.
@@ -391,10 +411,11 @@ public:
             g.setColour (juce::Colours::white);
             g.drawRoundedRectangle (plateRect.reduced (pal.sunny ? 1.5f : 1.0f), 9.5f, pal.sunny ? 3.0f : 2.0f);
         }
-        if (pal.sunny)
+        if (sunnyStrip())
         {
-            // Bac sombre sous les 7 cases de ratio (design de Sunny).
-            g.setColour (juce::Colour (0xff121f33));
+            // Bac sous les 7 cases de ratio (design de Sunny) ; en clair,
+            // simple creux sombre translucide sur la plaque bleue.
+            g.setColour (pal.sunny ? juce::Colour (0xff121f33) : juce::Colours::black.withAlpha (0.16f));
             g.fillRoundedRectangle (ratioRowRect, 4.0f);
         }
 
@@ -440,11 +461,12 @@ public:
                 }
         }
 
-        if (pal.sunny)
+        if (sunnyStrip())
         {
             // Cadenas en haut a droite de la carte : bleu quand la bande est
             // liee (LINK IN / LINK OUT), gris sinon.
-            const auto lockCol = (inLinked || outLinked) ? pal.accent : juce::Colour (0xff4a5a6c);
+            const auto lockCol = (inLinked || outLinked) ? (pal.light ? pal.accentDeep : pal.accent)
+                                                         : (pal.light ? juce::Colour (0xffa3b1bf) : juce::Colour (0xff4a5a6c));
             const auto lb = lockRect;
             juce::Path shackle;
             shackle.addCentredArc (lb.getCentreX(), lb.getY() + 4.5f, 3.2f, 3.6f, 0.0f,

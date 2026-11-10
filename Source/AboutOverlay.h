@@ -3,6 +3,7 @@
 #include "SevenpackLookAndFeel.h"
 #include "AlphaSkin.h"
 #include "LicenseManager.h"
+#include "BuildLabel.h"
 
 /**
     AboutOverlay
@@ -557,7 +558,8 @@ private:
 
         g.setColour (pal.sheetTextSoft());
         g.setFont (aboutFont (11.0f, 2).withExtraKerningFactor (0.08f));
-        g.drawText ("v" + juce::String (ProjectInfo::versionString), row.removeFromRight (70.0f), juce::Justification::centredRight, false);
+        const auto versionBox = row.removeFromRight (70.0f); // mise en page inchangee ; le texte deborde a gauche ("v2.22.6 beta")
+        g.drawText ("v" + sevenpackVersionLabel(), versionBox.withLeft (versionBox.getRight() - 130.0f), juce::Justification::centredRight, false);
 
         if (badgeImage.isValid())
         {
@@ -606,13 +608,14 @@ private:
     {
         columnA.setItems ({
             { "SEVENPACK: Seven Bands, One Mastering Chain", ColumnItem::Kind::Header },
-            { "I designed SEVENPACK with an experimental goal above all else. After many attempts at building multiband compressors, "
-              "I started multiplying the bands right from the earliest stages of development, with a fairly simple idea: chase the "
+            // v2.23.5 : "we" et non "I", comme Merlin (demande du user : "dans about c'est on, pas je").
+            { "We designed SEVENPACK with an experimental goal above all else. After many attempts at building multiband compressors, "
+              "we started multiplying the bands right from the earliest stages of development, with a fairly simple idea: chase the "
               "best possible mastering, even if it meant making the CPU cry.", ColumnItem::Kind::Paragraph },
             { "The goal was to push the boundaries of multiband processing and explore just how far dynamic control could go without "
               "turning the mix into a spectral puzzle.", ColumnItem::Kind::Paragraph },
-            { "I already have several ideas for what comes next, especially as processors keep bulking up on steroids. But for now, "
-              "I want SEVENPACK to stay accessible and usable across a wide range of hardware configurations.", ColumnItem::Kind::Paragraph },
+            { "We already have several ideas for what comes next, especially as processors keep bulking up on steroids. But for now, "
+              "we want SEVENPACK to stay accessible and usable across a wide range of hardware configurations.", ColumnItem::Kind::Paragraph },
             { "The principle itself is fairly simple: 7 bands, in the philosophy of Tripressor, with a feedforward compressor built "
               "on Tripressor's current DSP, and a crossover designed to be as transparent as possible.", ColumnItem::Kind::Paragraph },
             { "With THD disabled, the measured deviation stays under 0.00001dB. In other words, the crossover tries very hard not to "
@@ -628,13 +631,13 @@ private:
 
         std::vector<ColumnItem> learnItems {
             { "Learn: A Starting Point, Not an Autopilot", ColumnItem::Kind::Header },
-            { "I also built in a Learn module, designed to automatically provide a coherent starting point for compression and "
+            { "We also built in a Learn module, designed to automatically provide a coherent starting point for compression and "
               "expansion.", ColumnItem::Kind::Paragraph },
             { "Because with seven bands, finding the right attack and release for every single one can quickly turn into a small "
               "exercise in mental torture. Eventually you end up practically negotiating with each transient.", ColumnItem::Kind::Paragraph },
             { "The Learn module analyzes the behavior of the signal to suggest a coherent starting point for your dynamics settings. "
               "The goal, obviously, is not to replace your ears, but to save you time and spare you from starting on a blank page.", ColumnItem::Kind::Paragraph },
-            { "I naturally encourage you to experiment from there and find whatever sounds the most musical and professional for "
+            { "We naturally encourage you to experiment from there and find whatever sounds the most musical and professional for "
               "your mix and your own approach to mastering.", ColumnItem::Kind::Paragraph },
             { "With this many bands and this many things to tweak, the Learn module felt like an almost indispensable extension of "
               "SEVENPACK.", ColumnItem::Kind::Paragraph },
@@ -863,6 +866,11 @@ private:
     {
         if (license == nullptr)
             return "License";
+        // Cle beta (v2.22.6) : la date de fin plutot que la cle.
+        if (license->getStatus() == LicenseManager::Status::betaEnded)
+            return "Beta ended";
+        if (license->getLicenseKey().isNotEmpty() && license->isBetaLicense())
+            return "Beta - until " + license->getBetaEndDateText (true);
         if (const auto key = license->getLicenseKey(); key.isNotEmpty())
             return key;
         if (license->getStatus() == LicenseManager::Status::trial)

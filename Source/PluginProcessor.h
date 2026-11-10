@@ -210,6 +210,10 @@ public:
     // Bout des aiguilles : rouge (defaut) ou blanc, au choix dans les
     // Options. Persiste dans apvts.state ("needleRedTip").
     std::atomic<bool> needleRedTip { true };
+    // Graduations sur les cadrans a aiguille (v2.23.1, demande : "une option
+    // dans le menu option pour afficher les marques sur le vu metre"), dans
+    // les deux themes. Persiste dans apvts.state ("needleScaleMarks").
+    std::atomic<bool> needleScaleMarks { true };
     // Goniometre : points (defaut) ou lignes ; hors phase en rouge (defaut)
     // ou en blanc. Finition de l'interface : 0 MATTE, 1 SATIN, 2 GLOSS,
     // 3 MOLDED. Tous persistes dans apvts.state, au choix dans les Options.

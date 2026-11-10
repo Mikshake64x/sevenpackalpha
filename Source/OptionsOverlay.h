@@ -3,6 +3,7 @@
 #include "SevenpackLookAndFeel.h"
 #include "AlphaSkin.h"
 #include "StandaloneAudio.h"
+#include "BuildLabel.h"
 
 /**
     OptionsOverlay
@@ -1297,6 +1298,7 @@ public:
     void setBandColourMode (int mode)    { colourModeSeg.setSelected (mode); }
     void setNeedleGlass (int glass)      { glassSeg.setSelected (glass); }
     void setNeedleRedTip (bool red)      { tipSeg.setSelected (red ? 0 : 1); }
+    void setNeedleScaleMarks (bool on)   { marksSwitch.setOn (on); }
     void setGonioLines (bool lines)      { gonioSeg.setSelected (lines ? 1 : 0); }
     void setGonioRedPhase (bool red)     { phaseSwitch.setOn (red); }
     void setFinish (int finish)          { finishSeg.setSelected (finish); }
@@ -1373,7 +1375,7 @@ public:
         g.drawText ("Options", brand.removeFromTop (brand.getHeight() * 0.5f + 1.0f), juce::Justification::bottomLeft, true);
         g.setColour (th.muted);
         g.setFont (OptionsUi::font (11.5f));
-        g.drawText (juce::String ("Sevenpack Alpha ") + JucePlugin_VersionString, brand, juce::Justification::topLeft, true);
+        g.drawText (juce::String ("Sevenpack Alpha ") + sevenpackVersionLabel(), brand, juce::Justification::topLeft, true);
 
         // Titre de la categorie courante.
         g.setColour (th.fg);
@@ -1390,6 +1392,7 @@ public:
 
     std::function<void()> onDismiss;
     std::function<void()> onOpenLicense;
+    std::function<void()> onShowTour; // General > Help > Tour > Show (tutoriel d'accueil)
     // 0=Dark, 1=Light, 2=DOS retro.
     std::function<void(int)> onUiThemeSelected;
     std::function<void(float)> onScaleSelected;
@@ -1407,6 +1410,7 @@ public:
     std::function<void(int)> onNeedleGlassSelected;
     // Bout des aiguilles : true = rouge, false = blanc.
     std::function<void(bool)> onNeedleTipSelected;
+    std::function<void(bool)> onNeedleScaleMarksChanged; // Meters > Needles > Scale marks
     // Goniometre : true = lignes ; hors phase : true = rouge.
     std::function<void(bool)> onGonioLinesSelected;
     std::function<void(bool)> onGonioRedPhaseSelected;
@@ -1504,6 +1508,11 @@ private:
         p.addGroup ("Performance");
         p.addRow (Icon::cpu, juce::Colour (0xff8e8e93), "Linear mode CPU budget", "Latency of the linear-phase crossover",
                   &latencySeg, latencySeg.getIdealWidth());
+        // Tutoriel d'accueil (v2.23.0) : il ne s'ouvre qu'une fois, on le
+        // relance ici (texte de sa derniere etape : "Options > General > Tour").
+        p.addGroup ("Help");
+        p.addRow (Icon::info, juce::Colour (0xff0a84ff), "Tour", "Replay the welcome tour", &tourButton, 76);
+        tourButton.onClick = [this] { if (onShowTour) onShowTour(); };
 
         scaleSeg.onChange   = [this] (int i) { if (onScaleSelected) onScaleSelected (kScaleValues[i]); };
         themeSeg.onChange   = [this] (int i) { if (onUiThemeSelected) onUiThemeSelected (i); };
@@ -1708,6 +1717,7 @@ private:
         p.addRow (Icon::back, juce::Colour (0xffff9f0a), "Return", "Needle return speed", &returnSlider, 250);
         p.addRow (Icon::glass, juce::Colour (0xff64d2ff), "Glass", "Reflection on the dials (light theme)", &glassSeg, glassSeg.getIdealWidth());
         p.addRow (Icon::needle, juce::Colour (0xffff453a), "Needle tip", "Tip colour", &tipSeg, tipSeg.getIdealWidth());
+        p.addRow (Icon::gauge, juce::Colour (0xff8e8e93), "Scale marks", "Graduations on the dials", &marksSwitch, 44, 26);
         p.addGroup ("Goniometer");
         p.addRow (Icon::gonio, juce::Colour (0xff30b158), "Display", "Dots or connected lines", &gonioSeg, gonioSeg.getIdealWidth());
         p.addRow (Icon::phase, juce::Colour (0xffff453a), "Out of phase in red", "Anti-phase content in red instead of white",
@@ -1732,6 +1742,7 @@ private:
 
         glassSeg.onChange    = [this] (int i) { if (onNeedleGlassSelected) onNeedleGlassSelected (i); };
         tipSeg.onChange      = [this] (int i) { if (onNeedleTipSelected) onNeedleTipSelected (i == 0); };
+        marksSwitch.onChange = [this] (bool on) { if (onNeedleScaleMarksChanged) onNeedleScaleMarksChanged (on); };
         gonioSeg.onChange    = [this] (int i) { if (onGonioLinesSelected) onGonioLinesSelected (i == 1); };
         phaseSwitch.onChange = [this] (bool on) { if (onGonioRedPhaseSelected) onGonioRedPhaseSelected (on); };
         spectrumStyleSeg.onChange   = [this] (int i) { if (onSpectrumStyleSelected) onSpectrumStyleSelected (i); };
@@ -1798,7 +1809,7 @@ private:
         using OptionsUi::Icon;
         auto& p = pages[kLicensePage];
         p.addGroup ({});
-        p.addRow (Icon::info, juce::Colour (0xff8e8e93), "Sevenpack Alpha", juce::String ("Version ") + JucePlugin_VersionString);
+        p.addRow (Icon::info, juce::Colour (0xff8e8e93), "Sevenpack Alpha", juce::String ("Version ") + sevenpackVersionLabel());
         p.addRow (Icon::key, juce::Colour (0xffffcc00), "License manager", "Activate, deactivate or move a license", &licenseButton, 76);
         licenseButton.onClick = [this] { if (onOpenLicense) onOpenLicense(); };
     }
@@ -1823,6 +1834,7 @@ private:
     OptionsUi::Segmented tipSeg   { { "Red", "White" } };
     OptionsUi::Segmented gonioSeg { { "Dots", "Lines" } };
     OptionsUi::Switch phaseSwitch;
+    OptionsUi::Switch marksSwitch;
     OptionsUi::Segmented spectrumStyleSeg  { { "Classic", "Line", "Glow", "Bands", "Filled" } };
     OptionsUi::Segmented spectrumSmoothSeg { { "Classic", "Smoother" } };
     OptionsUi::Switch spectrumPeakSwitch;
@@ -1857,6 +1869,7 @@ private:
     LambdaTimer audioTimer;
     // License
     OptionsUi::PillButton licenseButton { "Open" };
+    OptionsUi::PillButton tourButton { "Show" };
 
     OptionsUi::Page pages[kNumCategories];
     juce::OwnedArray<OptionsUi::CategoryItem> categoryItems;
