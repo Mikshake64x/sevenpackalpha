@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <JUCERPROJECT id="Sv7PkA" name="SevenpackAlpha" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" pluginFormats="buildAU,buildStandalone,buildUnity,buildVST3"
-              companyName="Side Key System" version="2.23.5" pluginName="Sevenpack Alpha"
+              companyName="Side Key System" version="2.23.6" pluginName="Sevenpack Alpha"
               pluginDesc="Sevenpack Alpha" pluginManufacturer="Side Key System" pluginCode="Svpa"
               bundleIdentifier="com.SideKeySystem.SevenpackAlpha"
               defines="JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1">

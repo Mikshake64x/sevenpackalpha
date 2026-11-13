@@ -212,7 +212,7 @@ public:
         setupKnob (knobs[kAtt],      pid (SevenpackAudioProcessor::idAttack),       "ATT",   "ms", 2, false);
         setupKnob (knobs[kRel],      pid (SevenpackAudioProcessor::idRelease),      "REL",   "ms", 1, false);
         setupKnob (knobs[kOut],      pid (SevenpackAudioProcessor::idOutput),       "OUT",   "dB", 1, true);
-        setupKnob (knobs[kExpRange], pid (SevenpackAudioProcessor::idInputExpand),  "RANGE", "dB", 1, false);
+        setupKnob (knobs[kExpRange], pid (SevenpackAudioProcessor::idInputExpand),  "EXPAND", "dB", 1, false);
         setupKnob (knobs[kExpAtt],   pid (SevenpackAudioProcessor::idAttackExpand), "ATT",   "ms", 2, false);
         for (auto k : { kExpRange, kExpAtt })
             SevenpackLookAndFeel::setKnobAccentGradient (knobs[(size_t) k].slider, SevenpackColours::ledPurple, SevenpackColours::ledPurple);

@@ -752,8 +752,8 @@ private:
             "Calibrated I/O, Linearity Under 0.00001dB, Measured",
             "LEARN: Listens to Your Program Material and Calculates Compression, Expansion "
             "and Crossover Settings, with Loudness Targeting for Streaming Platform Norms",
-            "Independent Upward Expansion per Band (Comp / Expand), with its Own Ratio, Attack, "
-            "Release and Range, Running Alongside Compression at All Times"
+            "Independent Upward Expansion per Band (Comp / Expand), with its Own EXPAND Amount, Ratio, "
+            "Attack and Release, Running Alongside Compression at All Times"
         };
         for (auto* f : features)
             items.push_back ({ f, ColumnItem::Kind::Bullet });

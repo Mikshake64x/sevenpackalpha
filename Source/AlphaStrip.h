@@ -142,7 +142,7 @@ public:
 
         rows = { Row { &attKnob,   "ATT",     "ms", 2, false },
                  Row { &relKnob,   "REL",     "ms", 0, false },
-                 Row { &rangeKnob, "RANGE",   "dB", 1, false, LabelTint::expander },
+                 Row { &rangeKnob, "EXPAND",  "dB", 1, false, LabelTint::expander }, // v2.23.6 : RANGE -> EXPAND (demande du user)
                  Row { &eattKnob,  "ATT",     "ms", 2, false, LabelTint::expander },
                  Row { &mixKnob,   "DRY/WET", "%",  0, false },
                  Row { &widthKnob, "SPREAD",  "%",  0, false },

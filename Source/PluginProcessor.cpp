@@ -244,7 +244,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout SevenpackAudioProcessor::cre
         // Comp/Expand (2 etats), l'expansion doit rester STRICTEMENT
         // desactivee tant que l'utilisateur ne monte pas Range a la main.
         params.push_back (std::make_unique<AudioParameterFloat> (
-            ParameterID { bandParamId (idInputExpand, band), 1 }, prefix + "Expand Range",
+            // Nom vu par l'hote : "Expand" (v2.23.6, le knob s'appelle EXPAND ;
+            // l'ID ne change pas, les sessions et automations restent valides).
+            ParameterID { bandParamId (idInputExpand, band), 1 }, prefix + "Expand",
             NormalisableRange<float> (0.0f, 24.0f, 0.01f), 0.0f,
             AudioParameterFloatAttributes().withLabel ("dB")));
         // Ratio par defaut plus doux que la compression (2:1, index 0, au
