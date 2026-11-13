@@ -5,6 +5,13 @@ on:
   push:
     branches: [ main ]
 
+# UN SEUL job (2026-11-13) : compilation, DMG et PKG sur la meme machine.
+# Avant, le DMG et le PKG etaient deux jobs separes qui devaient chacun obtenir
+# une nouvelle machine macOS : le run #9 a echoue sur "The job was not
+# acquired by Runner of type hosted even after multiple attempts" (manque de
+# machines macOS arm64 chez GitHub), alors que la compilation avait reussi.
+# Une seule machine a obtenir par build, et plus d'aller-retour d'artefacts
+# (qui perdaient en plus le bit executable des bundles).
 jobs:
   build-mac:
     runs-on: macos-latest
@@ -50,118 +57,58 @@ jobs:
           xcodebuild -project "Builds/MacOSX/SevenpackAlpha.xcodeproj" -target "SevenpackAlpha - Standalone Plugin" \
             -configuration Release ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO
 
-      - name: Uploader le VST3
-        uses: actions/upload-artifact@v4
-        with:
-          name: SevenpackAlpha-macOS-VST3
-          path: "Builds/MacOSX/build/Release/SevenpackAlpha.vst3"
-
-      - name: Uploader le Standalone
-        uses: actions/upload-artifact@v4
-        with:
-          name: SevenpackAlpha-macOS-Standalone
-          path: "Builds/MacOSX/build/Release/SevenpackAlpha.app"
-
-  build-dmg:
-    needs: build-mac
-    runs-on: macos-latest
-
-    steps:
-      - name: Récupérer le code (pour le Readme et la version)
-        uses: actions/checkout@v4
-
-      - name: Télécharger le VST3
-        uses: actions/download-artifact@v4
-        with:
-          name: SevenpackAlpha-macOS-VST3
-          path: staging/SevenpackAlpha.vst3
-
-      - name: Télécharger le Standalone
-        uses: actions/download-artifact@v4
-        with:
-          name: SevenpackAlpha-macOS-Standalone
-          path: staging/SevenpackAlpha.app
-
-      # La version vient du .jucer (plus de numero a recopier ici).
-      - name: Assembler le DMG
+      # La version vient du .jucer ; l'etiquette (ex. "beta") de
+      # Source/BuildLabel.h s'ajoute aux noms de fichiers. VERSION reste
+      # numerique pour pkgbuild.
+      - name: Version et etiquette
         run: |
           set -e
           # Ligne 1 sautee : c'est la declaration XML (<?xml version="1.0" ...>).
           VERSION=$(tail -n +2 SevenpackAlpha.jucer | grep -o 'version="[0-9.]*"' | head -1 | cut -d'"' -f2)
-          # Etiquette de build (Source/BuildLabel.h, ex. "beta") : ajoutee aux
-          # noms de fichiers ; VERSION reste numerique pour pkgbuild.
           LABEL=$(grep '^#define SEVENPACK_BUILD_LABEL' Source/BuildLabel.h | cut -d'"' -f2)
           NAME="$VERSION"
-          DISPLAY="$VERSION"
-          if [ -n "$LABEL" ]; then NAME="$VERSION-$LABEL"; DISPLAY="$VERSION $LABEL"; fi
+          DISP="$VERSION"
+          if [ -n "$LABEL" ]; then NAME="$VERSION-$LABEL"; DISP="$VERSION $LABEL"; fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "NAME=$NAME" >> "$GITHUB_ENV"
+          echo "DISPLAY_VERSION=$DISP" >> "$GITHUB_ENV"
+          echo "::notice::Version $DISP"
 
-          # Les artefacts perdent le bit executable : on le remet.
-          chmod +x "staging/SevenpackAlpha.app/Contents/MacOS/"* || true
-          chmod +x "staging/SevenpackAlpha.vst3/Contents/MacOS/"* || true
-
+      - name: Assembler le DMG
+        run: |
+          set -e
+          trap 'echo "::error::DMG : echec ligne $LINENO : $BASH_COMMAND"' ERR
+          OUT="Builds/MacOSX/build/Release"
+          mkdir -p staging
+          # ditto : copie fidele des bundles (liens, droits d'execution).
+          ditto "$OUT/SevenpackAlpha.vst3" "staging/SevenpackAlpha.vst3"
+          ditto "$OUT/SevenpackAlpha.app" "staging/SevenpackAlpha.app"
           cp Readme-osx.txt "staging/Readme.txt"
 
           # Raccourcis glisser-deposer : dossier VST3 standard et Applications.
           ln -s /Library/Audio/Plug-Ins/VST3 "staging/VST3 (drag plugin here)"
           ln -s /Applications "staging/Applications (drag app here)"
 
-          hdiutil create -volname "Sevenpack Alpha $DISPLAY" \
+          hdiutil create -volname "Sevenpack Alpha $DISPLAY_VERSION" \
             -srcfolder staging -ov -format UDZO \
             "SevenpackAlpha-$NAME.dmg"
 
-      - name: Uploader le DMG
-        uses: actions/upload-artifact@v4
-        with:
-          name: SevenpackAlpha-${{ env.NAME }}-DMG
-          path: "SevenpackAlpha-${{ env.NAME }}.dmg"
-
-  # Installeur .pkg (demande explicite : "render mac en pkg avec le vst, et
-  # le standalone") : 2 composants coches par defaut, "Customize" pour n'en
-  # garder qu'un (installer-mac/distribution.xml). Les fichiers poses par
-  # Installer n'ont pas l'attribut de quarantaine : le plugin se charge sans
-  # "Open Anyway". Le .pkg n'est pas signe (pas de Developer ID) : seul son
-  # premier lancement demande Reglages > Confidentialite et securite.
-  build-pkg:
-    needs: build-mac
-    runs-on: macos-latest
-
-    steps:
-      - name: Récupérer le code (pour le Readme, la distribution et la version)
-        uses: actions/checkout@v4
-
-      - name: Télécharger le VST3
-        uses: actions/download-artifact@v4
-        with:
-          name: SevenpackAlpha-macOS-VST3
-          path: pkgroot/vst3/Library/Audio/Plug-Ins/VST3/SevenpackAlpha.vst3
-
-      - name: Télécharger le Standalone
-        uses: actions/download-artifact@v4
-        with:
-          name: SevenpackAlpha-macOS-Standalone
-          path: pkgroot/app/Applications/SevenpackAlpha.app
-
+      # Installeur .pkg (demande explicite : "render mac en pkg avec le vst, et
+      # le standalone") : 2 composants coches par defaut, "Customize" pour n'en
+      # garder qu'un (installer-mac/distribution.xml). Les fichiers poses par
+      # Installer n'ont pas l'attribut de quarantaine : le plugin se charge sans
+      # "Open Anyway". Le .pkg n'est pas signe (pas de Developer ID) : seul son
+      # premier lancement demande Reglages > Confidentialite et securite.
       # Les "::notice::" / "::error::" sont des annotations du run, lisibles
       # sans compte (contrairement au journal) : diagnostic en cas d'echec.
       - name: Assembler le PKG
         run: |
           set -e
           trap 'echo "::error::PKG : echec ligne $LINENO : $BASH_COMMAND"' ERR
-          VERSION=$(tail -n +2 SevenpackAlpha.jucer | grep -o 'version="[0-9.]*"' | head -1 | cut -d'"' -f2)
-          # Etiquette de build (Source/BuildLabel.h, ex. "beta") : ajoutee aux
-          # noms de fichiers ; VERSION reste numerique pour pkgbuild.
-          LABEL=$(grep '^#define SEVENPACK_BUILD_LABEL' Source/BuildLabel.h | cut -d'"' -f2)
-          NAME="$VERSION"
-          DISPLAY="$VERSION"
-          if [ -n "$LABEL" ]; then NAME="$VERSION-$LABEL"; DISPLAY="$VERSION $LABEL"; fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "NAME=$NAME" >> "$GITHUB_ENV"
-
-          # Les artefacts perdent le bit executable : on le remet.
-          chmod +x pkgroot/app/Applications/SevenpackAlpha.app/Contents/MacOS/* || true
-          chmod +x pkgroot/vst3/Library/Audio/Plug-Ins/VST3/SevenpackAlpha.vst3/Contents/MacOS/* || true
+          OUT="Builds/MacOSX/build/Release"
+          mkdir -p pkgroot/vst3/Library/Audio/Plug-Ins/VST3 pkgroot/app/Applications
+          ditto "$OUT/SevenpackAlpha.vst3" "pkgroot/vst3/Library/Audio/Plug-Ins/VST3/SevenpackAlpha.vst3"
+          ditto "$OUT/SevenpackAlpha.app" "pkgroot/app/Applications/SevenpackAlpha.app"
 
           # Bundles NON relocalisables : sinon Installer "suit" une autre copie
           # du meme bundle ailleurs sur le disque et installe la-bas.
@@ -185,7 +132,7 @@ jobs:
 
           mkdir -p pkgres
           cp installer-mac/Readme.txt pkgres/Readme.txt
-          sed -e "s/@VERSION@/$VERSION/g" -e "s/@DISPLAY_VERSION@/$DISPLAY/g" installer-mac/distribution.xml > distribution.xml
+          sed -e "s/@VERSION@/$VERSION/g" -e "s/@DISPLAY_VERSION@/$DISPLAY_VERSION/g" installer-mac/distribution.xml > distribution.xml
           productbuild --distribution distribution.xml --package-path . --resources pkgres \
             "SevenpackAlpha-$NAME.pkg"
 
@@ -200,3 +147,9 @@ jobs:
         with:
           name: SevenpackAlpha-${{ env.NAME }}-PKG
           path: "SevenpackAlpha-${{ env.NAME }}.pkg"
+
+      - name: Uploader le DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: SevenpackAlpha-${{ env.NAME }}-DMG
+          path: "SevenpackAlpha-${{ env.NAME }}.dmg"
